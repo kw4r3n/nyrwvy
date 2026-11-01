@@ -6,18 +6,21 @@ const recipe = @import("recipe.zig");
 const preflight = @import("preflight.zig");
 const infer = @import("infer.zig");
 const m = @import("materialize.zig");
-const edit = @import("operation_model.zig");
+const edit = @import("typed_edit.zig");
+const tm = model.session_model;
+const builder = tm.builder;
+const Model = model.Model;
 const migration = @import("migration.zig");
 const proposals = @import("proposals.zig");
 const Value = model.Value;
 const Field = struct { name: []const u8, type: recipe.TypeRef };
-const Ids = std.StringHashMapUnmanaged(Value);
+const Ids = std.AutoHashMapUnmanaged(tm.Id, tm.Id);
 
 fn reject(r: *query.Request, suffix: []const u8, message: []const u8) anyerror {
     return preflight.rejected(r, try std.mem.concat(r.a, u8, &.{ "UnionVariantEvolution", suffix }), message);
 }
-fn typeValue(r: *query.Request, t: recipe.TypeRef) !Value {
-    var materializer: m.Materializer = .{ .a = r.a, .r = r, .types = undefined, .fresh = &.{}, .function_id = .json_null, .parameters = &.{} };
+fn typeValue(r: *query.Request, t: recipe.TypeRef) !tm.TypeRef {
+    var materializer: m.Materializer = .{ .a = r.a, .r = r, .types = undefined, .fresh = &.{}, .function_id = tm.none, .parameters = &.{} };
     return materializer.typeRef(t);
 }
 pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
@@ -28,11 +31,11 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line), .owner = if (symbolic) .{ .name = "" } else null };
     const root: std.json.Value = .{ .object = r.root };
     try d.ensureFields("", root, try std.fmt.allocPrint(r.a, "{s} request", .{op}), allowed, allowed[0..5]);
-    var owner_type: Value = .json_null;
-    var source: Value = .json_null;
+    var owner_type: Model = undefined;
+    var source: Model = undefined;
     if (symbolic) {
         owner_type = try d.selector("/type", try d.property(root, "type"), "type");
-        if (model.property(owner_type, "variants") == null) return r.fail("Type '{s}' is not a union type.", .{query.nameOf(owner_type)});
+        if (owner_type.data.type_declaration.product) return r.fail("Type '{s}' is not a union type.", .{query.nameOf(owner_type)});
         source = try d.member("variant on {s}", .{query.nameOf(owner_type)}, owner_type, "variants", try d.requiredString(root, "sourceVariant"));
     }
     const wanted = if (r.root.get("expectedSnapshotId") != null) try d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId")) else r.snapshot_id;
@@ -49,143 +52,266 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     try proposals.publishMigration(r, out, try simulate(r, wanted, type_id, source_id, name, fields.items));
 }
 
-// Node and binding IDs are different domains; declaration references and literal strings stay intact.
-fn remap(r: *query.Request, value: Value, key: []const u8, nodes: *const Ids, patterns: *const Ids) anyerror!Value {
-    switch (value) {
-        .string => {
-            const replacements = if (m.same(key, "patternBindingId")) patterns else if (std.mem.endsWith(u8, key, "NodeId") or std.mem.endsWith(u8, key, "NodeIds") or m.same(key, "arguments")) nodes else return value;
-            return replacements.get(model.utf8(model.decoded(value))) orelse value;
-        },
-        .array => |items| {
-            const copied = try r.a.alloc(Value, items.len);
-            for (items, copied) |item, *next| next.* = try remap(r, item, key, nodes, patterns);
-            return .{ .array = copied };
-        },
-        .object, .typed => {
-            const fields = model.objectMembers(value);
-            const copied = try r.a.dupe(model.Member, fields);
-            for (copied) |*field| {
-                const name = model.utf8(field.name);
-                if (m.same(name, "id")) {
-                    const replacements = if (model.property(value, "kind") != null) nodes else patterns;
-                    field.value = replacements.get(model.utf8(model.decoded(field.value))) orelse field.value;
-                } else field.value = try remap(r, field.value, name, nodes, patterns);
-            }
-            return .{ .object = copied };
-        },
-        else => return value,
+fn fresh(r: *query.Request, domain: tm.Domain) !tm.Id {
+    const text = try @import("ids.zig").next();
+    return r.interner.?.id(domain, try std.unicode.utf8ToUtf16LeAlloc(r.a, &text));
+}
+fn collectNodes(a: std.mem.Allocator, graph: Model, out: *std.ArrayList(Model)) anyerror!void {
+    for (graph.nodes()) |node| {
+        try out.append(a, node);
+        for (model.typedScopesOf(node)) |scope| try collectNodes(a, scope.graph, out);
     }
 }
-fn clone(r: *query.Request, outer: []const Value, graph: Value) !struct { graph: Value, ids: Ids } {
-    var nodes: Ids = .empty;
-    var patterns: Ids = .empty;
-    const wrapper = try m.object(r.a, &.{try m.member(r.a, "body", graph)});
-    for (model.bodyNodes(r.a, wrapper)) |node| {
-        const node_id = query.idOf(node);
-        if (!nodes.contains(node_id)) try nodes.put(r.a, node_id, try m.id(r.a));
+const Clone = struct {
+    r: *query.Request,
+    nodes: Ids = .empty,
+    patterns: Ids = .empty,
+    fn binding(self: *Clone, original: *const tm.Binding) !*const tm.Binding {
+        const result = try self.r.a.create(tm.Binding);
+        result.* = original.*;
+        result.id = self.patterns.get(original.id) orelse original.id;
+        return result;
     }
-    for (outer) |binding| if (!patterns.contains(query.idOf(binding))) try patterns.put(r.a, query.idOf(binding), try m.id(r.a));
-    for (model.patternBindings(r.a, graph)) |binding| if (!patterns.contains(query.idOf(binding))) try patterns.put(r.a, query.idOf(binding), try m.id(r.a));
-    return .{ .graph = try remap(r, graph, "", &nodes, &patterns), .ids = patterns };
+    fn graph(self: *Clone, original: tm.GraphView) anyerror!tm.GraphView {
+        const drafts = try self.r.a.alloc(builder.NodeDraft, original.body.graphs[original.index].count);
+        var iterator = original.nodes();
+        for (drafts) |*draft| {
+            draft.* = try builder.fromNode(self.r.a, iterator.next().?);
+            draft.id = self.nodes.get(draft.id) orelse draft.id;
+            const payload = @constCast(draft.payload);
+            for (tm.kindTable()[draft.kind].reads, payload) |read, *value| switch (value.*) {
+                .id => |id| if (read.domain == .node) {
+                    value.* = .{ .id = self.nodes.get(id) orelse id };
+                } else if (read.domain == .binding) {
+                    value.* = .{ .id = self.patterns.get(id) orelse id };
+                },
+                .optid => |id| if (id) |present| {
+                    value.* = .{ .optid = self.nodes.get(present) orelse present };
+                },
+                .ids => |ids| {
+                    const mapped = try self.r.a.dupe(tm.Id, ids);
+                    for (mapped) |*id| id.* = self.nodes.get(id.*) orelse id.*;
+                    value.* = .{ .ids = mapped };
+                },
+                .graph => |body| value.* = .{ .graph = try self.graph(body) },
+                .varm => |arm| value.* = .{ .varm = .{ .binding = try self.binding(arm.binding), .body = try self.graph(arm.body) } },
+                .errarm => |arm| value.* = .{ .errarm = .{ .binding = try self.binding(arm.binding), .body = try self.graph(arm.body) } },
+                .ctx, .args, .capargs, .fields => |targets| {
+                    const mapped = try self.r.a.alloc(tm.Target, targets.len());
+                    for (mapped, 0..) |*pair, index| {
+                        pair.* = targets.at(index);
+                        pair.value = self.nodes.get(pair.value) orelse pair.value;
+                    }
+                    const result = try builder.targets(self.r.a, mapped);
+                    value.* = switch (read.shape) {
+                        .ctx => .{ .ctx = result },
+                        .args => .{ .args = result },
+                        .capargs => .{ .capargs = result },
+                        .fields => .{ .fields = result },
+                        else => unreachable,
+                    };
+                },
+                .arms => |arms| {
+                    const mapped = try self.r.a.alloc(tm.UnionArm, arms.len());
+                    var arm_iterator = arms.iterator();
+                    for (mapped) |*arm| {
+                        arm.* = arm_iterator.next().?;
+                        const bindings = try self.r.a.alloc(tm.FieldBinding, arm.fields.len());
+                        for (bindings, 0..) |*field, index| {
+                            field.* = arm.fields.at(index);
+                            field.binding = try self.binding(field.binding);
+                        }
+                        arm.fields = try builder.fieldBindings(self.r.a, bindings);
+                        arm.body = try self.graph(arm.body);
+                    }
+                    value.* = .{ .arms = try builder.unionArms(self.r.a, mapped) };
+                },
+                else => {},
+            };
+        }
+        return builder.view(self.r.a, try builder.build(self.r.a, drafts, self.nodes.get(original.result()) orelse original.result()));
+    }
+};
+fn clone(r: *query.Request, owner: Model, outer: tm.FieldBindings, graph: tm.GraphView) !struct { graph: tm.GraphView, ids: Ids } {
+    var context: Clone = .{ .r = r };
+    const graph_model = edit.borrow(owner, .{ .graph = graph });
+    var nodes: std.ArrayList(Model) = .empty;
+    try collectNodes(r.a, graph_model, &nodes);
+    for (nodes.items) |node| if (!context.nodes.contains(node.data.node.id())) try context.nodes.put(r.a, node.data.node.id(), try fresh(r, .node));
+    for (0..outer.len()) |index| {
+        const binding = outer.at(index).binding;
+        if (!context.patterns.contains(binding.id)) try context.patterns.put(r.a, binding.id, try fresh(r, .binding));
+    }
+    for (model.typedPatternBindings(r.a, graph_model)) |binding| if (!context.patterns.contains(binding.data.binding.id)) try context.patterns.put(r.a, binding.data.binding.id, try fresh(r, .binding));
+    return .{ .graph = try context.graph(graph), .ids = context.patterns };
 }
 const RepairContext = struct {
     r: *query.Request,
-    function: Value,
-    owner: Value,
-    source_id: []const u8,
-    variant: Value,
+    function: Model,
+    owner: Model,
+    source_id: tm.Id,
+    variant: tm.Id,
     field_ids: *const Ids,
-    extra_fields: []const Value,
+    extra_fields: []const tm.Typed,
     count: usize = 0,
-
-    fn repair(self: *RepairContext, node: Value) anyerror!Value {
-        if (!m.same(edit.text(node, "kind"), "matchUnion")) return node;
-        const arms = model.arrayItems(node, "arms");
-        for (arms, 0..) |source, index| {
-            const variants = try edit.variantIds(self.r.a, source);
-            var found = false;
-            for (variants) |variant| if (m.same(model.utf8(model.decoded(variant)), self.source_id)) { found = true; break; };
-            if (!found) continue;
-            self.count += 1;
-            if (variants.len > 1) {
-                const joined = try self.r.a.dupe(Value, arms);
-                joined[index] = try edit.set(self.r.a, try edit.remove(self.r.a, source, "variantId"), "variantIds", .{ .array = try std.mem.concat(self.r.a, Value, &.{ variants, &.{model.property(self.variant, "id").?} }) });
-                return edit.set(self.r.a, node, "arms", .{ .array = joined });
+    fn repair(raw: *anyopaque, a: std.mem.Allocator, node: tm.Node) anyerror!?[]const builder.NodeDraft {
+        const self: *RepairContext = @ptrCast(@alignCast(raw));
+        if (!m.same(node.kind(), "matchUnion")) return null;
+        const draft = try builder.fromNode(a, node);
+        const payload = @constCast(draft.payload);
+        for (tm.kindTable()[draft.kind].reads, payload) |read, *value| if (m.same(read.name, "arms")) {
+            const arms = value.arms;
+            var iterator = arms.iterator();
+            const mapped = try a.alloc(tm.UnionArm, arms.len() + 1);
+            for (mapped[0..arms.len()]) |*arm| arm.* = iterator.next().?;
+            for (mapped[0..arms.len()], 0..) |source, index| {
+                const found = for (source.variants) |variant| {
+                    if (variant == self.source_id) break true;
+                } else false;
+                if (!found) continue;
+                self.count += 1;
+                if (source.variants.len > 1) {
+                    mapped[index].variants = try std.mem.concat(a, tm.Id, &.{ source.variants, &.{self.variant} });
+                    value.* = .{ .arms = try builder.unionArms(a, mapped[0..arms.len()]) };
+                    return try a.dupe(builder.NodeDraft, &.{draft});
+                }
+                const copied = try clone(self.r, self.function, source.fields, source.body);
+                var bindings: std.ArrayList(tm.FieldBinding) = .empty;
+                for (0..source.fields.len()) |field_index| {
+                    const field = source.fields.at(field_index);
+                    const binding = try a.create(tm.Binding);
+                    binding.* = field.binding.*;
+                    binding.id = copied.ids.get(binding.id).?;
+                    try bindings.append(a, .{ .source = self.field_ids.get(field.source).?, .binding = binding });
+                }
+                const node_model = edit.borrow(self.function, .{ .node = node });
+                for (self.extra_fields) |field| {
+                    var field_type = try infer.typeOf(a, edit.typeRef(self.function, field.type));
+                    if (model.typedCompletionOf(a, self.r.typedModel(), self.function, node_model.reference("inputNodeId"))) |completion| if (completion == .normal) {
+                        const input_type = try infer.typeOf(a, completion.normal);
+                        if (input_type == .named) {
+                            var renderer: infer.Infer = .{ .r = self.r, .a = a, .c = undefined, .local = &.{}, .fresh = &.{} };
+                            field_type = try renderer.instantiate(self.owner, input_type.named.arguments, field_type);
+                        }
+                    };
+                    const binding_id = try fresh(self.r, .binding);
+                    const binding = try a.create(tm.Binding);
+                    binding.* = .{ .id = binding_id, .name = field.name, .type = try typeValue(self.r, field_type) };
+                    try bindings.append(a, .{ .source = field.id, .binding = binding });
+                }
+                mapped[arms.len()] = .{ .variants = try a.dupe(tm.Id, &.{self.variant}), .fields = try builder.fieldBindings(a, bindings.items), .body = copied.graph };
+                value.* = .{ .arms = try builder.unionArms(a, mapped) };
+                return try a.dupe(builder.NodeDraft, &.{draft});
             }
-            const source_fields = model.arrayItems(source, "fieldBindings");
-            const outer = try self.r.a.alloc(Value, source_fields.len);
-            for (source_fields, outer) |field, *binding| binding.* = model.property(field, "binding").?;
-            const cloned = try clone(self.r, outer, model.property(source, "body").?);
-            var bindings: std.ArrayList(Value) = .empty;
-            for (source_fields) |field| {
-                var binding = model.property(field, "binding").?;
-                binding = try edit.set(self.r.a, binding, "id", cloned.ids.get(query.idOf(binding)).?);
-                try bindings.append(self.r.a, try m.object(self.r.a, &.{ try m.member(self.r.a, "sourceFieldId", self.field_ids.get(edit.text(field, "sourceFieldId")).?), try m.member(self.r.a, "binding", binding) }));
-            }
-            for (self.extra_fields) |field| {
-                var field_type = try infer.typeOf(self.r.a, model.property(field, "type").?);
-                if (model.completionOf(self.r.a, self.r.model, self.function, model.decoded(model.property(node, "inputNodeId").?))) |completion| if (completion == .normal) {
-                    const input_type = try infer.typeOf(self.r.a, completion.normal);
-                    if (input_type == .named) {
-                        var renderer: infer.Infer = .{ .r = self.r, .a = self.r.a, .c = undefined, .local = &.{}, .fresh = &.{} };
-                        field_type = try renderer.instantiate(self.owner, input_type.named.arguments, field_type);
-                    }
-                };
-                const binding = try m.object(self.r.a, &.{ try m.member(self.r.a, "id", try m.id(self.r.a)), try m.member(self.r.a, "displayName", model.property(field, "displayName").?), try m.member(self.r.a, "type", try typeValue(self.r, field_type)) });
-                try bindings.append(self.r.a, try m.object(self.r.a, &.{ try m.member(self.r.a, "sourceFieldId", model.property(field, "id").?), try m.member(self.r.a, "binding", binding) }));
-            }
-            const added_arm = try m.object(self.r.a, &.{ try m.member(self.r.a, "variantId", model.property(self.variant, "id").?), try m.member(self.r.a, "fieldBindings", .{ .array = bindings.items }), try m.member(self.r.a, "body", cloned.graph) });
-            return edit.append(self.r.a, node, "arms", added_arm);
-        }
-        return node;
+        };
+        return null;
     }
 };
+fn sortedType(r: *query.Request, original: *const tm.Type) !*const tm.Type {
+    const result = try r.a.create(tm.Type);
+    result.* = original.*;
+    const variants = try r.a.dupe(tm.Variant, original.variants);
+    for (variants) |*variant| {
+        const fields = try r.a.dupe(tm.Typed, variant.fields);
+        std.mem.sort(tm.Typed, fields, r.interner.?, struct {
+            fn less(i: *const tm.Interner, x: tm.Typed, y: tm.Typed) bool {
+                return i.less(.field, x.id, y.id);
+            }
+        }.less);
+        variant.fields = fields;
+    }
+    std.mem.sort(tm.Variant, variants, r.interner.?, struct {
+        fn less(i: *const tm.Interner, x: tm.Variant, y: tm.Variant) bool {
+            return i.less(.variant, x.id, y.id);
+        }
+    }.less);
+    result.variants = variants;
+    return result;
+}
 fn simulate(r: *query.Request, wanted: []const u8, type_id: []const u8, source_id: []const u8, name: []const u8, additional: []const Field) anyerror!migration.Result {
     if (!m.same(wanted, r.snapshot_id)) return reject(r, "ExpectedBaseMismatch", "The Union-variant evolution request targets a different base snapshot.");
     if (try recipe.isBlank(r.a, name)) return reject(r, "DisplayNameBlank", "The new Union variant display name must not be blank.");
-    const owner_type = edit.find(r.model, "types", type_id) orelse return reject(r, "TypeNotFound", "The target type does not exist.");
-    if (model.property(owner_type, "variants") == null) return reject(r, "TargetNotUnion", "The target type must be a Union.");
-    const source = edit.find(owner_type, "variants", source_id) orelse return reject(r, "SourceVariantNotFound", "The source variant does not belong to the target Union.");
+    const owner_type = edit.find(r.typedModel(), .types, type_id) orelse return reject(r, "TypeNotFound", "The target type does not exist.");
+    if (owner_type.data.type_declaration.product) return reject(r, "TargetNotUnion", "The target type must be a Union.");
+    const source = edit.find(owner_type, .variants, source_id) orelse return reject(r, "SourceVariantNotFound", "The source variant does not belong to the target Union.");
     var names: std.ArrayList([]const u8) = .empty;
-    for (model.arrayItems(source, "fields")) |field| try names.append(r.a, query.nameOf(field));
+    for (source.fields()) |field| try names.append(r.a, query.nameOf(field));
     for (additional) |field| try names.append(r.a, field.name);
     var invalid = preflight.repeated(names.items) != null;
-    for (names.items) |field_name| if (try recipe.isBlank(r.a, field_name)) { invalid = true; break; };
+    for (names.items) |field_name| if (try recipe.isBlank(r.a, field_name)) {
+        invalid = true;
+        break;
+    };
     if (invalid) return reject(r, "FieldDisplayNameInvalid", "New variant field display names must be non-blank and distinct, including copied source fields.");
-    for (model.arrayItems(owner_type, "variants")) |variant| if (m.same(query.nameOf(variant), name)) return reject(r, "DuplicateVariantDisplayName", "The Union already has a variant with this display name.");
-    var copied: std.ArrayList(Value) = .empty;
+    for (owner_type.variants()) |variant| if (m.same(query.nameOf(variant), name)) return reject(r, "DuplicateVariantDisplayName", "The Union already has a variant with this display name.");
+    var copied: std.ArrayList(tm.Typed) = .empty;
     var field_ids: Ids = .empty;
-    for (model.arrayItems(source, "fields")) |field| {
-        const new_id = try m.id(r.a);
-        try field_ids.put(r.a, query.idOf(field), new_id);
-        try copied.append(r.a, try edit.set(r.a, field, "id", new_id));
+    for (source.data.variant.fields) |field| {
+        var next = field;
+        next.id = try fresh(r, .field);
+        try field_ids.put(r.a, field.id, next.id);
+        try copied.append(r.a, next);
     }
-    var extra: std.ArrayList(Value) = .empty;
-    for (additional) |field| try extra.append(r.a, try m.object(r.a, &.{ try m.member(r.a, "id", try m.id(r.a)), try m.member(r.a, "displayName", try m.string(r.a, field.name)), try m.member(r.a, "type", try typeValue(r, field.type)) }));
-    const variant = try m.object(r.a, &.{ try m.member(r.a, "id", try m.id(r.a)), try m.member(r.a, "displayName", try m.string(r.a, name)), try m.member(r.a, "fields", .{ .array = try std.mem.concat(r.a, Value, &.{ copied.items, extra.items }) }) });
-    const updated_type = try edit.append(r.a, owner_type, "variants", variant);
-    var candidate = try edit.replace(r.a, r.model, "types", updated_type);
-    var rewritten: std.ArrayList(Value) = .empty;
+    const extra = try r.a.alloc(tm.Typed, additional.len);
+    for (additional, extra) |field, *next| {
+        const field_id = try fresh(r, .field);
+        next.* = .{ .id = field_id, .name = try r.interner.?.string(try std.unicode.utf8ToUtf16LeAlloc(r.a, field.name)), .type = try typeValue(r, field.type) };
+    }
+    const variant_id = try fresh(r, .variant);
+    const variant = try r.a.create(tm.Variant);
+    variant.* = .{ .id = variant_id, .name = try r.interner.?.string(try std.unicode.utf8ToUtf16LeAlloc(r.a, name)), .fields = try std.mem.concat(r.a, tm.Typed, &.{ copied.items, extra }) };
+    const updated_type = try edit.append(r.a, owner_type, .variants, edit.borrow(owner_type, .{ .variant = variant }));
+    var candidate = try edit.replace(r.a, r.typedModel(), .types, updated_type);
+    var rewritten: std.ArrayList(Model) = .empty;
     var ids: std.ArrayList(Value) = .empty;
     var count: usize = 0;
-    for (model.arrayItems(r.model, "functions")) |f| {
-        var context: RepairContext = .{ .r = r, .function = f, .owner = owner_type, .source_id = source_id, .variant = variant, .field_ids = &field_ids, .extra_fields = extra.items };
-        const graph = try edit.mapNodes(r.a, model.property(f, "body").?, &context, RepairContext.repair);
+    for (r.typedModel().functions()) |function| {
+        var context: RepairContext = .{ .r = r, .function = function, .owner = owner_type, .source_id = source.data.variant.id, .variant = variant_id, .field_ids = &field_ids, .extra_fields = extra };
+        const graph = try builder.mapPostOrder(r.a, function.data.function.body.graph(0), .{ .context = &context, .apply = RepairContext.repair });
         if (context.count > 0) {
-            const updated = try edit.set(r.a, f, "body", graph);
-            candidate = try edit.replace(r.a, candidate, "functions", updated);
+            const updated = try edit.changed(r.a, function, .{ .body = graph });
+            candidate = try edit.replace(r.a, candidate, .functions, updated);
             try rewritten.append(r.a, updated);
-            try ids.append(r.a, model.property(f, "id").?);
+            try ids.append(r.a, migration.wireId(function));
             count += context.count;
         }
     }
     const transaction = try m.id(r.a);
     const snapshot = try m.id(r.a);
-    candidate = try edit.set(r.a, try edit.set(r.a, candidate, "snapshotId", snapshot), "parentSnapshotId", try m.string(r.a, r.snapshot_id));
+    candidate = try migration.stamp(r, candidate, snapshot);
     try migration.validate(r, candidate);
-    var type_text: std.Io.Writer.Allocating = .init(r.a);
-    const canonical = model.canonicalRoot(r.a, candidate);
-    try @import("wire.zig").semanticType(&type_text.writer, edit.find(canonical, "types", type_id).?);
-    const fields = try m.object(r.a, &.{ try m.member(r.a, "updatedType", try model.parseValue(r.a, type_text.written())), try m.member(r.a, "addedVariantId", model.property(variant, "id").?), try m.member(r.a, "addedVariantDisplayName", model.property(variant, "displayName").?), try m.member(r.a, "repairedFunctionIds", .{ .array = ids.items }), try m.member(r.a, "repairedMatchCount", try m.number(r.a, count)) });
+    var output: std.Io.Writer.Allocating = .init(r.a);
+    try @import("wire.zig").typedSemanticType(&output.writer, r.interner.?, try sortedType(r, updated_type.data.type_declaration));
+    const fields = try m.object(r.a, &.{ try m.member(r.a, "updatedType", try model.parseValue(r.a, output.written())), try m.member(r.a, "addedVariantId", .{ .string = r.interner.?.idText(.variant, variant_id) }), try m.member(r.a, "addedVariantDisplayName", .{ .string = r.interner.?.stringText(variant.name) }), try m.member(r.a, "repairedFunctionIds", .{ .array = ids.items }), try m.member(r.a, "repairedMatchCount", try m.number(r.a, count)) });
     return .{ .kind = "unionVariantEvolution", .transaction = transaction, .snapshot = snapshot, .candidate = candidate, .diff = .json_null, .rewritten = rewritten.items, .summary = try std.fmt.allocPrint(r.a, "addUnionVariantLike '{s}' on '{s}' ({d} matches repaired)", .{ name, query.nameOf(owner_type), count }), .review_fields = fields, .touched_types = try r.a.dupe([]const u8, &.{type_id}) };
+}
+
+test "union clone remaps nested results and separate node binding domains while retaining literals" {
+    const ids = @import("ids.zig");
+    ids.init(std.testing.io, "typed-union-clone");
+    defer ids.init(std.testing.io, null);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var strings: tm.Interner = .{ .gpa = a };
+    const root = try model.parseValue(a,
+        \\{"snapshotId":"s","functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"nodes":[{"id":"input","kind":"stringLiteral","value":"input"},{"id":"root","kind":"bind","inputNodeId":"input","boundBody":{"valueBinding":{"id":"shared","type":{"kind":"primitive","primitive":"string"}},"body":{"nodes":[{"id":"shared","kind":"patternReference","patternBindingId":"shared"},{"id":"literal","kind":"stringLiteral","value":"shared"}],"resultNodeId":"literal"}}}],"resultNodeId":"root"}}]}
+    );
+    const generation = try tm.load(a, &strings, root, null);
+    var request: query.Request = .{ .a = a, .line = "", .root = .empty, .provenance = null, .generation = &generation, .interner = &strings };
+    const function = request.typedModel().functions()[0];
+    const copied = try clone(&request, function, try builder.fieldBindings(a, &.{}), function.data.function.body.graph(0));
+    const root_node = copied.graph.body.findNode(copied.graph.result()).?;
+    var root_payload = root_node.payload();
+    _ = root_payload.next();
+    const arm = root_payload.next().?.value.varm;
+    var children = arm.body.nodes();
+    const pattern = children.next().?;
+    const literal = children.next().?;
+    var pattern_payload = pattern.payload();
+    try std.testing.expectEqual(arm.binding.id, pattern_payload.next().?.value.id);
+    try std.testing.expectEqual(literal.id(), arm.body.result());
+    try std.testing.expectEqualSlices(u16, &.{ 's', 'h', 'a', 'r', 'e', 'd' }, strings.stringText(literal.stringLiteral().?));
+    try std.testing.expect(!std.mem.eql(u16, strings.idText(.node, pattern.id()), strings.idText(.binding, arm.binding.id)));
+    try std.testing.expectEqualSlices(u16, &.{ 'r', 'o', 'o', 't' }, strings.idText(.node, generation.functions[0].body.graph(0).result()));
 }

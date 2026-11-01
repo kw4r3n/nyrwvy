@@ -146,7 +146,7 @@ const Generator = struct {
             else => return error.UnsupportedRunnerType,
         }
     }
-    fn fields(s: *Generator, owner: model.Value, args: []const Type, fields_: []const model.Value, x: []const u8, mode: Mode) Fail![]const u8 {
+    fn fields(s: *Generator, owner: model.Model, args: []const Type, fields_: []const model.Model, x: []const u8, mode: Mode) Fail![]const u8 {
         var out: std.ArrayList([]const u8) = .empty;
         for (fields_) |field| {
             const t = try v.instantiated(s.r, owner, args, field);
@@ -162,12 +162,12 @@ const Generator = struct {
     fn namedHelper(s: *Generator, index: usize, mode: Mode, out: *std.Io.Writer) Fail!void {
         const t = s.pending.items[index];
         const n = t.named;
-        const owner = v.find(model.arrayItems(s.r.model, "types"), n.id).?;
+        const owner = v.find(s.r.typedModel().types(), n.id).?;
         const full = try s.ty(t);
         var body: []const u8 = undefined;
-        const variants = model.arrayItems(owner, "variants");
-        if (same(model.utf8(model.decoded(model.property(owner, "kind").?)), "product")) {
-            const fields_ = try v.sorted(s.r.a, model.arrayItems(owner, "fields"));
+        const variants = owner.variants();
+        if (owner.data.type_declaration.product) {
+            const fields_ = try v.sorted(s.r.a, owner.fields());
             const fs = try s.fields(owner, n.arguments, fields_, "value", mode);
             body = switch (mode) {
                 .decode => try s.fmt("new {s}({s})", .{ full, fs }),
@@ -180,7 +180,7 @@ const Generator = struct {
             if (mode == .key) try text.writer.writeAll("switch(value) { ");
             for (try v.sorted(s.r.a, variants), 0..) |variant, i| {
                 const vn = try std.mem.concat(s.r.a, u8, &.{ try s.nm("NyV_", q.idOf(variant)), try s.suffix(n.arguments) });
-                const fields_ = try v.sorted(s.r.a, model.arrayItems(variant, "fields"));
+                const fields_ = try v.sorted(s.r.a, variant.fields());
                 const local = try s.fresh();
                 const fs = try s.fields(owner, n.arguments, fields_, local, mode);
                 switch (mode) {
@@ -212,20 +212,20 @@ const Generator = struct {
 };
 
 pub fn source(r: *q.Request, input: *v.Input, concurrent: bool) Fail![]const u8 {
-    const original = r.model;
-    r.model = input.declarations;
-    defer r.model = original;
+    const original = r.generation;
+    r.generation = input.declarations.data.snapshot;
+    defer r.generation = original;
     var s: Generator = .{ .r = r };
     var classes: std.Io.Writer.Allocating = .init(r.a);
     var arms: std.Io.Writer.Allocating = .init(r.a);
     var args: std.ArrayList([]const u8) = .empty;
     var site: usize = 0;
-    for (model.arrayItems(input.fn_value, "parameters"), input.arguments, 0..) |parameter, arg, index| {
+    for (input.fn_value.?.parameters(), input.arguments, 0..) |parameter, arg, index| {
         if (arg.kind != .fake and arg.kind != .host) {
-            try args.append(r.a, try s.dec(try infer.typeOf(r.a, model.property(parameter, "type").?)));
+            try args.append(r.a, try s.dec(try infer.typeOf(r.a, parameter.declaredType())));
             continue;
         }
-        const cap = v.find(model.arrayItems(r.model, "capabilities"), arg.type.capability).?;
+        const cap = v.find(r.typedModel().capabilities(), arg.type.capability).?;
         const interface = try s.nm("NyC_", arg.type.capability);
         const host = arg.kind == .host;
         const label = if (host) "Host" else "Fake";
@@ -233,24 +233,24 @@ pub fn source(r: *q.Request, input: *v.Input, concurrent: bool) Fail![]const u8 
         try classes.writer.print("sealed class {s}{d} : {s}\n{{\n", .{ label, index, interface });
         if (host) try classes.writer.print("readonly {s} inner = new {s}();\n", .{ interface, arg.text });
         var init: std.Io.Writer.Allocating = .init(r.a);
-        for (try v.sorted(r.a, model.arrayItems(cap, "operations"))) |op| {
+        for (try v.sorted(r.a, cap.operations())) |op| {
             const op_name = try s.nm("Op_", q.idOf(op));
-            const rt = try infer.typeOf(r.a, model.property(op, "resultType").?);
+            const rt = try infer.typeOf(r.a, op.resultType());
             const result_type = try s.ty(rt);
             var ps: std.ArrayList([]const u8) = .empty;
             var names: std.ArrayList([]const u8) = .empty;
             var objects: std.ArrayList([]const u8) = .empty;
             var call_encoded: std.ArrayList([]const u8) = .empty;
             var keys: std.Io.Writer.Allocating = .init(r.a);
-            for (model.arrayItems(op, "parameters"), 0..) |p, pi| {
-                const t = try infer.typeOf(r.a, model.property(p, "type").?);
+            for (op.parameters(), 0..) |p, pi| {
+                const t = try infer.typeOf(r.a, p.declaredType());
                 const pn = try s.nm("cp_", q.idOf(p));
                 try ps.append(r.a, try s.fmt("{s} {s}", .{ try s.ty(t), pn }));
                 try names.append(r.a, pn);
                 try objects.append(r.a, try s.fmt("(object){s}", .{pn}));
                 if (try v.supported(r, t, 0)) try call_encoded.append(r.a, try s.enc(t, try s.fmt("(({s})arguments[{d}])", .{ try s.ty(t), pi }), "0"));
             }
-            for (try v.sorted(r.a, model.arrayItems(op, "parameters"))) |p| try keys.writer.writeAll(try s.key(try infer.typeOf(r.a, model.property(p, "type").?), try s.nm("cp_", q.idOf(p))));
+            for (try v.sorted(r.a, op.parameters())) |p| try keys.writer.writeAll(try s.key(try infer.typeOf(r.a, p.declaredType()), try s.nm("cp_", q.idOf(p))));
             try arms.writer.print("{d} => new object[] {{ {d}, new object[] {{ {s} }} }},\n", .{ site, site, try s.join(call_encoded.items) });
             if (!host) {
                 try classes.writer.print("readonly FakeScript<{s}> {s}Script;\n", .{ result_type, op_name });
@@ -270,7 +270,7 @@ pub fn source(r: *q.Request, input: *v.Input, concurrent: bool) Fail![]const u8 
         if (!host) try classes.writer.print("public Fake{d}(RunnerInput input) {{ {s} }}\n", .{ index, init.written() });
         try classes.writer.writeAll("}\n");
     }
-    const encoded = try s.enc(try infer.typeOf(r.a, model.property(input.fn_value, "resultType").?), "result", "0");
+    const encoded = try s.enc(try infer.typeOf(r.a, input.fn_value.?.resultType()), "result", "0");
     var encoders: std.Io.Writer.Allocating = .init(r.a);
     var helpers: std.Io.Writer.Allocating = .init(r.a);
     inline for (.{ Generator.Mode.encode, Generator.Mode.decode, Generator.Mode.key }) |mode| {
@@ -305,11 +305,15 @@ test "C# runner keeps recursive codecs finite and argument values out of source"
     defer arena.deinit();
     const a = arena.allocator();
     const declarations = try model.parseValue(a,
-        \\{"types":[{"id":"Node","kind":"product","fields":[{"id":"next","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","typeId":"Node"}]}}]}],"functions":[{"id":"echo","parameters":[{"id":"arg","type":{"kind":"named","typeId":"Node"}}],"resultType":{"kind":"named","typeId":"Node"}}]}
+        \\{"snapshotId":"s","types":[{"id":"Node","displayName":"Node","kind":"product","fields":[{"id":"next","displayName":"next","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","typeId":"Node"}]}}]}],"functions":[{"id":"echo","displayName":"echo","parameters":[{"id":"arg","displayName":"arg","type":{"kind":"named","typeId":"Node"}}],"resultType":{"kind":"named","typeId":"Node"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}]}
     );
-    var r: q.Request = .{ .a = a, .line = "", .root = .empty, .model = declarations, .provenance = null };
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, declarations, null);
+    const typed = model.typedRoot(a, &interner, &generation);
+    var r: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
     var args = [_]v.RunValue{.{ .kind = .product, .type = .{ .named = .{ .id = "Node", .arguments = &.{} } }, .text = "NEVER_COMPILE_ARGUMENT_TEXT" }};
-    var input: v.Input = .{ .function_id = "echo", .declarations = declarations, .fn_value = model.arrayItems(declarations, "functions")[0], .arguments = &args, .expected = null, .host_sources = &.{} };
+    var input: v.Input = .{ .function_id = "echo", .declarations = typed, .fn_value = typed.functions()[0], .arguments = &args, .expected = null, .host_sources = &.{} };
     const text = try source(&r, &input, false);
     try std.testing.expect(std.mem.indexOf(u8, text, "NEVER_COMPILE_ARGUMENT_TEXT") == null);
     try std.testing.expect(std.mem.indexOf(u8, text, "NyFunctions.NyF_6563686F(RunnerValues.Decode0(input))") != null);

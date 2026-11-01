@@ -8,9 +8,12 @@ const reader = @import("main.zig");
 const Value = reader.Value;
 const Str = reader.Str;
 const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
 
 pub const Domain = enum(u8) { snapshot, transaction, function, type, field, variant, parameter, type_parameter, node, binding, effect, capability, operation, capability_parameter, obligation };
 pub const Id = u32;
+pub const builder = @import("typed_builder.zig");
+pub const dependencies = @import("typed_dependencies.zig");
 /// An absent optional ID.
 pub const none: Id = std.math.maxInt(u32);
 
@@ -28,26 +31,63 @@ const Table = struct {
     texts: std.ArrayList(Str) = .empty,
 
     fn intern(self: *Table, gpa: Allocator, text: Str) !u32 {
-        const entry = try self.map.getOrPut(gpa, text);
-        if (!entry.found_existing) {
-            const owned = try gpa.dupe(u16, text);
-            entry.key_ptr.* = owned;
-            entry.value_ptr.* = @intCast(self.texts.items.len);
-            try self.texts.append(gpa, owned);
-        }
-        return entry.value_ptr.*;
+        if (self.map.get(text)) |existing| return existing;
+        try self.map.ensureUnusedCapacity(gpa, 1);
+        try self.texts.ensureUnusedCapacity(gpa, 1);
+        const owned = try gpa.dupe(u16, text);
+        const handle: u32 = @intCast(self.texts.items.len);
+        self.map.putAssumeCapacity(owned, handle);
+        self.texts.appendAssumeCapacity(owned);
+        return handle;
     }
 };
 
 /// The interned texts of one session.
-// All entries belong to live generations until session close. Commit/reject (3e) must compact dead entries.
+// The host rebuilds this table from the live generations before commit/reject.
 pub const Interner = struct {
     gpa: Allocator,
     ids: [std.enums.values(Domain).len]Table = @splat(.{}),
     strings: Table = .{},
 
+    pub const Checkpoint = struct { ids: [std.enums.values(Domain).len]usize, strings: usize };
+
+    pub fn checkpoint(self: *const Interner) Checkpoint {
+        var result: Checkpoint = .{ .ids = undefined, .strings = self.strings.texts.items.len };
+        for (self.ids, &result.ids) |table, *count| count.* = table.texts.items.len;
+        return result;
+    }
+
+    fn truncate(self: *Interner, table: *Table, count: usize) void {
+        while (table.texts.items.len > count) {
+            const text = table.texts.pop().?;
+            const removed = table.map.remove(text);
+            std.debug.assert(removed);
+            self.gpa.free(text);
+        }
+    }
+
+    pub fn restore(self: *Interner, previous: Checkpoint) void {
+        for (&self.ids, previous.ids) |*table, count| self.truncate(table, count);
+        self.truncate(&self.strings, previous.strings);
+    }
+
+    pub fn deinit(self: *Interner) void {
+        for (&self.ids) |*table| {
+            self.truncate(table, 0);
+            table.texts.deinit(self.gpa);
+            table.map.deinit(self.gpa);
+        }
+        self.truncate(&self.strings, 0);
+        self.strings.texts.deinit(self.gpa);
+        self.strings.map.deinit(self.gpa);
+    }
+
     pub fn id(self: *Interner, domain: Domain, text: Str) !Id {
         return self.ids[@backingInt(domain)].intern(self.gpa, text);
+    }
+
+    pub fn findId(self: *const Interner, domain: Domain, text: Str) ?Id {
+        return self.ids[@backingInt(domain)].map.get(text);
     }
 
     pub fn idText(self: *const Interner, domain: Domain, value: Id) Str {
@@ -103,6 +143,25 @@ pub const Body = struct {
     graphs: []const Graph,
     types: []const TypeRef,
     bindings: []const Binding,
+
+    pub fn node(self: *const Body, index: usize) Node {
+        return .{ .body = self, .index = index };
+    }
+
+    pub fn findNode(self: *const Body, id: Id) ?Node {
+        for (self.ids, 0..) |candidate, index| if (candidate == id) return self.node(index);
+        return null;
+    }
+
+    pub fn graph(self: *const Body, index: u32) GraphView {
+        return .{ .body = self, .index = index };
+    }
+
+    pub fn depthFirst(self: *const Body, arena: Allocator) ![]const Node {
+        var result: std.ArrayList(Node) = .empty;
+        try self.graph(0).collect(arena, &result);
+        return result.items;
+    }
 };
 
 /// The dependency a resolved snapshot names.
@@ -119,13 +178,34 @@ pub const Generation = struct {
     capabilities: []const *const Capability,
     functions: []const *const Function,
     obligations: []const *const Obligation,
+
+    pub fn findFunction(self: *const Generation, id: Id) ?*const Function {
+        for (self.functions) |item| if (item.id == id) return item;
+        return null;
+    }
+    pub fn findType(self: *const Generation, id: Id) ?*const Type {
+        for (self.types) |item| if (item.id == id) return item;
+        return null;
+    }
+    pub fn findEffect(self: *const Generation, id: Id) ?*const Effect {
+        for (self.effects) |item| if (item.id == id) return item;
+        return null;
+    }
+    pub fn findCapability(self: *const Generation, id: Id) ?*const Capability {
+        for (self.capabilities) |item| if (item.id == id) return item;
+        return null;
+    }
+    pub fn findObligation(self: *const Generation, id: Id) ?*const Obligation {
+        for (self.obligations) |item| if (item.id == id) return item;
+        return null;
+    }
 };
 
 // ---------------------------------------------------------------- node kinds
 
 pub const Shape = enum { id, ids, type, targs, graph, varm, ctx, args, capargs, fields, lit, bool, int, bits, mode, optid, impls, arms, errarm };
 pub const Read = struct { name: []const u8, shape: Shape, domain: ?Domain };
-pub const Kind = struct { name: []const u8, reads: []const Read };
+pub const Kind = struct { name: []const u8, reads: []const Read, writes: []const u8 };
 
 var kinds: ?[]const Kind = null;
 
@@ -167,7 +247,18 @@ pub fn kindTable() []const Kind {
             };
             reads.append(gpa, .{ .name = property, .shape = shape, .domain = domain }) catch @panic("out of memory");
         }
-        out.append(gpa, .{ .name = name, .reads = reads.items }) catch @panic("out of memory");
+        var writes: std.ArrayList(u8) = .empty;
+        if (parts.next()) |write_order| {
+            var names = std.mem.tokenizeScalar(u8, write_order, ' ');
+            while (names.next()) |property| {
+                for (reads.items, 0..) |read, index| if (std.mem.eql(u8, read.name, property)) {
+                    writes.append(gpa, @intCast(index)) catch @panic("out of memory");
+                    break;
+                } else {};
+            }
+        } else for (reads.items, 0..) |_, index| writes.append(gpa, @intCast(index)) catch @panic("out of memory");
+        std.debug.assert(writes.items.len == reads.items.len);
+        out.append(gpa, .{ .name = name, .reads = reads.items, .writes = writes.items }) catch @panic("out of memory");
     }
     kinds = out.items;
     return out.items;
@@ -181,6 +272,231 @@ fn kindIndex(name: Str) u8 {
     }
     std.debug.panic("unknown node kind", .{});
 }
+
+/// Borrowed graph/node views refer directly to the immutable body's arrays.
+pub const GraphView = struct {
+    body: *const Body,
+    index: u32,
+
+    pub fn result(self: GraphView) Id {
+        return self.body.graphs[self.index].result;
+    }
+    fn collect(self: GraphView, arena: Allocator, result_nodes: *std.ArrayList(Node)) anyerror!void {
+        var iterator = self.nodes();
+        while (iterator.next()) |node| {
+            try result_nodes.append(arena, node);
+            var fields = node.payload();
+            // MatchResult's stored payload has err before ok; lexical traversal is ok then err.
+            var error_body: ?GraphView = null;
+            while (fields.next()) |field| switch (field.value) {
+                .graph => |graph| try graph.collect(arena, result_nodes),
+                .varm => |arm| try arm.body.collect(arena, result_nodes),
+                .errarm => |arm| error_body = arm.body,
+                .arms => |arms| {
+                    var union_arms = arms.iterator();
+                    while (union_arms.next()) |arm| try arm.body.collect(arena, result_nodes);
+                },
+                else => {},
+            };
+            if (error_body) |graph| try graph.collect(arena, result_nodes);
+        }
+    }
+    pub fn nodes(self: GraphView) NodeIterator {
+        const g = self.body.graphs[self.index];
+        return .{ .body = self.body, .at = g.first, .end = g.first + g.count };
+    }
+};
+
+pub const NodeIterator = struct {
+    body: *const Body,
+    at: usize,
+    end: usize,
+    pub fn next(self: *NodeIterator) ?Node {
+        if (self.at == self.end) return null;
+        defer self.at += 1;
+        return self.body.node(self.at);
+    }
+};
+
+pub const Node = struct {
+    body: *const Body,
+    index: usize,
+    pub fn id(self: Node) Id {
+        return self.body.ids[self.index];
+    }
+    pub fn kind(self: Node) []const u8 {
+        return kindTable()[self.body.kinds[self.index]].name;
+    }
+    pub fn payload(self: Node) PayloadIterator {
+        const start = self.body.starts[self.index];
+        return .{ .body = self.body, .reads = kindTable()[self.body.kinds[self.index]].reads, .words = self.body.extra[start .. start + self.body.lens[self.index]] };
+    }
+    pub fn stringLiteral(self: Node) ?u32 {
+        if (!std.mem.eql(u8, self.kind(), "stringLiteral")) return null;
+        return self.body.extra[self.body.starts[self.index]];
+    }
+};
+
+pub const Target = struct { target: Id, value: Id };
+pub const Targets = struct {
+    words: []const u32,
+    pub fn len(self: Targets) usize {
+        return self.words.len / 2;
+    }
+    pub fn at(self: Targets, index: usize) Target {
+        return .{ .target = self.words[index * 2], .value = self.words[index * 2 + 1] };
+    }
+};
+pub const TypeArguments = struct {
+    body: *const Body,
+    indices: []const u32,
+    pub fn len(self: TypeArguments) usize {
+        return self.indices.len;
+    }
+    pub fn at(self: TypeArguments, index: usize) TypeRef {
+        return self.body.types[self.indices[index]];
+    }
+};
+pub const Implementation = struct { operation: Id, function: Id };
+pub const Implementations = struct {
+    words: []const u32,
+    pub fn len(self: Implementations) usize {
+        return self.words.len / 2;
+    }
+    pub fn at(self: Implementations, index: usize) Implementation {
+        return .{ .operation = self.words[index * 2], .function = self.words[index * 2 + 1] };
+    }
+};
+pub const FieldBinding = struct { source: Id, binding: *const Binding };
+pub const FieldBindings = struct {
+    body: *const Body,
+    words: []const u32,
+    pub fn len(self: FieldBindings) usize {
+        return self.words.len / 2;
+    }
+    pub fn at(self: FieldBindings, index: usize) FieldBinding {
+        return .{ .source = self.words[index * 2], .binding = &self.body.bindings[self.words[index * 2 + 1]] };
+    }
+};
+pub const BindingArm = struct { binding: *const Binding, body: GraphView };
+pub const UnionArm = struct { variants: []const Id, fields: FieldBindings, body: GraphView };
+pub const UnionArms = struct {
+    body: *const Body,
+    words: []const u32,
+    count: usize,
+    pub fn len(self: UnionArms) usize {
+        return self.count;
+    }
+    pub fn iterator(self: UnionArms) UnionArmIterator {
+        return .{ .body = self.body, .words = self.words, .remaining = self.count };
+    }
+};
+pub const UnionArmIterator = struct {
+    body: *const Body,
+    words: []const u32,
+    remaining: usize,
+    pub fn next(self: *UnionArmIterator) ?UnionArm {
+        if (self.remaining == 0) return null;
+        const variants = self.words[1 .. 1 + self.words[0]];
+        const fields_start = 1 + variants.len;
+        const fields_end = fields_start + 1 + self.words[fields_start] * 2;
+        const result: UnionArm = .{ .variants = variants, .fields = .{ .body = self.body, .words = self.words[fields_start + 1 .. fields_end] }, .body = self.body.graph(self.words[fields_end]) };
+        self.words = self.words[fields_end + 1 ..];
+        self.remaining -= 1;
+        return result;
+    }
+};
+pub const WaitMode = enum { any, all };
+pub const Payload = union(Shape) {
+    id: Id,
+    ids: []const Id,
+    type: TypeRef,
+    targs: TypeArguments,
+    graph: GraphView,
+    varm: BindingArm,
+    ctx: Targets,
+    args: Targets,
+    capargs: Targets,
+    fields: Targets,
+    lit: u32,
+    bool: bool,
+    int: i64,
+    bits: u64,
+    mode: WaitMode,
+    optid: ?Id,
+    impls: Implementations,
+    arms: UnionArms,
+    errarm: BindingArm,
+};
+pub const PayloadField = struct { read: Read, value: Payload, offset: usize };
+pub const PayloadIterator = struct {
+    body: *const Body,
+    reads: []const Read,
+    words: []const u32,
+    at: usize = 0,
+    field: usize = 0,
+
+    fn take(self: *PayloadIterator, count: usize) []const u32 {
+        defer self.at += count;
+        return self.words[self.at .. self.at + count];
+    }
+    fn counted(self: *PayloadIterator, width: usize) []const u32 {
+        const count = self.take(1)[0];
+        return self.take(count * width);
+    }
+    pub fn next(self: *PayloadIterator) ?PayloadField {
+        if (self.field == self.reads.len) {
+            std.debug.assert(self.at == self.words.len);
+            return null;
+        }
+        const read = self.reads[self.field];
+        self.field += 1;
+        const offset = self.at;
+        const value: Payload = switch (read.shape) {
+            .id => .{ .id = self.take(1)[0] },
+            .optid => blk: {
+                const id = self.take(1)[0];
+                break :blk .{ .optid = if (id == none) null else id };
+            },
+            .ids => .{ .ids = self.counted(1) },
+            .type => .{ .type = self.body.types[self.take(1)[0]] },
+            .targs => .{ .targs = .{ .body = self.body, .indices = self.counted(1) } },
+            .graph => .{ .graph = self.body.graph(self.take(1)[0]) },
+            .varm, .errarm => blk: {
+                const pair = self.take(2);
+                const arm: BindingArm = .{ .binding = &self.body.bindings[pair[0]], .body = self.body.graph(pair[1]) };
+                break :blk if (read.shape == .varm) .{ .varm = arm } else .{ .errarm = arm };
+            },
+            .ctx => .{ .ctx = .{ .words = self.counted(2) } },
+            .args => .{ .args = .{ .words = self.counted(2) } },
+            .capargs => .{ .capargs = .{ .words = self.counted(2) } },
+            .fields => .{ .fields = .{ .words = self.counted(2) } },
+            .lit => .{ .lit = self.take(1)[0] },
+            .bool => .{ .bool = self.take(1)[0] == 1 },
+            .int => blk: {
+                const pair = self.take(2);
+                break :blk .{ .int = @bitCast(@as(u64, pair[0]) | (@as(u64, pair[1]) << 32)) };
+            },
+            .bits => blk: {
+                const pair = self.take(2);
+                break :blk .{ .bits = @as(u64, pair[0]) | (@as(u64, pair[1]) << 32) };
+            },
+            .mode => .{ .mode = if (self.take(1)[0] == 1) .all else .any },
+            .impls => .{ .impls = .{ .words = self.counted(2) } },
+            .arms => blk: {
+                const count = self.take(1)[0];
+                const start = self.at;
+                for (0..count) |_| {
+                    _ = self.counted(1);
+                    _ = self.counted(2);
+                    _ = self.take(1);
+                }
+                break :blk .{ .arms = .{ .body = self.body, .words = self.words[start..self.at], .count = count } };
+            },
+        };
+        return .{ .read = read, .value = value, .offset = offset };
+    }
+};
 
 // ---------------------------------------------------------------- loading
 
@@ -294,11 +610,18 @@ const Loader = struct {
     }
 
     fn loadFunction(self: *Loader, item: Value) !Function {
+        return self.loadFunctionWithBody(item, null);
+    }
+
+    fn loadFunctionWithBody(self: *Loader, item: Value, shared_body: ?Body) !Function {
         const effects_values = reader.arrayItems(item, "requiredEffects");
         const effects = try self.arena.alloc(Id, effects_values.len);
         for (effects_values, effects) |effect, *e| e.* = try self.interner.id(.effect, reader.decoded(effect));
-        var body: BodyBuilder = .{ .loader = self };
-        _ = try body.graph(get(item, "body"));
+        const body = shared_body orelse blk: {
+            var body_builder: BodyBuilder = .{ .loader = self };
+            _ = try body_builder.graph(get(item, "body"));
+            break :blk body_builder.done();
+        };
         return .{
             .id = try self.id(.function, item, "id"),
             .name = try self.displayName(item),
@@ -308,7 +631,7 @@ const Loader = struct {
             .parameters = try self.typed(.parameter, reader.arrayItems(item, "parameters")),
             .result = try self.typeRef(get(item, "resultType")),
             .effects = effects,
-            .body = body.done(),
+            .body = body,
         };
     }
 };
@@ -404,7 +727,6 @@ const BodyBuilder = struct {
             .args => try self.targets(payload, value.?.array, "targetParameterId", .parameter),
             .capargs => try self.targets(payload, value.?.array, "targetCapabilityParameterId", .capability_parameter),
             .fields => try self.targets(payload, value.?.array, "targetFieldId", .field),
-            // Literal UTF-16 survives shape decoding; semantic validation reports unpaired units.
             .lit => try self.push(payload, try l.interner.string(value.?.string)),
             .bool => try self.push(payload, @intFromBool(value.? == .json_true)),
             .int => {
@@ -467,20 +789,191 @@ pub fn load(arena: Allocator, interner: *Interner, root: Value, marker: ?Marker)
     };
 }
 
+/// Rebuild live generations into a fresh arena/interner, preserving shared declarations/bodies.
+/// The old generations remain untouched until the caller installs the completed live set.
+pub const Compactor = struct {
+    arena: Allocator,
+    scratch: Allocator,
+    old_interner: *const Interner,
+    interner: *Interner,
+    records: std.AutoHashMapUnmanaged(usize, usize) = .empty,
+    bodies: std.AutoHashMapUnmanaged(usize, Body) = .empty,
+
+    fn id(self: *Compactor, domain: Domain, value: Id) !Id {
+        return if (value == none) none else self.interner.id(domain, self.old_interner.idText(domain, value));
+    }
+
+    fn string(self: *Compactor, value: u32) !u32 {
+        return self.interner.string(self.old_interner.stringText(value));
+    }
+
+    fn typeRef(self: *Compactor, old: TypeRef) anyerror!TypeRef {
+        return switch (old) {
+            .primitive => |value| .{ .primitive = try self.string(value) },
+            .named => |value| .{ .named = .{ .id = try self.id(.type, value.id), .arguments = if (value.arguments) |arguments| try self.typeRefs(arguments) else null } },
+            .function => |value| blk: {
+                const result = try self.arena.create(TypeRef);
+                result.* = try self.typeRef(value.result.*);
+                break :blk .{ .function = .{ .parameters = try self.typeRefs(value.parameters), .result = result } };
+            },
+            .type_parameter => |value| .{ .type_parameter = try self.id(.type_parameter, value) },
+            .capability => |value| .{ .capability = try self.id(.capability, value) },
+            .generic => |value| .{ .generic = .{ .name = try self.string(value.name), .arguments = try self.typeRefs(value.arguments) } },
+        };
+    }
+
+    fn typeRefs(self: *Compactor, old: []const TypeRef) ![]const TypeRef {
+        const result = try self.arena.alloc(TypeRef, old.len);
+        for (old, result) |value, *slot| slot.* = try self.typeRef(value);
+        return result;
+    }
+
+    fn typed(self: *Compactor, domain: Domain, old: []const Typed) ![]const Typed {
+        const result = try self.arena.alloc(Typed, old.len);
+        for (old, result) |value, *slot| slot.* = .{ .id = try self.id(domain, value.id), .name = try self.string(value.name), .type = try self.typeRef(value.type) };
+        return result;
+    }
+
+    fn typeParameters(self: *Compactor, old: ?[]const TypeParameter) !?[]const TypeParameter {
+        const values = old orelse return null;
+        const result = try self.arena.alloc(TypeParameter, values.len);
+        for (values, result) |value, *slot| slot.* = .{ .id = try self.id(.type_parameter, value.id), .name = try self.string(value.name) };
+        return result;
+    }
+
+    fn ids(self: *Compactor, domain: Domain, old: []const Id) ![]const Id {
+        const result = try self.arena.alloc(Id, old.len);
+        for (old, result) |value, *slot| slot.* = try self.id(domain, value);
+        return result;
+    }
+
+    fn binding(self: *Compactor, old: Binding) !Binding {
+        return .{ .id = try self.id(.binding, old.id), .name = if (old.name) |value| try self.string(value) else null, .type = try self.typeRef(old.type) };
+    }
+
+    // All slices passed here are borrowed from the old body's extra array.
+    fn remapWords(self: *Compactor, extra: []u32, old_extra: []const u32, words: []const u32, domain: Domain, stride: usize, member: usize) !void {
+        if (words.len == 0) return;
+        const offset = (@intFromPtr(words.ptr) - @intFromPtr(old_extra.ptr)) / @sizeOf(u32);
+        var index = member;
+        while (index < words.len) : (index += stride) extra[offset + index] = try self.id(domain, words[index]);
+    }
+
+    fn body(self: *Compactor, old: *const Body) !Body {
+        const key = @intFromPtr(old.graphs.ptr);
+        if (self.bodies.get(key)) |existing| return existing;
+        const extra = try self.arena.dupe(u32, old.extra);
+        const graphs = try self.arena.dupe(Graph, old.graphs);
+        for (graphs) |*graph| graph.result = try self.id(.node, graph.result);
+        const bindings = try self.arena.alloc(Binding, old.bindings.len);
+        for (old.bindings, bindings) |value, *slot| slot.* = try self.binding(value);
+        for (old.ids, 0..) |_, index| {
+            var payload = old.node(index).payload();
+            while (payload.next()) |field| {
+                const at = old.starts[index] + field.offset;
+                switch (field.value) {
+                    .id, .optid => extra[at] = try self.id(field.read.domain.?, old.extra[at]),
+                    .ids => |values| try self.remapWords(extra, old.extra, values, field.read.domain.?, 1, 0),
+                    .lit => |value| extra[at] = try self.string(value),
+                    .ctx, .args, .capargs, .fields => |values| {
+                        const domain: Domain = switch (field.read.shape) {
+                            .capargs => .capability_parameter,
+                            .fields => .field,
+                            else => .parameter,
+                        };
+                        try self.remapWords(extra, old.extra, values.words, domain, 2, 0);
+                        try self.remapWords(extra, old.extra, values.words, .node, 2, 1);
+                    },
+                    .impls => |values| {
+                        try self.remapWords(extra, old.extra, values.words, .operation, 2, 0);
+                        try self.remapWords(extra, old.extra, values.words, .function, 2, 1);
+                    },
+                    .arms => |arms| {
+                        var iterator = arms.iterator();
+                        while (iterator.next()) |arm| {
+                            try self.remapWords(extra, old.extra, arm.variants, .variant, 1, 0);
+                            try self.remapWords(extra, old.extra, arm.fields.words, .field, 2, 0);
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+        const result: Body = .{
+            .kinds = try self.arena.dupe(u8, old.kinds),
+            .ids = try self.ids(.node, old.ids),
+            .starts = try self.arena.dupe(u32, old.starts),
+            .lens = try self.arena.dupe(u32, old.lens),
+            .extra = extra,
+            .graphs = graphs,
+            .types = try self.typeRefs(old.types),
+            .bindings = bindings,
+        };
+        try self.bodies.put(self.scratch, key, result);
+        return result;
+    }
+
+    fn record(self: *Compactor, comptime T: type, old: *const T) !T {
+        if (T == Function) return .{
+            .id = try self.id(.function, old.id),
+            .name = try self.string(old.name),
+            .exported = old.exported,
+            .must_not_wait = old.must_not_wait,
+            .type_parameters = try self.typeParameters(old.type_parameters),
+            .parameters = try self.typed(.parameter, old.parameters),
+            .result = try self.typeRef(old.result),
+            .effects = try self.ids(.effect, old.effects),
+            .body = try self.body(&old.body),
+        };
+        if (T == Type) {
+            const variants = try self.arena.alloc(Variant, old.variants.len);
+            for (old.variants, variants) |value, *slot| slot.* = .{ .id = try self.id(.variant, value.id), .name = try self.string(value.name), .fields = try self.typed(.field, value.fields) };
+            return .{ .id = try self.id(.type, old.id), .name = try self.string(old.name), .exported = old.exported, .type_parameters = try self.typeParameters(old.type_parameters), .product = old.product, .fields = try self.typed(.field, old.fields), .variants = variants };
+        }
+        if (T == Effect) return .{ .id = try self.id(.effect, old.id), .name = try self.string(old.name), .exported = old.exported };
+        if (T == Capability) {
+            const operations = try self.arena.alloc(Operation, old.operations.len);
+            for (old.operations, operations) |value, *slot| slot.* = .{ .id = try self.id(.operation, value.id), .name = try self.string(value.name), .parameters = try self.typed(.capability_parameter, value.parameters), .result = try self.typeRef(value.result), .failure = if (value.failure) |failure| try self.typeRef(failure) else null, .effect = try self.id(.effect, value.effect), .may_wait = value.may_wait };
+            return .{ .id = try self.id(.capability, old.id), .name = try self.string(old.name), .exported = old.exported, .task_bound = old.task_bound, .operations = operations };
+        }
+        if (T == Obligation) return .{ .id = try self.id(.obligation, old.id), .origin = try self.id(.transaction, old.origin), .call = try self.id(.node, old.call), .parameter = try self.id(.parameter, old.parameter), .resolution = if (old.resolution) |value| .{ .transaction = try self.id(.transaction, value.transaction), .value = try self.id(.node, value.value) } else null };
+        unreachable;
+    }
+
+    pub fn cloneRecord(self: *Compactor, comptime T: type, original: *const T) !*const T {
+        if (self.records.get(@intFromPtr(original))) |existing| return @ptrFromInt(existing);
+        const remapped = try self.arena.create(T);
+        remapped.* = try self.record(T, original);
+        try self.records.put(self.scratch, @intFromPtr(original), @intFromPtr(remapped));
+        return remapped;
+    }
+
+    pub fn generation(self: *Compactor, old: *const Generation) !Generation {
+        var result: Generation = undefined;
+        result.snapshot = try self.id(.snapshot, old.snapshot);
+        result.parent = try self.id(.snapshot, old.parent);
+        result.marker = if (old.marker) |marker| .{ .snapshot = try self.arena.dupe(u16, marker.snapshot), .digest = try self.arena.dupe(u16, marker.digest) } else null;
+        inline for (.{ .{ "functions", Function }, .{ "types", Type }, .{ "effects", Effect }, .{ "capabilities", Capability }, .{ "obligations", Obligation } }) |entry| {
+            const old_records = @field(old, entry[0]);
+            const records = try self.arena.alloc(*const entry[1], old_records.len);
+            for (old_records, records) |original, *slot| {
+                slot.* = try self.cloneRecord(entry[1], original);
+            }
+            @field(result, entry[0]) = records;
+        }
+        return result;
+    }
+};
+
 /// Path-copy the function table; all unchanged declarations and bodies remain immutable/shared.
 /// The caller keeps the base generation's arena alive for this generation's lifetime.
 pub fn withFunction(arena: Allocator, interner: *Interner, base: *const Generation, snapshot: Str, item: Value) !Generation {
     var l: Loader = .{ .arena = arena, .interner = interner };
-    const item_id = try l.id(.function, item, "id");
-    const original = for (base.functions) |record| {
-        if (record.id == item_id) break record;
-    } else null;
     const created = try arena.create(Function);
-    created.* = if (original) |record|
-        try changedFunction(&l, record, .{ .typed = .{ .interner = interner, .entity = .{ .function = record } } }, item)
-    else
-        try l.loadFunction(item);
-    const replacing = original != null;
+    created.* = try l.loadFunction(item);
+    const replacing = for (base.functions) |f| {
+        if (f.id == created.id) break true;
+    } else false;
     const functions = try arena.alloc(*const Function, base.functions.len + @as(usize, if (replacing) 0 else 1));
     @memcpy(functions[0..base.functions.len], base.functions);
     if (replacing) {
@@ -489,6 +982,12 @@ pub fn withFunction(arena: Allocator, interner: *Interner, base: *const Generati
             break;
         };
     } else functions[base.functions.len] = created;
+    const Order = struct {
+        fn less(i: *const Interner, x: *const Function, y: *const Function) bool {
+            return i.less(.function, x.id, y.id);
+        }
+    };
+    std.mem.sort(*const Function, functions, @as(*const Interner, interner), Order.less);
     var result = base.*;
     result.snapshot = try interner.id(.snapshot, snapshot);
     result.parent = base.snapshot;
@@ -509,6 +1008,12 @@ pub fn withDeclarations(arena: Allocator, interner: *Interner, base: *const Gene
             @memcpy(records[0..old.len], old);
             const added = try l.records(entry[1], items, entry[2]);
             @memcpy(records[old.len..], added);
+            const Order = struct {
+                fn less(i: *const Interner, x: *const entry[1], y: *const entry[1]) bool {
+                    return i.less(entry[3], x.id, y.id);
+                }
+            };
+            std.mem.sort(*const entry[1], records, @as(*const Interner, interner), Order.less);
             @field(result, entry[0]) = records;
             return result;
         }
@@ -528,7 +1033,7 @@ pub fn withChanges(arena: Allocator, interner: *Interner, base: *const Generatio
         table: {
             const old_items = reader.arrayItems(before, entry[0]);
             const new_items = reader.arrayItems(after, entry[0]);
-            if (sameValues(old_items, new_items)) break :table;
+            if (sameSlice(Value, old_items, new_items)) break :table;
             const old_records = @field(base, entry[0]);
             const records = try arena.alloc(*const entry[1], new_items.len);
             for (new_items, records) |item, *slot| {
@@ -549,6 +1054,12 @@ pub fn withChanges(arena: Allocator, interner: *Interner, base: *const Generatio
                 } else record.* = try entry[2](&l, item);
                 slot.* = record;
             }
+            const Order = struct {
+                fn less(i: *const Interner, x: *const entry[1], y: *const entry[1]) bool {
+                    return i.less(entry[3], x.id, y.id);
+                }
+            };
+            std.mem.sort(*const entry[1], records, @as(*const Interner, interner), Order.less);
             @field(result, entry[0]) = records;
         }
     }
@@ -559,35 +1070,12 @@ fn sameSlice(comptime T: type, x: []const T, y: []const T) bool {
     return x.ptr == y.ptr and x.len == y.len;
 }
 
-pub fn sameValue(x: Value, y: Value) bool {
+fn sameValue(x: Value, y: Value) bool {
     return switch (x) {
-        .typed => |reference| if (y == .typed and reference.interner == y.typed.interner and std.meta.activeTag(reference.entity) == std.meta.activeTag(y.typed.entity) and std.meta.eql(reference.entity, y.typed.entity)) true else sameObject(x, y),
-        .object => |fields| if (y == .object and sameSlice(reader.Member, fields, y.object)) true else sameObject(x, y),
-        .array => |items| y == .array and sameValues(items, y.array),
-        .string => |units| y == .string and std.mem.eql(u16, units, y.string),
-        .number => |text| y == .number and std.mem.eql(u8, text, y.number),
-        .json_null => y == .json_null,
-        .json_true => y == .json_true,
-        .json_false => y == .json_false,
+        .object => |fields| y == .object and sameSlice(reader.Member, fields, y.object),
+        .array => |items| y == .array and sameSlice(Value, items, y.array),
+        else => false,
     };
-}
-
-fn sameObject(x: Value, y: Value) bool {
-    if (!reader.isObject(y)) return false;
-    const fields = reader.objectMembers(x);
-    if (fields.len != reader.objectMembers(y).len) return false;
-    for (fields) |field| {
-        const other = reader.property(y, reader.utf8(field.name)) orelse return false;
-        if (!sameValue(field.value, other)) return false;
-    }
-    return true;
-}
-
-fn sameValues(x: []const Value, y: []const Value) bool {
-    if (sameSlice(Value, x, y)) return true;
-    if (x.len != y.len) return false;
-    for (x, y) |left, right| if (!sameValue(left, right)) return false;
-    return true;
 }
 
 fn changedFunction(l: *Loader, original: *const Function, before: Value, after: Value) !Function {
@@ -612,9 +1100,9 @@ fn changedFunction(l: *Loader, original: *const Function, before: Value, after: 
                 for (values, effects) |effect, *e| e.* = try l.interner.id(.effect, reader.decoded(effect));
                 result.effects = effects;
             } else {
-                var builder: BodyBuilder = .{ .loader = l };
-                _ = try builder.graph(new.?);
-                result.body = builder.done();
+                var body_builder: BodyBuilder = .{ .loader = l };
+                _ = try body_builder.graph(new.?);
+                result.body = body_builder.done();
             }
         }
     }
@@ -623,409 +1111,7 @@ fn changedFunction(l: *Loader, original: *const Function, before: Value, after: 
 
 // ---------------------------------------------------------------- writing
 
-const Writer = std.Io.Writer;
-
-const Emitter = struct {
-    out: *Writer,
-    interner: *const Interner,
-
-    fn id(self: Emitter, domain: Domain, value: Id) !void {
-        try reader.writeString(self.out, self.interner.idText(domain, value));
-    }
-
-    fn string(self: Emitter, handle: u32) !void {
-        try reader.writeString(self.out, self.interner.stringText(handle));
-    }
-
-    fn key(self: Emitter, name: []const u8) !void {
-        try self.out.print(",\"{s}\":", .{name});
-    }
-
-    fn typeRef(self: Emitter, t: TypeRef) anyerror!void {
-        switch (t) {
-            .primitive => |name| {
-                try self.out.writeAll("{\"kind\":\"primitive\",\"primitive\":");
-                try self.string(name);
-            },
-            .named => |named| {
-                try self.out.writeAll("{\"kind\":\"named\",\"typeId\":");
-                try self.id(.type, named.id);
-                if (named.arguments) |arguments| {
-                    try self.key("arguments");
-                    try self.typeRefs(arguments);
-                }
-            },
-            .function => |function| {
-                try self.out.writeAll("{\"kind\":\"function\",\"parameters\":");
-                try self.typeRefs(function.parameters);
-                try self.key("resultType");
-                try self.typeRef(function.result.*);
-            },
-            .type_parameter => |value| {
-                try self.out.writeAll("{\"kind\":\"typeParameter\",\"typeParameterId\":");
-                try self.id(.type_parameter, value);
-            },
-            .capability => |value| {
-                try self.out.writeAll("{\"kind\":\"capability\",\"capabilityId\":");
-                try self.id(.capability, value);
-            },
-            .generic => |generic| {
-                try self.out.writeAll("{\"kind\":\"builtinGeneric\",\"generic\":");
-                try self.string(generic.name);
-                try self.key("arguments");
-                try self.typeRefs(generic.arguments);
-            },
-        }
-        try self.out.writeByte('}');
-    }
-
-    fn typeRefs(self: Emitter, items: []const TypeRef) !void {
-        try self.out.writeByte('[');
-        for (items, 0..) |item, index| {
-            if (index > 0) try self.out.writeByte(',');
-            try self.typeRef(item);
-        }
-        try self.out.writeByte(']');
-    }
-
-    fn typed(self: Emitter, domain: Domain, items: []const Typed) !void {
-        try self.out.writeByte('[');
-        for (items, 0..) |item, index| {
-            if (index > 0) try self.out.writeByte(',');
-            try self.out.writeAll("{\"id\":");
-            try self.id(domain, item.id);
-            try self.key("displayName");
-            try self.string(item.name);
-            try self.key("type");
-            try self.typeRef(item.type);
-            try self.out.writeByte('}');
-        }
-        try self.out.writeByte(']');
-    }
-
-    fn head(self: Emitter, domain: Domain, value: Id, name: u32, exported: bool) !void {
-        try self.out.writeAll("{\"id\":");
-        try self.id(domain, value);
-        try self.key("displayName");
-        try self.string(name);
-        if (exported) try self.out.writeAll(",\"exported\":true");
-    }
-
-    fn typeParameters(self: Emitter, parameters: ?[]const TypeParameter) !void {
-        const items = parameters orelse return;
-        try self.key("typeParameters");
-        try self.out.writeByte('[');
-        for (items, 0..) |item, index| {
-            if (index > 0) try self.out.writeByte(',');
-            try self.out.writeAll("{\"typeParameterId\":");
-            try self.id(.type_parameter, item.id);
-            try self.key("displayName");
-            try self.string(item.name);
-            try self.out.writeByte('}');
-        }
-        try self.out.writeByte(']');
-    }
-
-    fn binding(self: Emitter, value: Binding) !void {
-        try self.out.writeAll("{\"id\":");
-        try self.id(.binding, value.id);
-        if (value.name) |name| {
-            try self.key("displayName");
-            try self.string(name);
-        }
-        try self.key("type");
-        try self.typeRef(value.type);
-        try self.out.writeByte('}');
-    }
-
-    fn graph(self: Emitter, body: *const Body, index: u32) anyerror!void {
-        const g = body.graphs[index];
-        try self.out.writeAll("{\"resultNodeId\":");
-        try self.id(.node, g.result);
-        try self.key("nodes");
-        try self.out.writeByte('[');
-        for (g.first..g.first + g.count, 0..) |at, position| {
-            if (position > 0) try self.out.writeByte(',');
-            try self.node(body, at);
-        }
-        try self.out.writeAll("]}");
-    }
-
-    fn targets(self: Emitter, payload: []const u32, at: *usize, target: []const u8, domain: Domain) !void {
-        const count = payload[at.*];
-        at.* += 1;
-        try self.out.writeByte('[');
-        for (0..count) |index| {
-            if (index > 0) try self.out.writeByte(',');
-            try self.out.print("{{\"{s}\":", .{target});
-            try self.id(domain, payload[at.*]);
-            try self.key("valueNodeId");
-            try self.id(.node, payload[at.* + 1]);
-            try self.out.writeByte('}');
-            at.* += 2;
-        }
-        try self.out.writeByte(']');
-    }
-
-    fn node(self: Emitter, body: *const Body, at: usize) !void {
-        const kind = kindTable()[body.kinds[at]];
-        const payload = body.extra[body.starts[at] .. body.starts[at] + body.lens[at]];
-        try self.out.writeAll("{\"id\":");
-        try self.id(.node, body.ids[at]);
-        try self.out.print(",\"kind\":\"{s}\"", .{kind.name});
-        var i: usize = 0;
-        for (kind.reads) |read| {
-            switch (read.shape) {
-                .optid => if (payload[i] == none) {
-                    i += 1;
-                    continue;
-                },
-                .targs, .ctx => if (payload[i] == 0) {
-                    i += 1;
-                    continue;
-                },
-                else => {},
-            }
-            try self.key(read.name);
-            switch (read.shape) {
-                .id, .optid => {
-                    try self.id(read.domain.?, payload[i]);
-                    i += 1;
-                },
-                .ids => {
-                    const count = payload[i];
-                    i += 1;
-                    try self.out.writeByte('[');
-                    for (0..count) |index| {
-                        if (index > 0) try self.out.writeByte(',');
-                        try self.id(read.domain.?, payload[i]);
-                        i += 1;
-                    }
-                    try self.out.writeByte(']');
-                },
-                .type => {
-                    try self.typeRef(body.types[payload[i]]);
-                    i += 1;
-                },
-                .targs => {
-                    const count = payload[i];
-                    i += 1;
-                    try self.out.writeByte('[');
-                    for (0..count) |index| {
-                        if (index > 0) try self.out.writeByte(',');
-                        try self.typeRef(body.types[payload[i]]);
-                        i += 1;
-                    }
-                    try self.out.writeByte(']');
-                },
-                .graph => {
-                    try self.graph(body, payload[i]);
-                    i += 1;
-                },
-                .varm, .errarm => {
-                    try self.out.writeAll(if (read.shape == .varm) "{\"valueBinding\":" else "{\"errorBinding\":");
-                    try self.binding(body.bindings[payload[i]]);
-                    try self.key("body");
-                    try self.graph(body, payload[i + 1]);
-                    try self.out.writeByte('}');
-                    i += 2;
-                },
-                .ctx, .args => try self.targets(payload, &i, "targetParameterId", .parameter),
-                .capargs => try self.targets(payload, &i, "targetCapabilityParameterId", .capability_parameter),
-                .fields => try self.targets(payload, &i, "targetFieldId", .field),
-                .lit => {
-                    try self.string(payload[i]);
-                    i += 1;
-                },
-                .bool => {
-                    try self.out.writeAll(if (payload[i] == 1) "true" else "false");
-                    i += 1;
-                },
-                .int => {
-                    const bits = @as(u64, payload[i]) | (@as(u64, payload[i + 1]) << 32);
-                    try self.out.print("{d}", .{@as(i64, @bitCast(bits))});
-                    i += 2;
-                },
-                .bits => {
-                    const bits = @as(u64, payload[i]) | (@as(u64, payload[i + 1]) << 32);
-                    try self.out.print("\"{x:0>16}\"", .{bits});
-                    i += 2;
-                },
-                .mode => {
-                    try self.out.writeAll(if (payload[i] == 1) "\"all\"" else "\"any\"");
-                    i += 1;
-                },
-                .impls => {
-                    const count = payload[i];
-                    i += 1;
-                    try self.out.writeByte('[');
-                    for (0..count) |index| {
-                        if (index > 0) try self.out.writeByte(',');
-                        try self.out.writeAll("{\"operationId\":");
-                        try self.id(.operation, payload[i]);
-                        try self.key("functionId");
-                        try self.id(.function, payload[i + 1]);
-                        try self.out.writeByte('}');
-                        i += 2;
-                    }
-                    try self.out.writeByte(']');
-                },
-                .arms => {
-                    const count = payload[i];
-                    i += 1;
-                    try self.out.writeByte('[');
-                    for (0..count) |index| {
-                        if (index > 0) try self.out.writeByte(',');
-                        const variants = payload[i];
-                        i += 1;
-                        if (variants == 1) {
-                            try self.out.writeAll("{\"variantId\":");
-                            try self.id(.variant, payload[i]);
-                            i += 1;
-                        } else {
-                            try self.out.writeAll("{\"variantIds\":[");
-                            for (0..variants) |v| {
-                                if (v > 0) try self.out.writeByte(',');
-                                try self.id(.variant, payload[i]);
-                                i += 1;
-                            }
-                            try self.out.writeByte(']');
-                        }
-                        const bindings = payload[i];
-                        i += 1;
-                        try self.key("fieldBindings");
-                        try self.out.writeByte('[');
-                        for (0..bindings) |b| {
-                            if (b > 0) try self.out.writeByte(',');
-                            try self.out.writeAll("{\"sourceFieldId\":");
-                            try self.id(.field, payload[i]);
-                            try self.key("binding");
-                            try self.binding(body.bindings[payload[i + 1]]);
-                            try self.out.writeByte('}');
-                            i += 2;
-                        }
-                        try self.out.writeByte(']');
-                        try self.key("body");
-                        try self.graph(body, payload[i]);
-                        i += 1;
-                        try self.out.writeByte('}');
-                    }
-                    try self.out.writeByte(']');
-                },
-            }
-        }
-        try self.out.writeByte('}');
-    }
-};
-
-/// A snapshot document of the generation at schema `version`: valid input to the model reader,
-/// which writes the canonical text from it (`writtenText`).
-pub fn writeDocument(out: *Writer, interner: *const Interner, generation: *const Generation, version: i32) !void {
-    const e: Emitter = .{ .out = out, .interner = interner };
-    try out.print("{{\"schemaVersion\":{d},\"snapshotId\":", .{version});
-    try e.id(.snapshot, generation.snapshot);
-    if (generation.marker) |marker| {
-        try out.writeAll(",\"dependency\":{\"snapshotId\":");
-        try reader.writeString(out, marker.snapshot);
-        try out.writeAll(",\"digest\":");
-        try reader.writeString(out, marker.digest);
-        try out.writeByte('}');
-    }
-    if (generation.parent != none) {
-        try e.key("parentSnapshotId");
-        try e.id(.snapshot, generation.parent);
-    }
-    try out.writeAll(",\"types\":[");
-    for (generation.types, 0..) |t, index| {
-        if (index > 0) try out.writeByte(',');
-        try e.head(.type, t.id, t.name, t.exported);
-        try e.typeParameters(t.type_parameters);
-        if (t.product) {
-            try out.writeAll(",\"kind\":\"product\",\"fields\":");
-            try e.typed(.field, t.fields);
-        } else {
-            try out.writeAll(",\"kind\":\"union\",\"variants\":[");
-            for (t.variants, 0..) |variant, v| {
-                if (v > 0) try out.writeByte(',');
-                try e.head(.variant, variant.id, variant.name, false);
-                try e.key("fields");
-                try e.typed(.field, variant.fields);
-                try out.writeByte('}');
-            }
-            try out.writeByte(']');
-        }
-        try out.writeByte('}');
-    }
-    try out.writeAll("],\"effects\":[");
-    for (generation.effects, 0..) |effect, index| {
-        if (index > 0) try out.writeByte(',');
-        try e.head(.effect, effect.id, effect.name, effect.exported);
-        try out.writeByte('}');
-    }
-    try out.writeAll("],\"capabilities\":[");
-    for (generation.capabilities, 0..) |capability, index| {
-        if (index > 0) try out.writeByte(',');
-        try e.head(.capability, capability.id, capability.name, capability.exported);
-        if (capability.task_bound) try out.writeAll(",\"taskBound\":true");
-        try out.writeAll(",\"operations\":[");
-        for (capability.operations, 0..) |operation, o| {
-            if (o > 0) try out.writeByte(',');
-            try e.head(.operation, operation.id, operation.name, false);
-            try e.key("parameters");
-            try e.typed(.capability_parameter, operation.parameters);
-            try e.key("resultType");
-            try e.typeRef(operation.result);
-            if (operation.failure) |failure| {
-                try e.key("failureType");
-                try e.typeRef(failure);
-            }
-            try e.key("effectId");
-            try e.id(.effect, operation.effect);
-            if (operation.may_wait) try out.writeAll(",\"mayWait\":true");
-            try out.writeByte('}');
-        }
-        try out.writeAll("]}");
-    }
-    try out.writeAll("],\"functions\":[");
-    for (generation.functions, 0..) |function, index| {
-        if (index > 0) try out.writeByte(',');
-        try e.head(.function, function.id, function.name, function.exported);
-        if (function.must_not_wait) try out.writeAll(",\"mustNotWait\":true");
-        try e.typeParameters(function.type_parameters);
-        try e.key("parameters");
-        try e.typed(.parameter, function.parameters);
-        try e.key("resultType");
-        try e.typeRef(function.result);
-        try out.writeAll(",\"requiredEffects\":[");
-        for (function.effects, 0..) |effect, x| {
-            if (x > 0) try out.writeByte(',');
-            try e.id(.effect, effect);
-        }
-        try out.writeAll("],\"body\":");
-        try e.graph(&function.body, 0);
-        try out.writeByte('}');
-    }
-    try out.writeAll("],\"obligations\":[");
-    for (generation.obligations, 0..) |obligation, index| {
-        if (index > 0) try out.writeByte(',');
-        try out.writeAll("{\"id\":");
-        try e.id(.obligation, obligation.id);
-        try out.writeAll(",\"kind\":\"missingArgument\",\"originTransactionId\":");
-        try e.id(.transaction, obligation.origin);
-        try e.key("callNodeId");
-        try e.id(.node, obligation.call);
-        try e.key("parameterId");
-        try e.id(.parameter, obligation.parameter);
-        if (obligation.resolution) |resolution| {
-            try out.writeAll(",\"status\":\"resolved\",\"resolutionTransactionId\":");
-            try e.id(.transaction, resolution.transaction);
-            try e.key("resolutionValueNodeId");
-            try e.id(.node, resolution.value);
-        } else try out.writeAll(",\"status\":\"open\"");
-        try out.writeByte('}');
-    }
-    try out.writeAll("]}");
-}
+pub const writeDocument = @import("typed_writer.zig").writeDocument;
 
 test "operation generations path-copy changed tables and share unchanged function bodies" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1036,11 +1122,6 @@ test "operation generations path-copy changed tables and share unchanged functio
     );
     var interner: Interner = .{ .gpa = a };
     const original = try load(a, &interner, before, null);
-    const direct = reader.typed_view.root(&interner, &original, false);
-    const cloned = try reader.ownTyped(a, direct, false);
-    const unchanged = try withChanges(a, &interner, &original, direct, cloned);
-    try std.testing.expect(unchanged.types.ptr == original.types.ptr);
-    try std.testing.expect(unchanged.functions.ptr == original.functions.ptr);
     const functions = reader.arrayItems(before, "functions");
     const renamed_fields = try a.dupe(reader.Member, functions[0].object);
     for (renamed_fields) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "displayName")) {
@@ -1081,3 +1162,266 @@ test "operation generations path-copy changed tables and share unchanged functio
     try std.testing.expect(replacement.functions[0].body.ids.ptr != original.functions[0].body.ids.ptr);
     try std.testing.expect(std.mem.eql(u16, interner.idText(.node, original.functions[0].body.ids[0]), &.{'n'}));
 }
+
+test "live-set compaction remaps handles and preserves shared declarations and bodies" {
+    var original_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer original_arena.deinit();
+    const a = original_arena.allocator();
+    const root = try reader.parseValue(a,
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}},{"id":"g","displayName":"G","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"m","kind":"unitLiteral"}],"resultNodeId":"m"}}],"obligations":[]}
+    );
+    var old: Interner = .{ .gpa = a };
+    _ = try old.string(&.{ 'd', 'e', 'a', 'd' });
+    const before = try load(a, &old, root, null);
+    const functions = reader.arrayItems(root, "functions");
+    const renamed = try a.dupe(reader.Member, functions[0].object);
+    for (renamed) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "displayName")) {
+        field.value = .{ .string = &.{ 'N', 'e', 'w' } };
+    };
+    const fields = try a.dupe(reader.Member, root.object);
+    for (fields) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "functions")) {
+        field.value = .{ .array = try a.dupe(Value, &.{ .{ .object = renamed }, functions[1] }) };
+    };
+    const candidate: Value = .{ .object = fields };
+    const changed = try withChanges(a, &old, &before, root, candidate);
+    var compact_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer compact_arena.deinit();
+    const compact = compact_arena.allocator();
+    var fresh: Interner = .{ .gpa = std.testing.allocator };
+    defer fresh.deinit();
+    var compactor: Compactor = .{ .arena = compact, .scratch = compact, .old_interner = &old, .interner = &fresh };
+    const live_before = try compactor.generation(&before);
+    const live_changed = try compactor.generation(&changed);
+    try std.testing.expect(live_before.functions[1] == live_changed.functions[1]);
+    try std.testing.expect(live_before.functions[0] != live_changed.functions[0]);
+    try std.testing.expect(live_before.functions[0].body.ids.ptr == live_changed.functions[0].body.ids.ptr);
+    try std.testing.expectEqual(@as(?u32, null), fresh.strings.map.get(&.{ 'd', 'e', 'a', 'd' }));
+    for ([_]Generation{ before, changed }, [_]Generation{ live_before, live_changed }) |old_generation, new_generation| {
+        var expected: Writer.Allocating = .init(a);
+        var actual: Writer.Allocating = .init(a);
+        try writeDocument(&expected.writer, &old, &old_generation, reader.currentVersion());
+        try writeDocument(&actual.writer, &fresh, &new_generation, reader.currentVersion());
+        try std.testing.expectEqualStrings(expected.written(), actual.written());
+    }
+}
+
+test "interner checkpoint releases failed proposal entries and retains prior handles" {
+    var interner: Interner = .{ .gpa = std.testing.allocator };
+    defer interner.deinit();
+    const kept = try interner.id(.function, &.{'f'});
+    const checkpoint = interner.checkpoint();
+    for (0..100) |_| {
+        _ = try interner.id(.node, &.{'n'});
+        _ = try interner.string(&.{'s'});
+        interner.restore(checkpoint);
+        try std.testing.expectEqual(@as(usize, 0), interner.ids[@backingInt(Domain.node)].texts.items.len);
+        try std.testing.expectEqual(@as(usize, 0), interner.strings.texts.items.len);
+        try std.testing.expectEqualSlices(u16, &.{'f'}, interner.idText(.function, kept));
+    }
+}
+
+test "failed live-set preparation leaves the old generation usable" {
+    var fixture_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer fixture_arena.deinit();
+    const a = fixture_arena.allocator();
+    const root = try reader.parseValue(a,
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}],"obligations":[]}
+    );
+    var old: Interner = .{ .gpa = a };
+    const original = try load(a, &old, root, null);
+    const Check = struct {
+        fn prepare(gpa: Allocator, previous_interner: *const Interner, previous: *const Generation) !void {
+            var arena = std.heap.ArenaAllocator.init(gpa);
+            defer arena.deinit();
+            var next: Interner = .{ .gpa = gpa };
+            defer next.deinit();
+            var compactor: Compactor = .{ .arena = arena.allocator(), .scratch = arena.allocator(), .old_interner = previous_interner, .interner = &next };
+            const rebuilt = try compactor.generation(previous);
+            try std.testing.expectEqualSlices(u16, &.{'F'}, next.stringText(rebuilt.functions[0].name));
+        }
+    };
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, Check.prepare, .{ &old, &original });
+    var source: Writer.Allocating = .init(a);
+    try writeDocument(&source.writer, &old, &original, reader.currentVersion());
+    try std.testing.expect(std.mem.indexOf(u8, source.written(), "\"snapshotId\":\"base\"") != null);
+    try std.testing.expectEqualSlices(u16, &.{'F'}, old.stringText(original.functions[0].name));
+}
+
+test "payload decoder covers every kind and compaction preserves all shapes and UTF16 units" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var document: Writer.Allocating = .init(a);
+    const out = &document.writer;
+    try out.writeAll("{\"snapshotId\":\"snapshot\",\"types\":[],\"effects\":[],\"capabilities\":[],\"obligations\":[],\"functions\":[{\"id\":\"function\",\"displayName\":\"\\ud800\\udc00Z\",\"parameters\":[],\"resultType\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"requiredEffects\":[],\"body\":{\"resultNodeId\":\"node\",\"nodes\":[");
+    const graph_json = "{\"resultNodeId\":\"nested\",\"nodes\":[{\"id\":\"nested\",\"kind\":\"unitLiteral\"}]}";
+    const type_json = "{\"kind\":\"function\",\"parameters\":[{\"kind\":\"named\",\"typeId\":\"type\",\"arguments\":[{\"kind\":\"typeParameter\",\"typeParameterId\":\"tp\"}]},{\"kind\":\"capability\",\"capabilityId\":\"cap\"}],\"resultType\":{\"kind\":\"builtinGeneric\",\"generic\":\"list\",\"arguments\":[{\"kind\":\"primitive\",\"primitive\":\"unit\"}]}}";
+    const binding_prefix = "{\"id\":\"binding\",\"displayName\":\"\\udbff\\udfff\",\"type\":";
+    for (kindTable(), 0..) |kind, index| {
+        for (0..2) |empty| {
+            if (index != 0 or empty != 0) try out.writeByte(',');
+            try out.print("{{\"id\":\"n{d}-{d}\",\"kind\":\"{s}\"", .{ index, empty, kind.name });
+            for (kind.reads) |read| {
+                if (empty == 1 and (read.shape == .optid or read.shape == .ctx or read.shape == .targs)) continue;
+                try out.print(",\"{s}\":", .{read.name});
+                switch (read.shape) {
+                    .id, .optid => try out.writeAll("\"reference\""),
+                    .ids => try out.writeAll(if (empty == 1) "[]" else "[\"reference\",\"other\"]"),
+                    .type => try out.writeAll(type_json),
+                    .targs => try out.print("[{s}]", .{type_json}),
+                    .graph => try out.writeAll(graph_json),
+                    .varm, .errarm => {
+                        try out.print("{{\"{s}\":{s}{s}}},\"body\":{s}}}", .{ if (read.shape == .varm) "valueBinding" else "errorBinding", binding_prefix, type_json, graph_json });
+                    },
+                    .ctx, .args, .capargs, .fields => {
+                        if (empty == 1) {
+                            try out.writeAll("[]");
+                            continue;
+                        }
+                        const target = switch (read.shape) {
+                            .capargs => "targetCapabilityParameterId",
+                            .fields => "targetFieldId",
+                            else => "targetParameterId",
+                        };
+                        try out.print("[{{\"{s}\":\"target\",\"valueNodeId\":\"reference\"}}]", .{target});
+                    },
+                    .lit => try out.writeAll("\"\\ud800\\udc00X\""),
+                    .bool => try out.writeAll("true"),
+                    .int => try out.writeAll("-9223372036854775808"),
+                    .bits => try out.writeAll("\"fff8000000000001\""),
+                    .mode => try out.writeAll("\"all\""),
+                    .impls => try out.writeAll(if (empty == 1) "[]" else "[{\"operationId\":\"operation\",\"functionId\":\"function\"}]"),
+                    .arms => {
+                        if (empty == 1) {
+                            try out.writeAll("[]");
+                            continue;
+                        }
+                        try out.print("[{{\"variantIds\":[\"variant1\",\"variant2\"],\"fieldBindings\":[{{\"sourceFieldId\":\"field\",\"binding\":{s}{s}}}}}],\"body\":{s}}}]", .{ binding_prefix, type_json, graph_json });
+                    },
+                }
+            }
+            try out.writeByte('}');
+        }
+    }
+    try out.writeAll("]}}]}");
+    const root = try reader.parseValue(a, document.written());
+    var old: Interner = .{ .gpa = a };
+    // Force every used domain to receive different handles in the compacted table.
+    for (std.enums.values(Domain)) |domain| _ = try old.id(domain, &.{ 'd', 'e', 'a', 'd' });
+    _ = try old.string(&.{ 'd', 'e', 'a', 'd' });
+    var generation = try load(a, &old, root, null);
+    var function = generation.functions[0].*;
+    function.name = try old.string(&.{ 0xd800, 'Z', 0xdfff });
+    generation.functions = &.{&function};
+    const body = &generation.functions[0].body;
+    var nodes = body.graph(0).nodes();
+    var coverage: [std.enums.values(Shape).len]bool = @splat(false);
+    while (nodes.next()) |node| {
+        var payload = node.payload();
+        var fields: usize = 0;
+        while (payload.next()) |field| {
+            fields += 1;
+            coverage[@backingInt(field.read.shape)] = true;
+            switch (field.value) {
+                .lit => |handle| try std.testing.expectEqualSlices(u16, &.{ 0xd800, 0xdc00, 'X' }, old.stringText(handle)),
+                .int => |value| try std.testing.expectEqual(std.math.minInt(i64), value),
+                .bits => |value| try std.testing.expectEqual(@as(u64, 0xfff8000000000001), value),
+                .bool => |value| try std.testing.expect(value),
+                .mode => |value| try std.testing.expectEqual(WaitMode.all, value),
+                .type => |value| try std.testing.expect(value == .function),
+                .arms => |arms| {
+                    var iterator = arms.iterator();
+                    if (iterator.next()) |arm| {
+                        try std.testing.expectEqual(@as(usize, 2), arm.variants.len);
+                        try std.testing.expectEqual(@as(usize, 1), arm.fields.len());
+                        try std.testing.expectEqualSlices(u16, &.{ 0xdbff, 0xdfff }, old.stringText(arm.fields.at(0).binding.name.?));
+                        try std.testing.expect(iterator.next() == null);
+                    }
+                },
+                else => {},
+            }
+        }
+        try std.testing.expectEqual(kindTable()[body.kinds[node.index]].reads.len, fields);
+    }
+    for (coverage) |seen| try std.testing.expect(seen);
+    var fresh: Interner = .{ .gpa = a };
+    var compactor: Compactor = .{ .arena = a, .scratch = a, .old_interner = &old, .interner = &fresh };
+    const remapped = try compactor.generation(&generation);
+    try std.testing.expect(fresh.findId(.node, &.{ 'd', 'e', 'a', 'd' }) == null);
+    const before_lookup = fresh.checkpoint();
+    try std.testing.expect(fresh.findId(.function, &.{ 'm', 'i', 's', 's' }) == null);
+    try std.testing.expectEqualDeep(before_lookup, fresh.checkpoint());
+    var expected: Writer.Allocating = .init(a);
+    var actual: Writer.Allocating = .init(a);
+    try writeDocument(&expected.writer, &old, &generation, reader.currentVersion());
+    try writeDocument(&actual.writer, &fresh, &remapped, reader.currentVersion());
+    try std.testing.expectEqualStrings(expected.written(), actual.written());
+    var rebuilt_function = generation.functions[0].*;
+    rebuilt_function.body = try builder.rebuild(a, rebuilt_function.body.graph(0), .{});
+    var rebuilt_generation = generation;
+    rebuilt_generation.functions = &.{&rebuilt_function};
+    var rebuilt_document: Writer.Allocating = .init(a);
+    try writeDocument(&rebuilt_document.writer, &old, &rebuilt_generation, reader.currentVersion());
+    try std.testing.expectEqualStrings(expected.written(), rebuilt_document.written());
+    try std.testing.expectEqualSlices(u16, &.{ 0xd800, 'Z', 0xdfff }, fresh.stringText(remapped.functions[0].name));
+    // UTF-16 ordinal order compares code units, including unpaired surrogates.
+    const high = try fresh.id(.function, &.{0xd800});
+    const later = try fresh.id(.function, &.{0xe000});
+    try std.testing.expect(fresh.less(.function, high, later));
+}
+
+test "typed compaction owns every declaration and nested type after the source arena is freed" {
+    var source_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const source = source_arena.allocator();
+    var target_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer target_arena.deinit();
+    const target = target_arena.allocator();
+    const root = try reader.parseValue(source,
+        \\{"snapshotId":"snapshot","parentSnapshotId":"parent","types":[{"id":"product","displayName":"Product","exported":true,"kind":"product","typeParameters":[{"typeParameterId":"tp","displayName":"TP"}],"fields":[{"id":"field","displayName":"Field","type":{"kind":"named","typeId":"union","arguments":[]}}]},{"id":"union","displayName":"Union","kind":"union","variants":[{"id":"variant","displayName":"Variant","fields":[{"id":"variant-field","displayName":"VF","type":{"kind":"typeParameter","typeParameterId":"tp"}}]}]}],"effects":[{"id":"effect","displayName":"Effect","exported":true}],"capabilities":[{"id":"cap","displayName":"Capability","exported":true,"taskBound":true,"operations":[{"id":"op","displayName":"Operation","parameters":[{"id":"cp","displayName":"CP","type":{"kind":"capability","capabilityId":"cap"}}],"resultType":{"kind":"function","parameters":[{"kind":"named","typeId":"product"}],"resultType":{"kind":"primitive","primitive":"unit"}},"failureType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"string"}]},"effectId":"effect","mayWait":true}]}],"functions":[],"obligations":[{"id":"obligation1","originTransactionId":"origin","callNodeId":"call","parameterId":"parameter","status":"open"},{"id":"obligation2","originTransactionId":"origin","callNodeId":"call","parameterId":"parameter","status":"resolved","resolutionTransactionId":"resolution","resolutionValueNodeId":"value"}]}
+    );
+    var old: Interner = .{ .gpa = source };
+    const original = try load(source, &old, root, .{ .snapshot = &.{ 'm', 'a', 'r', 'k', 'e', 'r' }, .digest = &.{'d'} });
+    var expected: Writer.Allocating = .init(target);
+    try writeDocument(&expected.writer, &old, &original, reader.currentVersion());
+    var fresh: Interner = .{ .gpa = target };
+    var compactor: Compactor = .{ .arena = target, .scratch = target, .old_interner = &old, .interner = &fresh };
+    const compacted = try compactor.generation(&original);
+    source_arena.deinit();
+    var actual: Writer.Allocating = .init(target);
+    try writeDocument(&actual.writer, &fresh, &compacted, reader.currentVersion());
+    try std.testing.expectEqualStrings(expected.written(), actual.written());
+    const product = compacted.findType(fresh.findId(.type, &.{ 'p', 'r', 'o', 'd', 'u', 'c', 't' }).?).?;
+    try std.testing.expect(product.fields[0].type.named.arguments != null);
+    const operation = compacted.capabilities[0].operations[0];
+    try std.testing.expect(operation.result.function.parameters[0].named.arguments == null);
+}
+
+test "body depth first traversal visits match result ok before err and children before siblings" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const root = try reader.parseValue(a,
+        \\{"snapshotId":"s","types":[],"effects":[],"capabilities":[],"obligations":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"resultNodeId":"last","nodes":[{"id":"match","kind":"matchResult","inputNodeId":"last","okArm":{"valueBinding":{"id":"ok-binding","type":{"kind":"primitive","primitive":"unit"}},"body":{"resultNodeId":"ok","nodes":[{"id":"ok","kind":"unitLiteral"}]}},"errArm":{"errorBinding":{"id":"err-binding","type":{"kind":"primitive","primitive":"unit"}},"body":{"resultNodeId":"err","nodes":[{"id":"err","kind":"unitLiteral"}]}}},{"id":"last","kind":"unitLiteral"}]}}]}
+    );
+    var interner: Interner = .{ .gpa = a };
+    const generation = try load(a, &interner, root, null);
+    const nodes = try generation.functions[0].body.depthFirst(a);
+    try std.testing.expectEqual(@as(usize, 4), nodes.len);
+    const expected = [_][]const u8{ "match", "ok", "err", "last" };
+    for (nodes, expected) |node, text| try std.testing.expectEqualStrings(text, reader.utf8(interner.idText(.node, node.id())));
+}
+
+test "loading string literals retains lone UTF16 units for semantic validation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const root = try reader.parseValue(a,
+        \\{"snapshotId":"s","types":[],"effects":[],"capabilities":[],"obligations":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"resultNodeId":"n","nodes":[{"id":"n","kind":"stringLiteral","value":"\ud800X\udfff"}]}}]}
+    );
+    var interner: Interner = .{ .gpa = a };
+    const generation = try load(a, &interner, root, null);
+    const handle = generation.functions[0].body.node(0).stringLiteral().?;
+    try std.testing.expectEqualSlices(u16, &.{ 0xd800, 'X', 0xdfff }, interner.stringText(handle));
+}
+
+pub const order = @import("typed_order.zig");

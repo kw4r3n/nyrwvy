@@ -104,7 +104,6 @@ module internal ZigTools =
                          "snapshot_reader", [ "tools"; "zig"; "snapshot-reader" ], "main.zig"
                          "zig_emitter", [ "tools"; "zig"; "emitter" ], "main.zig"
                          "csharp_emitter", [ "tools"; "zig"; "csharp-emitter" ], "root.zig"
-                         "build_info", [ "tools"; "zig"; "host" ], "build_info.zig"
                          "viewer_asset", [ "src"; "Nyrwvy.Viewer" ], "asset.zig" ] ]
 
     /// Include embedded resources without hashing the managed helper's build products.
@@ -140,6 +139,13 @@ module internal ZigTools =
                     let below parts = Path.Combine(Array.ofList (directory.Value :: parts))
                     let sources = below [ "tools"; "zig"; name ]
                     let imported = match imports.TryGetValue name with | true, modules -> modules | _ -> []
+                    // Record the checkout at compile time, not when the cached executable is launched.
+                    let build =
+                        if name <> "host" then ""
+                        else
+                            match launch "git" "build identity" directory.Value [ "rev-parse"; "--verify"; "HEAD" ] 2000 with
+                            | Ok (0, output, _) when Text.RegularExpressions.Regex.IsMatch(output.Trim(), "^[0-9a-f]{40}$") -> "nyrwvy-zig-host+" + output.Trim()
+                            | _ -> "nyrwvy-zig-host"
                     let text =
                         sources :: (imported |> List.map (fun (_, parts, _) -> below parts))
                         |> List.map sourceText
@@ -150,22 +156,28 @@ module internal ZigTools =
                         else
                             [ yield! [ "-O"; "ReleaseSafe" ]
                               for moduleName, _, _ in imported do yield! [ "--dep"; moduleName ]
+                              if name = "host" then yield! [ "--dep"; "build_info" ]
                               yield "-Mroot=" + Path.Combine(sources, "main.zig")
                               for moduleName, parts, root in imported do yield! [ "-O"; "ReleaseSafe"; $"-M{moduleName}=" + Path.Combine(below parts, root) ] ]
                     let roots = if OperatingSystem.IsMacOS() then "-lc" :: moduleRoots else moduleRoots
                     // The build options are part of the key, so a build made with other options is not reused.
                     let options = String.Join(" ", roots |> List.map (fun arg -> if arg.EndsWith ".zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
-                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options)).Substring(0, 32))
+                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options + "\u0000" + build)).Substring(0, 32))
                     let built = Path.Combine(target, name + (if OperatingSystem.IsWindows() then ".exe" else ""))
                     let result =
                         if File.Exists built then Ok()
                         else
                             createPrivateDirectory cache
                             createPrivateDirectory target
+                            let buildModule = Path.Combine(target, "build_info.zig")
+                            if name = "host" then
+                                let partialModule = buildModule + "." + Guid.NewGuid().ToString("N")
+                                File.WriteAllText(partialModule, $"pub const build = \"{build}\";\npub const repository_root: ?[]const u8 = null;\n")
+                                File.Move(partialModule, buildModule, true)
                             // Built under a fresh name and moved, so another process never runs a partial file.
                             let partial = built + "." + Guid.NewGuid().ToString("N")
                             launch (executable ()) $"Zig {name} build" directory.Value
-                                (("build-exe" :: roots) @ [ "--cache-dir"; Path.Combine(cache, "cache"); "-femit-bin=" + partial ]) 300000
+                                (("build-exe" :: roots) @ (if name = "host" then [ "-Mbuild_info=" + buildModule ] else []) @ [ "--cache-dir"; Path.Combine(cache, "cache"); "-femit-bin=" + partial ]) 300000
                             |> Result.bind (fun (code, output, errors) ->
                                 if code = 0 && File.Exists partial then
                                     File.Move(partial, built, true)

@@ -8,11 +8,14 @@ const m = @import("materialize.zig");
 const edit = @import("operation_model.zig");
 const recipe = @import("recipe.zig");
 const Value = model.Value;
+const Model = model.Model;
+const tm = model.session_model;
+const typed_edit = @import("typed_edit.zig");
 const Json = std.json.Value;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 pub const Pinned = struct { dependency: host.Dependency, manifest: Value, source: []const u8 };
-pub const Plan = struct { dependency: host.Dependency, manifest: []const u8, local: Value, candidate: Value, preview: Value, fingerprint: []const u8 };
+pub const Plan = struct { dependency: host.Dependency, manifest: []const u8, local: Model, candidate: Model, preview: Value, fingerprint: []const u8 };
 const Replacement = struct { before: Pinned, after: Pinned };
 
 fn failure(r: *query.Request, message: []const u8) anyerror {
@@ -40,7 +43,7 @@ pub fn checkPersisted(r: *query.Request) !void {
 }
 pub fn pin(r: *query.Request, source: []const u8) !Pinned {
     if (source.len == 0 or std.mem.indexOfScalar(u8, source, 0) != null) return failure(r, "Invalid dependency path.");
-    const path = try std.fs.path.resolve(r.a, &.{source});
+    const path = try std.fs.path.resolveAlloc(r.a, &.{ try std.process.currentPathAlloc(host.host_io, r.a), source });
     const stat = std.Io.Dir.cwd().statFile(host.host_io, path, .{}) catch null;
     if (m.same(path, r.snapshot_path) or stat == null or stat.?.kind != .file) return failure(r, "The selected dependency is unavailable.");
     const sidecar = try std.mem.concat(r.a, u8, &.{ path, ".dependency.json" });
@@ -54,13 +57,14 @@ pub fn pin(r: *query.Request, source: []const u8) !Pinned {
     if (nested == null and host.bound(r.a, std.mem.endsWith(u8, path, ".nyrec"), content)) return failure(r, try std.fmt.allocPrint(r.a, "The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{path}));
     const dependency = if (nested) |selected| blk: {
         const resolved = host.readSource(r.a, std.mem.endsWith(u8, path, ".nyrec"), content, selected) catch return storageFailure(r);
+        if (resolved.open_obligations) return failure(r, "The selected dependency has open obligations; complete it before pinning.");
         break :blk host.dependencyFromRead(r.a, resolved, path, true) catch return storageFailure(r);
     } else host.decodeDependency(r.a, std.mem.endsWith(u8, path, ".nyrec"), content, path, true) catch return storageFailure(r);
     return .{ .dependency = dependency, .manifest = try embedded(r.a, dependency, path), .source = path };
 }
 /// `PinnedDependency.embed`: the manifest retaining `dependency`'s exact content, in the form `path`'s extension selects.
 pub fn embedded(a: Allocator, dependency: host.Dependency, path: []const u8) !Value {
-    const json = (try model.writtenText(a, dependency.canonical)).text;
+    const json = dependency.canonical;
     const is_record = std.mem.endsWith(u8, path, ".nyrec");
     return m.object(a, &.{
         try m.member(a, "fingerprint", try m.string(a, dependency.fingerprint)),
@@ -93,31 +97,42 @@ pub fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependen
     const combined = host.combineMembers(r.a, dependencies) catch return storageFailure(r);
     return .{ combined, try write(r.a, try m.object(r.a, &.{try m.member(r.a, "dependencies", .{ .array = manifests })})) };
 }
-fn merged(r: *query.Request, selected: host.Dependency) !struct { Value, Value } {
-    return mergeModel(r, model.canonicalRoot(r.a, r.model), selected);
+fn merged(r: *query.Request, selected: host.Dependency) !struct { Model, Model } {
+    const saved = host.readSource(r.a, std.mem.endsWith(u8, r.snapshot_path, ".nyrec"), host.persisted_source, host.selection) catch return storageFailure(r);
+    return mergeModel(r, model.typedRoot(r.a, saved.interner.?, saved.generation.?), selected);
 }
-pub fn mergeModel(r: *query.Request, root: Value, selected: host.Dependency) !struct { Value, Value } {
-    const imported = if (host.selection) |old| old.root else try m.object(r.a, &.{});
-    const next = selected.root;
+fn remap(r: *query.Request, root: Model) !Model {
+    if (root.context.interner == r.interner.?) return root;
+    var compactor: tm.Compactor = .{ .arena = r.a, .scratch = r.a, .old_interner = root.context.interner, .interner = r.interner.? };
+    const generation = try r.a.create(tm.Generation);
+    generation.* = try compactor.generation(root.data.snapshot);
+    return model.typedRoot(r.a, r.interner.?, generation);
+}
+pub fn mergeModel(r: *query.Request, source: Model, selected: host.Dependency) !struct { Model, Model } {
+    const root = try remap(r, source);
+    const imported: ?Model = if (host.selection) |old| old.typedModel(r.a) else null;
+    const next = try remap(r, selected.typedModel(r.a));
     var local = root;
-    var candidate = try edit.set(r.a, root, "schemaVersion", try m.number(r.a, model.currentVersion()));
-    for ([_][]const u8{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
-        var own: std.ArrayList(Value) = .empty;
-        for (model.arrayItems(root, name)) |item| if (edit.find(imported, name, query.idOf(item)) == null) try own.append(r.a, item);
-        local = try edit.set(r.a, local, name, .{ .array = own.items });
-        candidate = try edit.set(r.a, candidate, name, .{ .array = try std.mem.concat(r.a, Value, &.{ model.arrayItems(next, name), own.items }) });
+    var candidate = root;
+    for ([_]typed_edit.Collection{ .types, .effects, .capabilities, .functions, .obligations }) |group| {
+        var own: std.ArrayList(Model) = .empty;
+        for (typed_edit.children(root, group)) |item| {
+            if (imported == null or typed_edit.find(imported.?, group, query.idOf(item)) == null) try own.append(r.a, item);
+        }
+        local = try typed_edit.withChildren(r.a, local, group, own.items);
+        candidate = try typed_edit.withChildren(r.a, candidate, group, try std.mem.concat(r.a, Model, &.{ typed_edit.children(next, group), own.items }));
     }
     return .{ local, candidate };
 }
-fn exported(item: Value) bool {
-    return if (model.property(item, "exported")) |value| value == .json_true else false;
+fn exported(item: Model) bool {
+    return item.exported();
 }
-const Entry = struct { kind: []const u8, item: Value };
-fn entries(a: Allocator, root: Value) ![]Entry {
-    if (root == .json_null) return &.{};
+const Entry = struct { kind: []const u8, item: Model };
+fn entries(a: Allocator, root: ?Model) ![]Entry {
+    if (root == null) return &.{};
     var items: std.ArrayList(Entry) = .empty;
     for ([_][2][]const u8{ .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" }, .{ "functions", "function" } }) |group|
-        for (model.arrayItems(root, group[0])) |item| try items.append(a, .{ .kind = group[1], .item = item });
+        for (root.?.declarations(group[0])) |item| try items.append(a, .{ .kind = group[1], .item = item });
     std.mem.sort(Entry, items.items, {}, struct {
         fn less(_: void, x: Entry, y: Entry) bool {
             if (exported(x.item) != exported(y.item)) return exported(x.item);
@@ -127,7 +142,7 @@ fn entries(a: Allocator, root: Value) ![]Entry {
     }.less);
     return items.items;
 }
-fn changes(r: *query.Request, before: Value, after: Value) !Value {
+fn changes(r: *query.Request, before: ?Model, after: Model) !Value {
     var added: std.ArrayList(Value) = .empty;
     var removed: std.ArrayList(Value) = .empty;
     var changed: std.ArrayList(Value) = .empty;
@@ -137,7 +152,7 @@ fn changes(r: *query.Request, before: Value, after: Value) !Value {
         const value = try m.object(r.a, &.{ try m.member(r.a, "kind", try m.string(r.a, entry.kind)), try m.member(r.a, "id", try m.string(r.a, query.idOf(entry.item))), try m.member(r.a, "exported", if (exported(entry.item)) .json_true else .json_false) });
         for (old) |previous| {
             if (m.same(entry.kind, previous.kind) and m.same(query.idOf(entry.item), query.idOf(previous.item))) {
-                if (!@import("proposals.zig").sameValue(entry.item, previous.item)) try changed.append(r.a, value);
+                if (!try @import("proposals.zig").sameDeclaration(r.a, entry.item, previous.item)) try changed.append(r.a, value);
                 break;
             }
         } else try added.append(r.a, value);
@@ -152,23 +167,22 @@ fn changes(r: *query.Request, before: Value, after: Value) !Value {
 fn issue(a: Allocator, code: []const u8, message: []const u8) !Value {
     return m.object(a, &.{ try m.member(a, "code", try m.string(a, code)), try m.member(a, "message", try m.string(a, message)) });
 }
-fn compatibility(r: *query.Request, selected: host.Dependency, candidate: Value) !Value {
-    const read = model.readCandidate(r.a, candidate);
-    const diagnostics = try edit.validatedIssues(r, read);
+fn compatibility(r: *query.Request, selected: host.Dependency, candidate: Model) !Value {
+    const read = model.validateTyped(r.a, candidate.context.interner, candidate.data.snapshot);
+    const diagnostics = read.validation_issues;
     var issues: std.ArrayList(Value) = .empty;
     for (diagnostics) |diagnostic| try issues.append(r.a, try issue(r.a, diagnostic.code, model.utf8(diagnostic.message)));
-    const imported = selected.root;
-    const typed_candidate = try model.ownTyped(r.a, candidate, false);
-    for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| for (model.arrayItems(imported, group[0])) |item| {
+    const imported = selected.typedModel(r.a);
+    for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| for (imported.declarations(group[0])) |item| {
         if (exported(item)) continue;
-        const references = model.referencesTo(r.a, typed_candidate, group[1], model.decoded(model.property(item, "id").?)) orelse continue;
+        const references = model.typedReferencesTo(r.a, candidate, group[1], item.id()) orelse continue;
         for (references) |reference| {
             const owner_group: []const u8 = switch (reference.owner) {
                 .function => "functions",
                 .type => "types",
                 .capability => "capabilities",
             };
-            if (edit.find(imported, owner_group, model.utf8(reference.owner_id)) == null) {
+            if (typed_edit.find(imported, std.meta.stringToEnum(typed_edit.Collection, owner_group).?, model.utf8(reference.owner_id)) == null) {
                 try issues.append(r.a, try issue(r.a, "ImportedDeclarationNotExported", try std.fmt.allocPrint(r.a, "The dependency does not export {s} '{s}' ({s}); a dependent may refer only to exported declarations.", .{ group[1], query.nameOf(item), query.idOf(item) })));
                 break;
             }
@@ -180,7 +194,7 @@ fn description(a: Allocator, item: Pinned) !Value {
     return m.object(a, &.{ try m.member(a, "snapshotId", try m.string(a, item.dependency.id)), try m.member(a, "fingerprint", try m.string(a, item.dependency.fingerprint)) });
 }
 fn memberPreview(r: *query.Request, replacement: Replacement, issues: ?Value) !Value {
-    var result = try changes(r, replacement.before.dependency.root, replacement.after.dependency.root);
+    var result = try changes(r, replacement.before.dependency.typedModel(r.a), replacement.after.dependency.typedModel(r.a));
     result = try edit.set(r.a, result, "replacedSnapshotId", try m.string(r.a, replacement.before.dependency.id));
     result = try edit.set(r.a, result, "replacedFingerprint", try m.string(r.a, replacement.before.dependency.fingerprint));
     result = try edit.set(r.a, result, "newSnapshotId", try m.string(r.a, replacement.after.dependency.id));
@@ -348,7 +362,7 @@ pub fn planChange(r: *query.Request) !Plan {
     }
     try review_fields.append(r.a, try m.member(r.a, "version", .{ .number = if (has_upgrades) "1" else "2" }));
     const fingerprint = try hash(r.a, try write(r.a, .{ .object = review_fields.items }));
-    const aggregate = try changes(r, if (host.selection) |old| old.root else .json_null, combined[0].root);
+    const aggregate = try changes(r, if (host.selection) |old| old.typedModel(r.a) else null, combined[0].typedModel(r.a));
     var replaced_values: std.ArrayList(Value) = .empty;
     for (replaced.items) |item| try replaced_values.append(r.a, try description(r.a, item));
     var selected_values: std.ArrayList(Value) = .empty;

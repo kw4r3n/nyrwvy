@@ -5,10 +5,8 @@ const model = @import("model_reader");
 const records = @import("snapshot_reader");
 const planning = @import("dependency_upgrade.zig");
 const query = @import("query.zig");
-const m = @import("materialize.zig");
-const edit = @import("operation_model.zig");
 const Allocator = std.mem.Allocator;
-const Value = model.Value;
+const tm = model.session_model;
 const Json = std.json.Value;
 pub const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession open --snapshot <snapshot-path> --read-only [--allow-host-sources] (takes no lock, so it works while another session has the snapshot open; commit is refused)\n       Nyrwvy.AuthoringSession migrate --snapshot <snapshot-path> [--dependency <exact copy of a legacy pin's source>] [--to <new-path>] (rewrites the snapshot and its dependency sidecar to the current schema, prints the migration report and exits; no session is started; --to writes the result to a new path instead, in the form its extension selects (.nyrec for records), and leaves the source untouched)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n\n       Nyrwvy.AuthoringSession bind-c --header <file.h> ... (proposes capabilities and a C# mapping table for C functions; run bind-c alone for its options)\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default.";
 
@@ -88,16 +86,13 @@ fn rejection(problem: query.Rejection) noreturn {
 fn failed(r: *query.Request) noreturn {
     rejection(r.rejection);
 }
-fn write(a: Allocator, value: Value) ![]const u8 {
+/// `root` written at the current schema, marked with `selected`, in the form `path`'s extension selects.
+fn publish(a: Allocator, path: []const u8, root: model.Model, selected: ?host.Dependency) ![]const u8 {
+    var generation = root.data.snapshot.*;
+    generation.marker = if (selected) |dep| .{ .snapshot = try std.unicode.utf8ToUtf16LeAlloc(a, dep.id), .digest = try std.unicode.utf8ToUtf16LeAlloc(a, dep.digest) } else null;
     var out: std.Io.Writer.Allocating = .init(a);
-    try m.write(&out.writer, value);
-    return out.written();
-}
-fn encode(a: Allocator, path: []const u8, local: Value, dependency: ?host.Dependency) ![]const u8 {
-    var document = local;
-    if (dependency) |d| document = try edit.set(a, document, "dependency", try m.object(a, &.{ try m.member(a, "snapshotId", try m.string(a, d.id)), try m.member(a, "digest", try m.string(a, d.digest)) }));
-    const written = try model.writtenText(a, try write(a, document));
-    return if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, written.text) else written.text;
+    try model.session_writer.writeDocument(&out.writer, root.context.interner, &generation, model.currentVersion());
+    return if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, out.written()) else out.written();
 }
 fn createAtomic(a: Allocator, path: []const u8, content: []const u8) !void {
     switch (try @import("view_file.zig").createAtomic(a, path, content)) {
@@ -115,7 +110,7 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
     try host.acquireLock(io, a, path);
     if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
-    var request: query.Request = .{ .a = a, .line = "{}", .root = .{}, .model = .json_null, .provenance = null, .snapshot_path = path };
+    var request: query.Request = .{ .a = a, .line = "{}", .root = .{}, .provenance = null, .snapshot_path = path };
     var pinned: std.ArrayList(planning.Pinned) = .empty;
     for (command.sources) |source| try pinned.append(a, planning.pin(&request, source) catch failed(&request));
     for (pinned.items, 0..) |item, i| for (pinned.items[0..i]) |previous| if (same(item.source, previous.source)) host.startupFailure("DependencyFailure: Each dependency may be selected only once.", .{});
@@ -127,22 +122,11 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
         manifest = combined[1];
     }
     const id = try @import("ids.zig").next();
-    const local = try m.object(a, &.{
-        try m.member(a, "schemaVersion", try m.number(a, model.currentVersion())),
-        try m.member(a, "snapshotId", try m.string(a, &id)),
-        try m.member(a, "types", .{ .array = &.{} }),
-        try m.member(a, "effects", .{ .array = &.{} }),
-        try m.member(a, "capabilities", .{ .array = &.{} }),
-        try m.member(a, "functions", .{ .array = &.{} }),
-        try m.member(a, "obligations", .{ .array = &.{} }),
-    });
-    var candidate = local;
-    if (selected) |dependency| {
-        const imported = model.canonicalRoot(a, dependency.root);
-        inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |group| candidate = try edit.set(a, candidate, group, .{ .array = model.arrayItems(imported, group) });
-    }
-    const source = try encode(a, path, local, selected);
-    const read = host.readModel(a, candidate) catch host.startupFailure("{s}", .{host.failure_line});
+    // An empty typed generation with the new ID, marked with the combined selection.
+    var interner: tm.Interner = .{ .gpa = a };
+    var generation: tm.Generation = .{ .snapshot = tm.none, .parent = tm.none, .marker = null, .types = &.{}, .effects = &.{}, .capabilities = &.{}, .functions = &.{}, .obligations = &.{} };
+    generation.snapshot = try interner.id(.snapshot, try std.unicode.utf8ToUtf16LeAlloc(a, &id));
+    const source = try publish(a, path, model.typedRoot(a, &interner, &generation), selected);
     if (manifest) |content| try createAtomic(a, sidecar, content);
     switch (try @import("view_file.zig").createAtomic(a, path, source)) {
         .written => {},
@@ -154,10 +138,7 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     }
     const backend = try std.mem.concat(a, u8, &.{ path, ".backends.json" });
     if (!fileExists(io, backend)) _ = @import("view_file.zig").createAtomic(a, backend, "{\"targets\": [\"csharp\"]}\n") catch {};
-    host.selection = selected;
-    host.dependency_manifest = manifest;
-    host.persisted_source = source;
-    host.install(a, read);
+    try host.load(io, a, path, false);
 }
 fn alreadyExists(path: []const u8) noreturn {
     host.startupFailure("SnapshotFileAlreadyExists: A snapshot already exists at {s}. Use open to resume it; create never overwrites.", .{path});
@@ -177,23 +158,22 @@ pub fn persistPin(a: Allocator, source_override: ?[]const u8) !void {
     const selected = host.selection orelse host.startupFailure("DependencyFailure: This workspace has no dependency selection to pin.", .{});
     if (selected.provenance.members[0].embedded and source_override == null) return;
     const path = selected.provenance.members[0].path;
-    const json = (try model.writtenText(a, selected.canonical)).text;
-    const record = std.mem.endsWith(u8, path, ".nyrec");
-    const next = try write(a, try m.object(a, &.{ try m.member(a, "fingerprint", try m.string(a, selected.fingerprint)), try m.member(a, "path", try m.string(a, path)), try m.member(a, "snapshotId", try m.string(a, selected.id)), try m.member(a, if (record) "snapshotRecords" else "snapshotJson", try m.string(a, if (record) try records.recordsOf(a, json) else json)) }));
+    const next = try planning.write(a, try planning.embedded(a, selected, path));
     // A pin may recover a missing legacy authority from an exact copy; verify the bytes, not that old path.
     const sidecar = try std.mem.concat(a, u8, &.{ host.snapshot_path, ".dependency.json" });
     if (try verifyPinPersisted(a, sidecar)) |problem| rejection(problem);
-    const read = host.readModel(a, model.canonicalRoot(a, selected.root)) catch host.startupFailure("{s}", .{host.failure_line});
-    const pinned = host.dependencyFromRead(a, read, path, true) catch host.startupFailure("{s}", .{host.failure_line});
     if (try host.replaceAtomically(a, sidecar, next)) |problem| rejection(problem);
+    // Not reloaded: F# keeps the opened state, and rereading would observe IDs in the new sidecar's path.
+    const members = try a.dupe(@TypeOf(selected.provenance.members[0]), selected.provenance.members);
+    members[0].embedded = true;
+    host.selection.?.provenance.members = members;
     host.dependency_manifest = next;
-    host.selection = pinned;
 }
 fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
     try host.openUsing(io, a, command.path, false, false, null, false);
     if (command.mode != .selection and host.selection == null) host.startupFailure("DependencyFailure: This workspace has no dependency to upgrade; add one with a selection whose replaces is empty.", .{});
     const line = if (command.mode == .single) "{\"op\":\"previewDependencyUpgrade\"}" else try std.fmt.allocPrint(a, "{{\"op\":\"previewDependencyUpgrades\",\"{s}\":{s}}}", .{ if (command.mode == .batch) @as([]const u8, "upgrades") else "selection", command.payload });
-    var request = try host.startupRequest(a, line);
+    var request = try host.startupRequest(a, line, (try std.json.parseFromSliceLeaky(Json, a, line, .{})).object);
     const plan = if (command.mode == .single) planning.planSingle(&request, command.sources[0], command.replaces) catch failed(&request) else planning.planChange(&request) catch failed(&request);
     if (!same(plan.fingerprint, command.fingerprint)) host.startupFailure("DependencyFailure: {s}", .{switch (command.mode) {
         .single => @as([]const u8, "The source differs from the reviewed upgrade version."),
@@ -206,8 +186,7 @@ fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
         const tail = if (issues.len == 1) "" else try std.fmt.allocPrint(a, " ({d} issues; see details)", .{issues.len});
         host.startupFailure("WorkspaceValidationFailure: The workspace graph is invalid: {s}: {s}{s}", .{ model.utf8(model.decoded(model.property(first, "code").?)), model.utf8(model.decoded(model.property(first, "message").?)), tail });
     }
-    const source = try encode(a, host.snapshot_path, plan.local, plan.dependency);
-    const read = host.readModel(a, plan.candidate) catch host.startupFailure("{s}", .{host.failure_line});
+    const source = try publish(a, host.snapshot_path, plan.local, plan.dependency);
     if (host.selection != null) {
         if (try host.replaceDependencyPair(a, source, plan.manifest)) |problem| rejection(problem);
     } else {
@@ -220,10 +199,7 @@ fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
             rejection(problem);
         }
     }
-    host.selection = plan.dependency;
-    host.dependency_manifest = plan.manifest;
-    host.persisted_source = source;
-    host.install(a, read);
+    try host.load(io, a, host.snapshot_path, false);
 }
 pub fn run(io: std.Io, a: Allocator, args: []const []const u8) !bool {
     model.beginRequest(a);
@@ -245,6 +221,7 @@ test "startup accepts only exact CLI forms and payloads" {
     try std.testing.expect((try parse(a, &.{ "pin", "--snapshot", "x", "--dependency", "one", "--dependency", "two" })) == null);
     for ([_][]const u8{ "[]", "[{\"source\":\"x\",\"replaces\":\"a\",\"extra\":0}]", "[{\"source\":\"x\",\"source\":\"y\",\"replaces\":\"a\"}]", "[{\"source\":null,\"replaces\":\"a\"}]" }) |payload| try std.testing.expect((try parse(a, &.{ "upgrade", "--snapshot", "x", "--upgrades", payload, "--review", "f" })) == null);
     try std.testing.expect((try parse(a, &.{ "upgrade", "--snapshot", "x", "--selection", "{\"sources\":[],\"replaces\":[]}", "--review", "f" })) != null);
+    try std.testing.expect((try parse(a, &.{ "open", "--snapshot", "x", "--dependency", "d" })) == null);
 }
 
 test "pin final reread reports snapshot and manifest I/O failures without publication" {

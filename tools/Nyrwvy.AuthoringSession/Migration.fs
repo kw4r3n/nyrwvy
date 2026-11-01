@@ -228,15 +228,30 @@ module AuthoringSessionMigration =
                         // sidecar goes first, as in `create`, so an interruption never leaves a snapshot
                         // without its sidecar; at worst an orphan sidecar makes a retry refuse the target.
                         let sidecar = written + ".dependency.json"
-                        (match migratedSelection with
-                         | None -> Ok()
-                         | Some(combined, _) -> SessionStorage.createAtomically sidecar combined.Manifest)
-                        |> Result.bind (fun () ->
-                            match SessionStorage.createAtomically written migratedSource with
-                            | Ok() -> Ok()
-                            | Error error ->
-                                if migratedSelection.IsSome && not (File.Exists written) then SessionStorage.cleanupTemporary sidecar
-                                Error error)
+                        let backends = written + ".backends.json"
+                        let mutable copiedBackends = false
+                        let mutable createdSidecar = false
+                        let saved =
+                            (if File.Exists backends then Ok()
+                             else
+                                 SessionStorage.fileExists (path + ".backends.json")
+                                 |> Result.bind (fun exists ->
+                                     if not exists then Ok()
+                                     else
+                                         SessionStorage.readText (path + ".backends.json")
+                                         |> Result.bind (SessionStorage.createAtomically backends)
+                                         |> Result.map (fun () -> copiedBackends <- true)))
+                            |> Result.bind (fun () ->
+                                match migratedSelection with
+                                | None -> Ok()
+                                | Some(combined, _) ->
+                                    SessionStorage.createAtomically sidecar combined.Manifest
+                                    |> Result.map (fun () -> createdSidecar <- true))
+                            |> Result.bind (fun () -> SessionStorage.createAtomically written migratedSource)
+                        if Result.isError saved && not (File.Exists written) then
+                            if copiedBackends then SessionStorage.cleanupTemporary backends
+                            if createdSidecar then SessionStorage.cleanupTemporary sidecar
+                        saved
                     | None, Some current, Some(combined, _) ->
                         SessionStorage.replaceDependencyPair path source current.Manifest migratedSource combined.Manifest
                     | _ ->

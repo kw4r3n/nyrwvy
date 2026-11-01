@@ -288,3 +288,68 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
             // Both outcomes occur and the rejections are varied, so neither half of the comparison is vacuous.
             Assert.True(accepted > 100 && rejectedCount > 300 && rejected.Count > 40, $"accepted {accepted}, rejected {rejectedCount}, distinct {rejected.Count}")
         finally Directory.Delete(dir, true)
+
+module ZigTypedDirectWriterTests =
+    open ZigModelReaderSupport
+
+    let private id<'tag> text = StableId.createForTesting<'tag> text
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The direct typed writer matches F sharp canonical snapshots and fingerprints`` () =
+        let reader = ZigTools.tool "model-reader" |> unwrap
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-direct-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            // Reverse only collections whose order is defined by ID, leaving parameters and type arguments alone.
+            let reordered (json: string) =
+                let root = JsonNode.Parse(json).AsObject()
+                for key in [ "types"; "effects"; "capabilities"; "functions"; "obligations" ] do
+                    match root[key] with
+                    | :? JsonArray as items ->
+                        let copy = items |> Seq.map (fun item -> item.DeepClone()) |> Seq.rev |> Seq.toArray
+                        items.Clear()
+                        for item in copy do items.Add item
+                    | _ -> ()
+                // Reverse object properties too, so the input is not already in canonical order.
+                let properties = root |> Seq.map (fun p -> p.Key, if isNull p.Value then null else p.Value.DeepClone()) |> Seq.rev |> Seq.toArray
+                root.Clear()
+                for key, value in properties do root.Add(key, value)
+                root.ToJsonString()
+            let check name input expected printed =
+                let source, output = Path.Combine(dir, name + ".in.json"), Path.Combine(dir, name + ".out.json")
+                File.WriteAllText(source, reordered input, Text.UTF8Encoding false)
+                let info = ProcessStartInfo(reader, [ "--typed-direct-roundtrip"; source; output ])
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                use child = Process.Start info
+                let actual = child.StandardOutput.ReadToEnd()
+                let errors = child.StandardError.ReadToEnd()
+                child.WaitForExit()
+                Assert.True(child.ExitCode = 0, $"{name}: {errors}")
+                Assert.Equal(printed, actual)
+                Assert.Equal(expected, File.ReadAllText output)
+            let plain name (snapshot: Snapshot) =
+                let json = SnapshotCodec.serialize snapshot |> unwrap
+                let hashes = $"snapshot {SnapshotFingerprint.compute snapshot |> unwrap |> SnapshotFingerprint.value}\nsemantic {SemanticFingerprint.compute snapshot |> unwrap |> SemanticFingerprint.value}\n"
+                check name json json hashes
+            let parameter = id<TypeParameterTag> "typed-unicode-parameter"
+            let generic: Snapshot =
+                { Snapshot.empty (id<SnapshotTag> "typed-unicode-snapshot") with
+                    Types = [ { Id = id<TypeTag> "typed-unicode-type"; DisplayName = "型😀<&>"; Exported = true
+                                TypeParameters = [ parameter, "型引数😀" ]
+                                Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "typed-unicode-field"; DisplayName = "値 é"; Type = TypeRef.TypeParameter parameter } ] } ] }
+            plain "unicode-generic" generic
+            let kinds = RecordCodecAllKindsTests.allKindSnapshots ()
+            for index, snapshot in List.indexed kinds do plain $"kind-{index}" snapshot
+            let examples = Directory.GetFiles(Path.Combine(root (), "examples"), "*.nyrec", SearchOption.AllDirectories) |> Array.sort
+            Assert.NotEmpty examples
+            for index, path in Array.indexed examples do
+                let snapshot = File.ReadAllText path |> RecordCodec.deserialize |> unwrap
+                plain $"example-{index}" snapshot
+            let snapshot = List.head kinds
+            let dependency = { snapshot with Id = id<SnapshotTag> "typed-direct-dependency"; ParentId = None; Functions = []; Obligations = [] }
+            let local = { snapshot with Types = []; Effects = []; Capabilities = [] }
+            let resolved = SnapshotCodec.serializeResolved dependency local |> unwrap
+            check "resolved" resolved resolved "resolved\n"
+        finally
+            Directory.Delete(dir, true)

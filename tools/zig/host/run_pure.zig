@@ -60,11 +60,11 @@ fn loweringError(r: *q.Request, failure: []const u8) !void {
     r.rejection = .{ .code = "ExecutionLoweringFailure", .message = case };
     if (!m.same(case, "AmbiguousEffectOrder")) return error.Rejected;
     const detail = failure[case.len + 2 ..];
-    for (model.arrayItems(r.model, "functions")) |function| {
+    for (r.typedModel().functions()) |function| {
         const id = q.idOf(function);
         if (!std.mem.startsWith(u8, detail, id) or detail.len <= id.len or detail[id.len] != ' ') continue;
         const pair = detail[id.len + 1 ..];
-        const nodes = model.bodyNodes(r.a, function);
+        const nodes = model.typedBodyNodes(r.a, function);
         for (nodes) |first| {
             const first_id = q.idOf(first);
             if (!std.mem.startsWith(u8, pair, first_id) or pair.len <= first_id.len or pair[first_id.len] != ' ') continue;
@@ -89,23 +89,23 @@ fn loweringError(r: *q.Request, failure: []const u8) !void {
     return error.Rejected;
 }
 
-fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Value) !model.Value {
+fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Model) !model.Value {
     var kind: []const u8 = "unknown";
     var name = id;
     for (nodes) |node| if (m.same(q.idOf(node), id)) {
-        const tag = model.utf8(model.decoded(model.property(node, "kind").?));
+        const tag = model.utf8(node.kind());
         kind = try r.a.dupe(u8, tag);
         @constCast(kind)[0] = std.ascii.toUpper(kind[0]);
         name = kind;
         if (m.same(tag, "directCall")) {
-            const target = model.utf8(model.decoded(model.property(node, "targetFunctionId").?));
-            for (model.arrayItems(r.model, "functions")) |function| if (m.same(q.idOf(function), target)) {
+            const target = model.utf8(node.reference("targetFunctionId"));
+            for (r.typedModel().functions()) |function| if (m.same(q.idOf(function), target)) {
                 name = try std.mem.concat(r.a, u8, &.{ "Call to ", q.nameOf(function) });
                 break;
             };
         } else if (m.same(tag, "capabilityInvoke")) {
-            const operation_id = model.utf8(model.decoded(model.property(node, "operationId").?));
-            for (model.arrayItems(r.model, "capabilities")) |capability| for (model.arrayItems(capability, "operations")) |operation| if (m.same(q.idOf(operation), operation_id)) {
+            const operation_id = model.utf8(node.reference("operationId"));
+            for (r.typedModel().capabilities()) |capability| for (capability.operations()) |operation| if (m.same(q.idOf(operation), operation_id)) {
                 name = try std.mem.concat(r.a, u8, &.{ q.nameOf(capability), ".", q.nameOf(operation) });
             };
         }
@@ -115,7 +115,7 @@ fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Value) !m
 }
 
 pub fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
-    return switch (model.executionForEntry(r.a, r.model, entry)) {
+    return switch (model.typedExecutionForEntry(r.a, r.typedModel(), entry)) {
         .ir => |ir| ir,
         .projection => |case| {
             r.rejection = .{ .code = "SemanticProjectionFailure", .message = case };
@@ -129,7 +129,7 @@ pub fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
 }
 
 fn runner(r: *q.Request, input: *values.Input, reach: []const u8) ![]const u8 {
-    const first = switch (model.executionForEntry(r.a, r.model, null)) {
+    const first = switch (model.typedExecutionForEntry(r.a, r.typedModel(), null)) {
         .ir => |ir| ir,
         else => reach,
     };
@@ -214,48 +214,4 @@ test "runner dispatch name preserves arbitrary UTF-8 stable IDs" {
     const name = emitter.functionName(std.testing.allocator, "entry/日本");
     defer std.testing.allocator.free(name);
     try std.testing.expectEqualStrings("f_entry___", name);
-}
-
-test "typed host reads preserve focus viewer lowering and private declaration visibility" {
-    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    model.beginRequest(a);
-    const source =
-        \\{"snapshotId":"snapshot","types":[{"id":"hidden","displayName":"Private","kind":"product","fields":[]}],"effects":[],"capabilities":[],"functions":[{"id":"00000000-0000-0000-0000-000000000001","displayName":"Caller","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"nodes":[{"id":"00000000-0000-0000-0000-000000000003","kind":"directCall","targetFunctionId":"00000000-0000-0000-0000-000000000002","arguments":[]}],"resultNodeId":"00000000-0000-0000-0000-000000000003"}},{"id":"00000000-0000-0000-0000-000000000002","displayName":"Literal","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"nodes":[{"id":"00000000-0000-0000-0000-000000000004","kind":"stringLiteral","value":"line\n\uD83D\uDE80"}],"resultNodeId":"00000000-0000-0000-0000-000000000004"}}],"obligations":[]}
-    ;
-    const decoded = try model.parseValue(a, try std.fmt.allocPrint(a, "{{\"schemaVersion\":{d},{s}", .{ model.currentVersion(), source[1..] }));
-    const owned = try model.ownTyped(a, decoded, false);
-    const line = "{\"id\":\"read\",\"op\":\"readFunction\",\"functionId\":\"00000000-0000-0000-0000-000000000002\"}";
-    const request = try std.json.parseFromSliceLeaky(std.json.Value, a, line, .{});
-    var old: q.Request = .{ .a = a, .line = line, .root = request.object, .model = decoded, .provenance = .{ .members = &.{}, .hidden = &.{"type:hidden"} } };
-    var fresh = old;
-    fresh.model = owned;
-    for ([_][]const u8{ "compact", "outline", "full" }) |detail| {
-        try old.root.put(a, "detail", .{ .string = detail });
-        fresh.root = old.root;
-        var before: std.Io.Writer.Allocating = .init(a);
-        model.beginRequest(a);
-        try q.readFunction(&old, &before.writer);
-        var after: std.Io.Writer.Allocating = .init(a);
-        model.beginRequest(a);
-        try q.readFunction(&fresh, &after.writer);
-        try std.testing.expectEqualStrings(before.written(), after.written());
-    }
-    model.beginRequest(a);
-    const before_view = try @import("viewer.zig").focusData(a, decoded, "snapshot", model.arrayItems(decoded, "functions")[1]);
-    model.beginRequest(a);
-    const after_view = try @import("viewer.zig").focusData(a, owned, "snapshot", model.arrayItems(owned, "functions")[1]);
-    try std.testing.expectEqualStrings(before_view, after_view);
-    model.beginRequest(a);
-    const before_ir = try lowered(&old, "00000000-0000-0000-0000-000000000001");
-    model.beginRequest(a);
-    const after_ir = try lowered(&fresh, "00000000-0000-0000-0000-000000000001");
-    try std.testing.expectEqualStrings(before_ir, after_ir);
-    try std.testing.expect(!concurrentValue(try std.json.parseFromSliceLeaky(std.json.Value, a, after_ir, .{})));
-    model.beginRequest(a);
-    const visible = try values.declarationView(&fresh);
-    try std.testing.expect(visible == .typed);
-    try std.testing.expectEqual(@as(usize, 0), model.arrayItems(visible, "types").len);
-    try std.testing.expectEqual(@as(usize, 1), model.arrayItems(owned, "types").len);
 }

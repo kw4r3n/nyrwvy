@@ -82,7 +82,7 @@ fn observe(context: *q.Request, case: values.VerificationCase, expected: ?values
 }
 /// Instruction uses matter here; unused Task declarations do not make observations concurrent.
 fn concurrent(context: *q.Request, id: []const u8) bool {
-    const text_ = switch (model.executionForEntry(context.a, context.model, id)) {
+    const text_ = switch (model.typedExecutionForEntry(context.a, context.typedModel(), id)) {
         .ir => |ir| ir,
         else => return true,
     };
@@ -127,19 +127,19 @@ fn contains(items: []const Value, id: []const u8) bool {
     for (items) |item| if (m.same(model.utf8(model.decoded(item)), id)) return true;
     return false;
 }
-fn affected(r: *q.Request, p: *const proposals.Pending, candidate: Value) ![]const Value {
+fn affected(r: *q.Request, p: *const proposals.Pending, candidate: model.Model) ![]const Value {
     var ids: std.ArrayList(Value) = .empty;
     try ids.appendSlice(r.a, try proposals.functionIds(r, p));
     model.useAllocator(r.a);
     while (true) {
         const count = ids.items.len;
-        for ([_]Value{ r.model, candidate }) |graph| for (model.arrayItems(graph, "functions")) |function| {
+        for ([_]model.Model{ r.typedModel(), candidate }) |graph| for (graph.functions()) |function| {
             if (contains(ids.items, q.idOf(function))) continue;
             var found = false;
-            for (model.bodyNodes(r.a, function)) |node| for (model.functionIdsOf(node)) |id| {
+            for (model.typedBodyNodes(r.a, function)) |node| for (model.typedFunctionIdsOf(node)) |id| {
                 if (contains(ids.items, model.utf8(id))) found = true;
             };
-            if (found) try ids.append(r.a, model.property(function, "id").?);
+            if (found) try ids.append(r.a, .{ .string = function.id() });
         };
         if (ids.items.len == count) break;
     }
@@ -159,7 +159,8 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     var baseline = r.*;
     var candidate = r.*;
     if (pending) |p| if (!r.session_invalidated and !p.operations) {
-        candidate.model = proposals.pendingModel(p, false);
+        candidate.generation = &p.generation;
+        candidate.interner = r.interner;
         if (p.dependency) |dependency| candidate.provenance = dependency.selected.provenance;
     };
     const cases = try values.verificationCases(r, &candidate, m.same(op, "verifyChangeByName"));
@@ -169,28 +170,29 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     const p = try proposals.lookup(r, wanted);
     if (!m.same(p.base_id, r.snapshot_id)) return failure(r, "ExternalModification", "The snapshot file changed outside this session.");
     if (p.operations) return failure(r, "DependencyFailure", "Candidate execution is unsupported for operations proposals.");
-    candidate.model = proposals.pendingModel(p, false);
-    candidate.snapshot_id = prop(p.model, "snapshotId");
+    candidate.generation = &p.generation;
+    candidate.interner = r.interner;
+    candidate.snapshot_id = model.utf8(candidate.typedModel().id());
     const receipt = try model.parseValue(r.a, p.receipt);
     candidate.snapshot_fingerprint = prop(receipt, "proposedSnapshotFingerprint");
     var observations: std.ArrayList(Value) = .empty;
     var entries: std.ArrayList(Value) = .empty;
     for (cases) |case| {
-        const original_model = baseline.model;
-        baseline.model = try values.declarationView(&baseline);
+        const original_generation = baseline.generation;
+        baseline.generation = (try values.declarationView(&baseline)).data.snapshot;
         const arguments = try r.a.alloc(Value, case.arguments.len);
         for (case.arguments, arguments) |arg, *slot| slot.* = try values.encodedInput(&baseline, arg);
-        baseline.model = original_model;
-        const candidate_model = candidate.model;
-        candidate.model = try values.declarationView(&candidate);
+        baseline.generation = original_generation;
+        const candidate_generation = candidate.generation;
+        candidate.generation = (try values.declarationView(&candidate)).data.snapshot;
         const expected = if (case.expected) |value| try values.encodedInput(&candidate, value) else .json_null;
-        candidate.model = candidate_model;
+        candidate.generation = candidate_generation;
         const before = try observe(&baseline, case, null);
         const after = try observe(&candidate, case, case.expected);
         var fields: std.ArrayList(model.Member) = .empty;
         try fields.append(r.a, try m.member(r.a, "label", try m.string(r.a, case.label)));
         try fields.append(r.a, try m.member(r.a, "functionId", try m.string(r.a, case.function_id)));
-        for (try q.visible(&baseline, "function")) |f| if (m.same(q.idOf(f), case.function_id)) {
+        for (try q.typedVisible(&baseline, "function")) |f| if (m.same(q.idOf(f), case.function_id)) {
             try fields.append(r.a, try m.member(r.a, "function", try m.string(r.a, q.nameOf(f))));
             break;
         };
@@ -204,7 +206,7 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     const request = try recipe.rawProperty(r.a, r.line, "cases");
     var digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(request, &digest, .{});
-    const evidence = try object(r, .{ .{ "proposalId", try m.string(r.a, p.id) }, .{ "baselineSnapshotId", try m.string(r.a, baseline.snapshot_id) }, .{ "candidateSnapshotId", try m.string(r.a, candidate.snapshot_id) }, .{ "caseRequest", try m.string(r.a, request) }, .{ "casesDigest", try m.string(r.a, try std.fmt.allocPrint(r.a, "{X}", .{digest})) }, .{ "verifierIdentity", verifier }, .{ "baselineFingerprint", try m.string(r.a, baseline.snapshot_fingerprint) }, .{ "candidateFingerprint", try m.string(r.a, candidate.snapshot_fingerprint) }, .{ "coverage", try m.string(r.a, "Explicit cases only; no proof of equivalence. Recognized mapped candidate-only program/fake failures are counterexamples after baseline success; other failures and concurrency are unknown. Effects must be preserved. Entry points are not dynamic coverage.") }, .{ "caseEntryFunctionIds", Value{ .array = entries.items } }, .{ "affectedFunctionIds", Value{ .array = try affected(r, p, candidate.model) } }, .{ "cases", Value{ .array = observations.items } } });
+    const evidence = try object(r, .{ .{ "proposalId", try m.string(r.a, p.id) }, .{ "baselineSnapshotId", try m.string(r.a, baseline.snapshot_id) }, .{ "candidateSnapshotId", try m.string(r.a, candidate.snapshot_id) }, .{ "caseRequest", try m.string(r.a, request) }, .{ "casesDigest", try m.string(r.a, try std.fmt.allocPrint(r.a, "{X}", .{digest})) }, .{ "verifierIdentity", verifier }, .{ "baselineFingerprint", try m.string(r.a, baseline.snapshot_fingerprint) }, .{ "candidateFingerprint", try m.string(r.a, candidate.snapshot_fingerprint) }, .{ "coverage", try m.string(r.a, "Explicit cases only; no proof of equivalence. Recognized mapped candidate-only program/fake failures are counterexamples after baseline success; other failures and concurrency are unknown. Effects must be preserved. Entry points are not dynamic coverage.") }, .{ "caseEntryFunctionIds", Value{ .array = entries.items } }, .{ "affectedFunctionIds", Value{ .array = try affected(r, p, candidate.typedModel()) } }, .{ "cases", Value{ .array = observations.items } } });
     var encoded: std.Io.Writer.Allocating = .init(r.a);
     try m.write(&encoded.writer, evidence);
     const output = if (r.root.get("output") != null) try text(r, "output") else null;

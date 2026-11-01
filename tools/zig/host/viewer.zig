@@ -34,31 +34,10 @@ fn isKind(kind: Str, comptime name: []const u8) bool {
     return true;
 }
 
-fn decodedAt(item: Value, name: []const u8) Str {
-    return model.decoded(model.property(item, name).?);
-}
-
-fn same(item: Value, id: Str) bool {
-    return std.mem.eql(u16, decodedAt(item, "id"), id);
-}
-
 fn lessStr(_: void, x: Str, y: Str) bool {
     return std.mem.order(u16, x, y) == .lt;
 }
 
-fn writeValues(out: *Writer, items: []const Value) !void {
-    try out.writeByte('[');
-    for (items, 0..) |item, index| {
-        if (index > 0) try out.writeByte(',');
-        try model.writeString(out, model.decoded(item));
-    }
-    try out.writeByte(']');
-}
-
-// ---------------------------------------------------------------- dependency roles
-
-/// One operand place of a node kind (dependency_roles.txt): its property, whether it is an array
-/// (of node IDs or of bindings whose `valueNodeId` is the operand), and its `ValueDependencyRole`.
 const Place = struct { property: []const u8, array: bool, role: []const u8 };
 
 var dependency_roles: ?std.StringHashMapUnmanaged([]const Place) = null;
@@ -86,29 +65,46 @@ pub fn placesOf(kind: []const u8) []const Place {
     return dependency_roles.?.get(kind).?;
 }
 
-/// `ValueDependency.ofNode`, each as `dependencyRole` and the operand's `nodeId`.
-pub fn writeDependencies(out: *Writer, node: Value, kind: []const u8) !void {
+pub fn typedWriteDependencies(out: *Writer, node: model.Model, kind: []const u8) !void {
     try out.writeByte('[');
     var count: usize = 0;
     for (placesOf(kind)) |place| {
-        const value = model.property(node, place.property) orelse continue;
-        const items: []const Value = if (place.array) value.array else &.{value};
-        for (items, 0..) |item, index| {
-            if (count > 0) try out.writeByte(',');
-            count += 1;
-            try out.print("{{\"role\":\"{s}\"", .{place.role});
-            if (item == .string) {
-                if (place.array) try out.print(",\"index\":{d}", .{index});
-                try out.writeAll(",\"nodeId\":");
-                try model.writeString(out, model.decoded(item));
-            } else {
+        const value = node.payload(place.property) orelse continue;
+        switch (value) {
+            .id, .optid => {
+                const id = node.optionalReference(place.property) orelse continue;
+                if (count > 0) try out.writeByte(',');
+                count += 1;
+                try out.print("{{\"role\":\"{s}\",\"nodeId\":", .{place.role});
+                try model.writeString(out, id);
+                try out.writeByte('}');
+            },
+            .ids => |ids| for (ids, 0..) |id, index| {
+                if (count > 0) try out.writeByte(',');
+                count += 1;
+                try out.print("{{\"role\":\"{s}\",\"index\":{d},\"nodeId\":", .{ place.role, index });
+                try model.writeString(out, node.context.interner.idText(.node, id));
+                try out.writeByte('}');
+            },
+            .args, .ctx, .capargs, .fields => {
                 const target, const key = if (std.mem.eql(u8, place.role, "FieldValue")) .{ "targetFieldId", "fieldId" } else if (std.mem.eql(u8, place.role, "CapabilityArgument")) .{ "targetCapabilityParameterId", "parameterId" } else .{ "targetParameterId", "parameterId" };
-                try out.print(",\"{s}\":", .{key});
-                try model.writeString(out, decodedAt(item, target));
-                try out.writeAll(",\"nodeId\":");
-                try model.writeString(out, decodedAt(item, "valueNodeId"));
-            }
-            try out.writeByte('}');
+                const items = try node.context.allocator.dupe(model.Model, node.targets(place.property));
+                std.mem.sort(model.Model, items, target, struct {
+                    fn less(field: []const u8, left: model.Model, right: model.Model) bool {
+                        return std.mem.order(u16, left.reference(field), right.reference(field)) == .lt;
+                    }
+                }.less);
+                for (items) |item| {
+                    if (count > 0) try out.writeByte(',');
+                    count += 1;
+                    try out.print("{{\"role\":\"{s}\",\"{s}\":", .{ place.role, key });
+                    try model.writeString(out, item.reference(target));
+                    try out.writeAll(",\"nodeId\":");
+                    try model.writeString(out, item.reference("valueNodeId"));
+                    try out.writeByte('}');
+                }
+            },
+            else => unreachable,
         }
     }
     try out.writeByte(']');
@@ -116,39 +112,36 @@ pub fn writeDependencies(out: *Writer, node: Value, kind: []const u8) !void {
 
 // ---------------------------------------------------------------- graph
 
-const Viewer = struct {
+const TypedViewer = struct {
     a: Allocator,
     types: std.StringHashMapUnmanaged(?Value) = .empty,
 
-    /// `ViewerProjection.role`.
-    fn role(out: *Writer, node: Value, kind: Str) !void {
+    /// `TypedViewerProjection.role`.
+    fn role(out: *Writer, node: model.Model, kind: Str) !void {
         if (isKind(kind, "stringLiteral")) {
             try out.writeAll("{\"kind\":\"stringLiteral\",\"value\":");
-            try model.writeString(out, decodedAt(node, "value"));
+            try model.writeString(out, node.context.interner.stringText(node.payload("value").?.lit));
         } else if (isKind(kind, "boolLiteral")) {
-            try out.writeAll(if (model.property(node, "value").? == .json_true) "{\"kind\":\"boolLiteral\",\"value\":true" else "{\"kind\":\"boolLiteral\",\"value\":false");
+            try out.writeAll(if (node.payload("value").?.bool) "{\"kind\":\"boolLiteral\",\"value\":true" else "{\"kind\":\"boolLiteral\",\"value\":false");
         } else if (isKind(kind, "int64Literal")) {
             try out.writeAll("{\"kind\":\"int64Literal\",\"value\":");
-            switch (model.property(node, "value").?) {
-                .number => |digits| try out.print("\"{s}\"", .{digits}),
-                else => |value| try model.writeString(out, model.decoded(value)),
-            }
+            try out.print("\"{d}\"", .{node.payload("value").?.int});
         } else if (isKind(kind, "float64Literal")) {
             try out.writeAll("{\"kind\":\"float64Literal\",\"bits\":");
-            try model.writeString(out, decodedAt(node, "bits"));
+            try out.print("\"{x:0>16}\"", .{node.payload("bits").?.bits});
         } else if (isKind(kind, "taskWait")) {
             try out.writeAll("{\"kind\":\"taskWait\",\"mode\":");
-            try model.writeString(out, decodedAt(node, "mode"));
+            try out.print("\"{s}\"", .{@tagName(node.payload("mode").?.mode)});
         } else if (isKind(kind, "capabilityConstruct")) {
             try out.writeAll("{\"kind\":\"capabilityConstruct\",\"capabilityId\":");
-            try model.writeString(out, decodedAt(node, "capabilityId"));
+            try model.writeString(out, node.reference("capabilityId"));
             try out.writeAll(",\"implementations\":[");
-            for (model.arrayItems(node, "implementations"), 0..) |item, index| {
+            for (node.implementations(), 0..) |item, index| {
                 if (index > 0) try out.writeByte(',');
                 try out.writeAll("{\"operationId\":");
-                try model.writeString(out, decodedAt(item, "operationId"));
+                try model.writeString(out, item.reference("operationId"));
                 try out.writeAll(",\"functionId\":");
-                try model.writeString(out, decodedAt(item, "functionId"));
+                try model.writeString(out, item.reference("functionId"));
                 try out.writeByte('}');
             }
             try out.writeByte(']');
@@ -163,27 +156,18 @@ const Viewer = struct {
     }
 
     /// `semanticRelations`, then the functions the node names (distinct), without `DependsOn`.
-    fn relations(self: *Viewer, out: *Writer, node: Value, kind: Str) !void {
+    fn relations(self: *TypedViewer, out: *Writer, node: model.Model, kind: Str) !void {
         try out.writeByte('[');
         var count: usize = 0;
         const semantic: ?struct { []const u8, []const u8 } =
-            if (isKind(kind, "parameterReference")) .{ "ReadsParameter", "parameterId" }
-            else if (isKind(kind, "patternReference")) .{ "ReadsPatternBinding", "patternBindingId" }
-            else if (isKind(kind, "capabilityInvoke")) .{ "InvokesCapabilityOperation", "operationId" }
-            else if (isKind(kind, "productConstruct") or isKind(kind, "productUpdate")) .{ "ConstructsType", "typeId" }
-            else if (isKind(kind, "fieldAccess")) .{ "AccessesField", "fieldId" }
-            else if (isKind(kind, "unionConstruct")) .{ "ConstructsVariant", "variantId" }
-            else if (isKind(kind, "conditional")) .{ "BranchCondition", "conditionNodeId" }
-            else if (isKind(kind, "matchUnion") or isKind(kind, "matchOption") or isKind(kind, "matchResult")) .{ "MatchInput", "inputNodeId" }
-            else if (isKind(kind, "bind")) .{ "BindInput", "inputNodeId" }
-            else null;
+            if (isKind(kind, "parameterReference")) .{ "ReadsParameter", "parameterId" } else if (isKind(kind, "patternReference")) .{ "ReadsPatternBinding", "patternBindingId" } else if (isKind(kind, "capabilityInvoke")) .{ "InvokesCapabilityOperation", "operationId" } else if (isKind(kind, "productConstruct") or isKind(kind, "productUpdate")) .{ "ConstructsType", "typeId" } else if (isKind(kind, "fieldAccess")) .{ "AccessesField", "fieldId" } else if (isKind(kind, "unionConstruct")) .{ "ConstructsVariant", "variantId" } else if (isKind(kind, "conditional")) .{ "BranchCondition", "conditionNodeId" } else if (isKind(kind, "matchUnion") or isKind(kind, "matchOption") or isKind(kind, "matchResult")) .{ "MatchInput", "inputNodeId" } else if (isKind(kind, "bind")) .{ "BindInput", "inputNodeId" } else null;
         if (semantic) |relation| {
             try out.print("{{\"kind\":\"{s}\",\"id\":", .{relation[0]});
-            try model.writeString(out, decodedAt(node, relation[1]));
+            try model.writeString(out, node.reference(relation[1]));
             try out.writeByte('}');
             count += 1;
         }
-        const functions = model.functionRelationsOf(node);
+        const functions = model.typedFunctionRelationsOf(node);
         for (functions, 0..) |function, index| {
             const repeated = for (functions[0..index]) |earlier| {
                 if (earlier.invoked == function.invoked and std.mem.eql(u16, earlier.id, function.id)) break true;
@@ -199,19 +183,19 @@ const Viewer = struct {
         try out.writeByte(']');
     }
 
-    fn binding(out: *Writer, value: Value, source_field: ?Value) !void {
+    fn binding(out: *Writer, value: model.Model, source_field: ?Str) !void {
         try out.writeAll("{\"id\":");
-        try model.writeString(out, decodedAt(value, "id"));
+        try model.writeString(out, value.id());
         try out.writeAll(",\"displayName\":");
-        if (model.property(value, "displayName")) |name| try model.writeString(out, model.decoded(name)) else try out.writeAll("null");
+        if (value.optionalDisplayName()) |name| try model.writeString(out, name) else try out.writeAll("null");
         try out.writeAll(",\"type\":");
-        try wire.typeRef(out, model.property(value, "type").?, &.{});
+        try wire.typedTypeRef(out, value.context.interner, value.data.binding.type, &.{});
         try out.writeAll(",\"sourceFieldId\":");
-        if (source_field) |field| try model.writeString(out, model.decoded(field)) else try out.writeAll("null");
+        if (source_field) |field| try model.writeString(out, field) else try out.writeAll("null");
         try out.writeByte('}');
     }
 
-    fn branch(self: *Viewer, out: *Writer, first: *bool, role_name: []const u8, bindings: []const Value, graph_value: Value) !void {
+    fn branch(self: *TypedViewer, out: *Writer, first: *bool, role_name: []const u8, bindings: []const model.Model, graph_value: model.Model) !void {
         if (!first.*) try out.writeByte(',');
         first.* = false;
         try out.print("{{\"role\":\"{s}\",\"bindings\":[", .{role_name});
@@ -224,55 +208,92 @@ const Viewer = struct {
         try out.writeByte('}');
     }
 
-    /// The node's nested scopes as `ViewerBranch`es, union arms in stable ID order.
-    fn branches(self: *Viewer, out: *Writer, node: Value, kind: Str) !void {
+    /// The node's nested scopes as `TypedViewerBranch`es, union arms in stable ID order.
+    fn branches(self: *TypedViewer, out: *Writer, node: model.Model, kind: Str) !void {
         try out.writeByte('[');
         var first = true;
-        const get = model.property;
         if (isKind(kind, "conditional")) {
-            try self.branch(out, &first, "WhenTrue", &.{}, get(node, "whenTrue").?);
-            try self.branch(out, &first, "WhenFalse", &.{}, get(node, "whenFalse").?);
+            try self.branch(out, &first, "WhenTrue", &.{}, node.graphPayload("whenTrue"));
+            try self.branch(out, &first, "WhenFalse", &.{}, node.graphPayload("whenFalse"));
         } else if (isKind(kind, "boolAnd") or isKind(kind, "boolOr")) {
-            try self.branch(out, &first, "RightOperand", &.{}, get(node, "right").?);
+            try self.branch(out, &first, "RightOperand", &.{}, node.graphPayload("right"));
         } else if (isKind(kind, "matchUnion")) {
-            for (model.arrayItems(node, "arms")) |arm| {
+            const arms = try self.a.dupe(model.Model, node.arms());
+            std.mem.sort(model.Model, arms, {}, struct {
+                fn minimum(arm: model.Model) Str {
+                    const variants = arm.variantIds();
+                    var result = variants[0].literal();
+                    for (variants[1..]) |variant| {
+                        const id = variant.literal();
+                        if (std.mem.order(u16, id, result) == .lt) result = id;
+                    }
+                    return result;
+                }
+                fn less(_: void, x: model.Model, y: model.Model) bool {
+                    return std.mem.order(u16, minimum(x), minimum(y)) == .lt;
+                }
+            }.less);
+            for (arms) |arm| {
                 if (!first) try out.writeByte(',');
                 first = false;
                 try out.writeAll("{\"role\":\"UnionVariant\",\"variantIds\":");
-                if (get(arm, "variantId")) |variant| try writeValues(out, &.{variant}) else try writeValues(out, model.arrayItems(arm, "variantIds"));
-                try out.writeAll(",\"bindings\":[");
-                for (model.arrayItems(arm, "fieldBindings"), 0..) |field, index| {
+                try out.writeByte('[');
+                const variants = try self.a.dupe(model.Model, arm.variantIds());
+                std.mem.sort(model.Model, variants, {}, struct {
+                    fn less(_: void, x: model.Model, y: model.Model) bool {
+                        return std.mem.order(u16, x.literal(), y.literal()) == .lt;
+                    }
+                }.less);
+                for (variants, 0..) |variant, index| {
                     if (index > 0) try out.writeByte(',');
-                    try binding(out, get(field, "binding").?, get(field, "sourceFieldId").?);
+                    try model.writeString(out, variant.literal());
+                }
+                try out.writeByte(']');
+                try out.writeAll(",\"bindings\":[");
+                const fields = try self.a.dupe(model.Model, arm.fieldBindings());
+                std.mem.sort(model.Model, fields, {}, struct {
+                    fn less(_: void, x: model.Model, y: model.Model) bool {
+                        return std.mem.order(u16, x.reference("sourceFieldId"), y.reference("sourceFieldId")) == .lt;
+                    }
+                }.less);
+                for (fields, 0..) |field, index| {
+                    if (index > 0) try out.writeByte(',');
+                    try binding(out, field.boundBinding(), field.reference("sourceFieldId"));
                 }
                 try out.writeAll("],\"graph\":");
-                try self.graph(out, get(arm, "body").?);
+                try self.graph(out, arm.body());
                 try out.writeByte('}');
             }
         } else if (isKind(kind, "bind")) {
-            const body = get(node, "boundBody").?;
-            try self.branch(out, &first, "BindBody", &.{get(body, "valueBinding").?}, get(body, "body").?);
+            const body = node.arm("boundBody");
+            try self.branch(out, &first, "BindBody", &.{body.armBinding()}, body.body());
         } else if (isKind(kind, "matchOption")) {
-            const some = get(node, "someArm").?;
-            try self.branch(out, &first, "OptionSome", &.{get(some, "valueBinding").?}, get(some, "body").?);
-            try self.branch(out, &first, "OptionNone", &.{}, get(node, "noneBody").?);
+            const some = node.arm("someArm");
+            try self.branch(out, &first, "OptionSome", &.{some.armBinding()}, some.body());
+            try self.branch(out, &first, "OptionNone", &.{}, node.graphPayload("noneBody"));
         } else if (isKind(kind, "matchResult")) {
-            const ok_arm, const err_arm = .{ get(node, "okArm").?, get(node, "errArm").? };
-            try self.branch(out, &first, "ResultOk", &.{get(ok_arm, "valueBinding").?}, get(ok_arm, "body").?);
-            try self.branch(out, &first, "ResultErr", &.{get(err_arm, "errorBinding").?}, get(err_arm, "body").?);
+            const ok_arm, const err_arm = .{ node.arm("okArm"), node.arm("errArm") };
+            try self.branch(out, &first, "ResultOk", &.{ok_arm.armBinding()}, ok_arm.body());
+            try self.branch(out, &first, "ResultErr", &.{err_arm.armBinding()}, err_arm.body());
         }
         try out.writeByte(']');
     }
 
     /// `projectGraph`: the nodes in stable ID order (the model's order).
-    fn graph(self: *Viewer, out: *Writer, value: Value) anyerror!void {
+    fn graph(self: *TypedViewer, out: *Writer, value: model.Model) anyerror!void {
         try out.writeAll("{\"resultNodeId\":");
-        try model.writeString(out, decodedAt(value, "resultNodeId"));
+        try model.writeString(out, value.resultNodeId());
         try out.writeAll(",\"nodes\":[");
-        for (model.arrayItems(value, "nodes"), 0..) |node, index| {
+        const nodes = try self.a.dupe(model.Model, value.nodes());
+        std.mem.sort(model.Model, nodes, {}, struct {
+            fn less(_: void, x: model.Model, y: model.Model) bool {
+                return std.mem.order(u16, x.id(), y.id()) == .lt;
+            }
+        }.less);
+        for (nodes, 0..) |node, index| {
             if (index > 0) try out.writeByte(',');
-            const kind = decodedAt(node, "kind");
-            const node_id = decodedAt(node, "id");
+            const kind = node.kind();
+            const node_id = node.id();
             try out.writeAll("{\"id\":");
             try model.writeString(out, node_id);
             try out.writeAll(",\"type\":");
@@ -282,7 +303,7 @@ const Viewer = struct {
             try out.writeAll(",\"relations\":");
             try self.relations(out, node, kind);
             try out.writeAll(",\"valueDependencies\":");
-            try writeDependencies(out, node, model.utf8(kind));
+            try typedWriteDependencies(out, node, model.utf8(kind));
             try out.writeAll(",\"branches\":");
             try self.branches(out, node, kind);
             try out.writeByte('}');
@@ -293,101 +314,9 @@ const Viewer = struct {
 
 // ---------------------------------------------------------------- declarations
 
-/// `declarationClosure`: the types and capabilities the seed types reach, and the effects of the
-/// seeds and of those capabilities' operations, with the IDs the model does not declare.
-const Closure = struct {
-    a: Allocator,
-    root: Value,
-    types: std.ArrayList(Str) = .empty,
-    capabilities: std.ArrayList(Str) = .empty,
-    effects: std.ArrayList(Str) = .empty,
-    missing_types: std.ArrayList(Str) = .empty,
-    missing_capabilities: std.ArrayList(Str) = .empty,
-
-    fn has(list: []const Str, id: Str) bool {
-        for (list) |item| if (std.mem.eql(u16, item, id)) return true;
-        return false;
-    }
-
-    fn addEffect(self: *Closure, id: Str) !void {
-        if (!has(self.effects.items, id)) try self.effects.append(self.a, id);
-    }
-
-    fn find(self: *Closure, group: []const u8, id: Str) ?Value {
-        for (model.arrayItems(self.root, group)) |item| if (same(item, id)) return item;
-        return null;
-    }
-
-    fn visit(self: *Closure, type_ref: Value) anyerror!void {
-        const kind = decodedAt(type_ref, "kind");
-        if (isKind(kind, "function")) {
-            for (model.arrayItems(type_ref, "parameters")) |item| try self.visit(item);
-            try self.visit(model.property(type_ref, "resultType").?);
-        } else if (isKind(kind, "builtinGeneric")) {
-            for (model.arrayItems(type_ref, "arguments")) |item| try self.visit(item);
-        } else if (isKind(kind, "named")) {
-            for (model.arrayItems(type_ref, "arguments")) |item| try self.visit(item);
-            const id = decodedAt(type_ref, "typeId");
-            if (has(self.types.items, id)) return;
-            try self.types.append(self.a, id);
-            const declaration = self.find("types", id) orelse return self.missing_types.append(self.a, id);
-            for (model.arrayItems(declaration, "fields")) |field| try self.visit(model.property(field, "type").?);
-            for (model.arrayItems(declaration, "variants")) |variant| {
-                for (model.arrayItems(variant, "fields")) |field| try self.visit(model.property(field, "type").?);
-            }
-        } else if (isKind(kind, "capability")) {
-            const id = decodedAt(type_ref, "capabilityId");
-            if (has(self.capabilities.items, id)) return;
-            try self.capabilities.append(self.a, id);
-            const capability = self.find("capabilities", id) orelse return self.missing_capabilities.append(self.a, id);
-            for (model.arrayItems(capability, "operations")) |operation| {
-                try self.addEffect(decodedAt(operation, "effectId"));
-                for (model.arrayItems(operation, "parameters")) |parameter| try self.visit(model.property(parameter, "type").?);
-                try self.visit(model.property(operation, "resultType").?);
-                if (model.property(operation, "failureType")) |failure| try self.visit(failure);
-            }
-        }
-    }
-};
-
-fn writeTypeParameters(out: *Writer, item: Value) !void {
-    try out.writeByte('[');
-    for (model.arrayItems(item, "typeParameters"), 0..) |parameter, index| {
-        if (index > 0) try out.writeByte(',');
-        try out.writeAll("{\"typeParameterId\":");
-        try model.writeString(out, decodedAt(parameter, "typeParameterId"));
-        try out.writeAll(",\"displayName\":");
-        try model.writeString(out, decodedAt(parameter, "displayName"));
-        try out.writeByte('}');
-    }
-    try out.writeByte(']');
-}
-
-/// A signature as `ViewerData` writes it: `typeParameters` always, types without display names.
-fn writeSignature(out: *Writer, function: Value, with_exported: bool) !void {
-    try out.writeAll("{\"id\":");
-    try model.writeString(out, decodedAt(function, "id"));
-    try out.writeAll(",\"displayName\":");
-    try model.writeString(out, decodedAt(function, "displayName"));
-    if (with_exported) try out.writeAll(if (model.property(function, "exported") != null) ",\"exported\":true" else ",\"exported\":false");
-    try out.writeAll(",\"typeParameters\":");
-    try writeTypeParameters(out, function);
-    try out.writeAll(",\"parameters\":[");
-    for (model.arrayItems(function, "parameters"), 0..) |parameter, index| {
-        if (index > 0) try out.writeByte(',');
-        try out.writeAll("{\"id\":");
-        try model.writeString(out, decodedAt(parameter, "id"));
-        try out.writeAll(",\"displayName\":");
-        try model.writeString(out, decodedAt(parameter, "displayName"));
-        try out.writeAll(",\"type\":");
-        try wire.typeRef(out, model.property(parameter, "type").?, &.{});
-        try out.writeByte('}');
-    }
-    try out.writeAll("],\"resultType\":");
-    try wire.typeRef(out, model.property(function, "resultType").?, &.{});
-    try out.writeAll(",\"requiredEffects\":");
-    try writeValues(out, model.arrayItems(function, "requiredEffects"));
-    try out.writeByte('}');
+fn has(items: []const Str, id: Str) bool {
+    for (items) |item| if (std.mem.eql(u16, item, id)) return true;
+    return false;
 }
 
 fn writeSorted(a: Allocator, out: *Writer, ids: []const Str) !void {
@@ -396,63 +325,158 @@ fn writeSorted(a: Allocator, out: *Writer, ids: []const Str) !void {
     try query.writeIds(out, sorted);
 }
 
-/// `ViewerData.ofFocus` of `function` in `root`, the open model; `snapshot_id` is its snapshot.
-pub fn focusData(a: Allocator, root: Value, snapshot_id: []const u8, function: Value) ![]const u8 {
-    return std.mem.concat(a, u8, &.{ "{\"view\":\"functionFocus\",\"focus\":", try focusValue(a, root, snapshot_id, function), "}" });
+const TypedClosure = struct {
+    a: Allocator,
+    root: model.Model,
+    types: std.ArrayList(Str) = .empty,
+    capabilities: std.ArrayList(Str) = .empty,
+    effects: std.ArrayList(Str) = .empty,
+    missing_types: std.ArrayList(Str) = .empty,
+    missing_capabilities: std.ArrayList(Str) = .empty,
+    fn addEffect(self: *TypedClosure, id: Str) !void {
+        if (!has(self.effects.items, id)) try self.effects.append(self.a, id);
+    }
+    fn named(self: *TypedClosure, id: Str) anyerror!void {
+        if (has(self.types.items, id)) return;
+        try self.types.append(self.a, id);
+        const declaration = for (self.root.types()) |item| {
+            if (std.mem.eql(u16, item.id(), id)) break item;
+        } else return self.missing_types.append(self.a, id);
+        for (declaration.fields()) |field| try self.visit(field.data.slot.value.type);
+        for (declaration.variants()) |variant| for (variant.fields()) |field| try self.visit(field.data.slot.value.type);
+    }
+    fn capability(self: *TypedClosure, id: Str) anyerror!void {
+        if (has(self.capabilities.items, id)) return;
+        try self.capabilities.append(self.a, id);
+        const declaration = for (self.root.capabilities()) |item| {
+            if (std.mem.eql(u16, item.id(), id)) break item;
+        } else return self.missing_capabilities.append(self.a, id);
+        for (declaration.operations()) |operation| {
+            try self.addEffect(operation.reference("effectId"));
+            for (operation.parameters()) |parameter| try self.visit(parameter.data.slot.value.type);
+            try self.visit(operation.data.operation.result);
+            if (operation.data.operation.failure) |failure| try self.visit(failure);
+        }
+    }
+    fn visit(self: *TypedClosure, t: model.session_model.TypeRef) anyerror!void {
+        switch (t) {
+            .named => |v| {
+                if (v.arguments) |args| for (args) |arg| try self.visit(arg);
+                try self.named(self.root.context.interner.idText(.type, v.id));
+            },
+            .capability => |v| try self.capability(self.root.context.interner.idText(.capability, v)),
+            .function => |v| {
+                for (v.parameters) |p| try self.visit(p);
+                try self.visit(v.result.*);
+            },
+            .generic => |v| for (v.arguments) |arg| try self.visit(arg),
+            else => {},
+        }
+    }
+    fn visitInferred(self: *TypedClosure, t: model.SemanticType) anyerror!void {
+        switch (t.kind) {
+            .function => {
+                for (t.args) |arg| try self.visitInferred(arg);
+                try self.visitInferred(t.result.?.*);
+            },
+            .generic => for (t.args) |arg| try self.visitInferred(arg),
+            .named => {
+                for (t.args) |arg| try self.visitInferred(arg);
+                try self.named(t.name);
+            },
+            .capability => try self.capability(t.name),
+            else => {},
+        }
+    }
+};
+
+fn typedSignature(out: *Writer, function: model.Model, with_exported: bool) !void {
+    const i = function.context.interner;
+    const f = function.data.function;
+    try out.writeAll("{\"id\":");
+    try model.writeString(out, function.id());
+    try out.writeAll(",\"displayName\":");
+    try model.writeString(out, function.displayName());
+    if (with_exported) try out.writeAll(if (f.exported) ",\"exported\":true" else ",\"exported\":false");
+    try out.writeAll(",\"typeParameters\":[");
+    for (f.type_parameters orelse &.{}, 0..) |parameter, n| {
+        if (n > 0) try out.writeByte(',');
+        try out.writeAll("{\"typeParameterId\":");
+        try model.writeString(out, i.idText(.type_parameter, parameter.id));
+        try out.writeAll(",\"displayName\":");
+        try model.writeString(out, i.stringText(parameter.name));
+        try out.writeByte('}');
+    }
+    try out.writeAll("],\"parameters\":[");
+    for (f.parameters, 0..) |parameter, n| {
+        if (n > 0) try out.writeByte(',');
+        try out.writeAll("{\"id\":");
+        try model.writeString(out, i.idText(.parameter, parameter.id));
+        try out.writeAll(",\"displayName\":");
+        try model.writeString(out, i.stringText(parameter.name));
+        try out.writeAll(",\"type\":");
+        try wire.typedTypeRef(out, i, parameter.type, &.{});
+        try out.writeByte('}');
+    }
+    try out.writeAll("],\"resultType\":");
+    try wire.typedTypeRef(out, i, f.result, &.{});
+    try out.writeAll(",\"requiredEffects\":[");
+    for (f.effects, 0..) |effect, n| {
+        if (n > 0) try out.writeByte(',');
+        try model.writeString(out, i.idText(.effect, effect));
+    }
+    try out.writeAll("]}");
 }
 
-/// Shared by Function Focus and the committed/proposed sides of a Change Review.
-pub fn focusValue(a: Allocator, root: Value, snapshot_id: []const u8, function: Value) ![]const u8 {
-    const wanted = decodedAt(function, "id");
-    const focus = model.focusOf(a, root, function);
+pub fn typedFocusData(a: Allocator, root: model.Model, snapshot_id: []const u8, function: model.Model) ![]const u8 {
+    return std.mem.concat(a, u8, &.{ "{\"view\":\"functionFocus\",\"focus\":", try typedFocusValue(a, root, snapshot_id, function), "}" });
+}
+pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8, function: model.Model) ![]const u8 {
+    const wanted = function.id();
+    const focus = model.typedFocusOf(a, root, function);
     var data: Writer.Allocating = .init(a);
     const out = &data.writer;
     try out.writeAll("{\"snapshotId\":");
-    try @import("root").writeString(out, snapshot_id);
+    try model.writeString(out, try std.unicode.utf8ToUtf16LeAlloc(a, snapshot_id));
     try out.writeAll(",\"function\":");
-    try writeSignature(out, function, true);
-    try out.writeAll(if (model.property(function, "mustNotWait") != null) ",\"mustNotWait\":true,\"waitPath\":" else ",\"mustNotWait\":false,\"waitPath\":");
+    try typedSignature(out, function, true);
+    try out.writeAll(if (function.mustNotWait()) ",\"mustNotWait\":true,\"waitPath\":" else ",\"mustNotWait\":false,\"waitPath\":");
     if (focus.wait_path) |path| try model.writeString(out, path) else try out.writeAll("null");
     try out.writeAll(",\"bodyEffectRequirements\":");
     try query.writeRequirements(out, focus.requirements);
     try out.writeAll(",\"aborts\":");
-    try query.writeAborts(out, focus.aborts, wanted);
+    try query.typedWriteAborts(out, focus.aborts, wanted);
     try out.writeAll(",\"callers\":");
     try query.writeSites(out, focus.callers);
     try out.writeAll(",\"callees\":");
     try query.writeSites(out, focus.callees);
-
-    // The callers and callees but the function itself, by ID; those the model lacks are missing.
     var related_ids: std.ArrayList(Str) = .empty;
-    for (focus.callers) |site| if (!Closure.has(related_ids.items, site.caller)) try related_ids.append(a, site.caller);
-    for (focus.callees) |site| if (!Closure.has(related_ids.items, site.callee)) try related_ids.append(a, site.callee);
+    for (focus.callers) |site| if (!has(related_ids.items, site.caller)) try related_ids.append(a, site.caller);
+    for (focus.callees) |site| if (!has(related_ids.items, site.callee)) try related_ids.append(a, site.callee);
     var others: std.ArrayList(Str) = .empty;
     for (related_ids.items) |id| if (!std.mem.eql(u16, id, wanted)) try others.append(a, id);
     std.mem.sort(Str, others.items, {}, lessStr);
-    var related: std.ArrayList(Value) = .empty;
+    var related: std.ArrayList(model.Model) = .empty;
     var missing_functions: std.ArrayList(Str) = .empty;
     for (others.items) |id| {
-        const found = for (model.arrayItems(root, "functions")) |item| {
-            if (same(item, id)) break item;
+        const found = for (root.functions()) |item| {
+            if (std.mem.eql(u16, item.id(), id)) break item;
         } else null;
         if (found) |item| try related.append(a, item) else try missing_functions.append(a, id);
     }
     try out.writeAll(",\"relatedFunctionSignatures\":[");
-    for (related.items, 0..) |item, index| {
-        if (index > 0) try out.writeByte(',');
-        try writeSignature(out, item, false);
+    for (related.items, 0..) |item, n| {
+        if (n > 0) try out.writeByte(',');
+        try typedSignature(out, item, false);
     }
-
-    // `getOpenObligations`: the open obligations whose call node the function owns.
-    const nodes = model.bodyNodes(a, function);
-    const Obligation = struct { id: Str, item: Value };
+    const nodes = model.typedBodyNodes(a, function);
+    const Obligation = struct { id: Str, item: model.Model };
     var open: std.ArrayList(Obligation) = .empty;
-    for (model.arrayItems(root, "obligations")) |obligation| {
-        const status = model.property(obligation, "status") orelse continue;
-        if (status != .string or !isKind(model.decoded(status), "open")) continue;
-        const call = decodedAt(obligation, "callNodeId");
-        for (nodes) |node| if (same(node, call)) {
-            try open.append(a, .{ .id = decodedAt(obligation, "id"), .item = obligation });
+    for (root.obligations()) |obligation| {
+        if (obligation.data.obligation.resolution != null) continue;
+        const call = obligation.reference("callNodeId");
+        for (nodes) |node| if (std.mem.eql(u16, node.id(), call)) {
+            try open.append(a, .{ .id = obligation.id(), .item = obligation });
             break;
         };
     }
@@ -462,58 +486,58 @@ pub fn focusValue(a: Allocator, root: Value, snapshot_id: []const u8, function: 
         }
     }.less);
     try out.writeAll("],\"openObligations\":[");
-    for (open.items, 0..) |obligation, index| {
-        if (index > 0) try out.writeByte(',');
+    for (open.items, 0..) |obligation, n| {
+        if (n > 0) try out.writeByte(',');
         try out.writeAll("{\"obligationId\":");
         try model.writeString(out, obligation.id);
         inline for (.{ "callNodeId", "parameterId", "originTransactionId" }) |name| {
             try out.writeAll(",\"" ++ name ++ "\":");
-            try model.writeString(out, decodedAt(obligation.item, name));
+            try model.writeString(out, if (comptime std.mem.eql(u8, name, "originTransactionId")) root.context.interner.idText(.transaction, obligation.item.data.obligation.origin) else obligation.item.reference(name));
         }
         try out.writeByte('}');
     }
-
-    var closure: Closure = .{ .a = a, .root = root };
-    for (model.arrayItems(function, "requiredEffects")) |effect| try closure.addEffect(model.decoded(effect));
-    for (related.items) |item| for (model.arrayItems(item, "requiredEffects")) |effect| try closure.addEffect(model.decoded(effect));
-    for (model.arrayItems(function, "parameters")) |parameter| try closure.visit(model.property(parameter, "type").?);
-    try closure.visit(model.property(function, "resultType").?);
-    for (focus.node_types) |item| if (item.type) |t| try closure.visit(t);
+    var closure: TypedClosure = .{ .a = a, .root = root };
+    const i = root.context.interner;
+    for (function.data.function.effects) |e| try closure.addEffect(i.idText(.effect, e));
+    for (related.items) |item| for (item.data.function.effects) |e| try closure.addEffect(i.idText(.effect, e));
+    for (function.data.function.parameters) |p| try closure.visit(p.type);
+    try closure.visit(function.data.function.result);
+    for (focus.node_types) |item| if (item.type) |t| try closure.visitInferred(t);
     for (related.items) |item| {
-        for (model.arrayItems(item, "parameters")) |parameter| try closure.visit(model.property(parameter, "type").?);
-        try closure.visit(model.property(item, "resultType").?);
+        for (item.data.function.parameters) |p| try closure.visit(p.type);
+        try closure.visit(item.data.function.result);
     }
     try out.writeAll("],\"referencedTypes\":[");
     var count: usize = 0;
-    for (model.arrayItems(root, "types")) |item| if (Closure.has(closure.types.items, decodedAt(item, "id"))) {
+    for (root.types()) |item| if (has(closure.types.items, item.id())) {
         if (count > 0) try out.writeByte(',');
         count += 1;
-        try wire.semanticType(out, item);
+        try wire.typedSemanticType(out, i, item.data.type_declaration);
     };
     try out.writeAll("],\"referencedCapabilities\":[");
     count = 0;
-    for (model.arrayItems(root, "capabilities")) |item| if (Closure.has(closure.capabilities.items, decodedAt(item, "id"))) {
+    for (root.capabilities()) |item| if (has(closure.capabilities.items, item.id())) {
         if (count > 0) try out.writeByte(',');
         count += 1;
-        try wire.capability(out, item);
+        try wire.typedCapability(out, i, item.data.capability);
     };
     try out.writeAll("],\"referencedEffects\":[");
     count = 0;
     var missing_effects: std.ArrayList(Str) = .empty;
     for (closure.effects.items) |id| {
-        const known = for (model.arrayItems(root, "effects")) |item| {
-            if (same(item, id)) break true;
+        const known = for (root.effects()) |item| {
+            if (std.mem.eql(u16, item.id(), id)) break true;
         } else false;
         if (!known) try missing_effects.append(a, id);
     }
-    for (model.arrayItems(root, "effects")) |item| if (Closure.has(closure.effects.items, decodedAt(item, "id"))) {
+    for (root.effects()) |item| if (has(closure.effects.items, item.id())) {
         if (count > 0) try out.writeByte(',');
         count += 1;
         try out.writeAll("{\"id\":");
-        try model.writeString(out, decodedAt(item, "id"));
+        try model.writeString(out, item.id());
         try out.writeAll(",\"displayName\":");
-        try model.writeString(out, decodedAt(item, "displayName"));
-        try out.writeAll(if (model.property(item, "exported") != null) ",\"exported\":true}" else ",\"exported\":false}");
+        try model.writeString(out, item.displayName());
+        try out.writeAll(if (item.exported()) ",\"exported\":true}" else ",\"exported\":false}");
     };
     try out.writeAll("],\"missingFunctionIds\":");
     try query.writeIds(out, missing_functions.items);
@@ -523,11 +547,10 @@ pub fn focusValue(a: Allocator, root: Value, snapshot_id: []const u8, function: 
     try writeSorted(a, out, closure.missing_capabilities.items);
     try out.writeAll(",\"missingEffectIds\":");
     try writeSorted(a, out, missing_effects.items);
-
-    var viewer: Viewer = .{ .a = a };
-    for (focus.node_types) |item| try viewer.types.put(a, model.utf8(item.id), item.type);
+    var viewer: TypedViewer = .{ .a = a };
+    for (focus.node_types) |item| try viewer.types.put(a, model.utf8(item.id), if (item.type) |ty| model.semanticTypeValue(ty) else null);
     try out.writeAll(",\"graph\":");
-    try viewer.graph(out, model.property(function, "body").?);
+    try viewer.graph(out, function.body());
     try out.writeByte('}');
     return data.written();
 }

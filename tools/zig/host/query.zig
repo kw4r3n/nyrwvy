@@ -21,7 +21,7 @@ const Fail = anyerror;
 
 /// Request-arena scratch publication; mixed batches never intern or register their steps.
 pub const Capture = struct {
-    candidate: Value = .json_null,
+    candidate: ?model.Model = null,
     full_review: []const u8 = "",
     structured_review: []const u8 = "",
     compact_review: []const u8 = "",
@@ -35,9 +35,11 @@ pub const Request = struct {
     a: Allocator,
     line: []const u8,
     root: std.json.ObjectMap,
-    /// The open model (materialization order after commit) and the selected dependency's provenance.
-    model: Value,
+    /// The selected dependency's provenance.
     provenance: ?wire.Provenance,
+    generation: ?*const model.session_model.Generation = null,
+    interner: ?*model.session_model.Interner = null,
+    interner_checkpoint: ?model.session_model.Interner.Checkpoint = null,
     snapshot_id: []const u8 = "",
     snapshot_fingerprint: []const u8 = "",
     /// The snapshot file, absolute, beside which views are written.
@@ -47,6 +49,10 @@ pub const Request = struct {
     /// The diagnostic behind a `SimulationRejected` rejection, for a message appended to later.
     diagnostic: Diagnostic = .{},
     capture: ?*Capture = null,
+
+    pub fn typedModel(self: *const Request) model.Model {
+        return model.typedRoot(self.a, self.interner.?, self.generation.?);
+    }
 
     pub fn ensureUsable(self: *Request) Fail!void {
         if (!self.session_invalidated) return;
@@ -296,11 +302,13 @@ pub fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const
 
 // ---------------------------------------------------------------- declarations
 
-pub fn nameOf(item: Value) []const u8 {
+pub fn nameOf(item: anytype) []const u8 {
+    if (@TypeOf(item) == model.Model) return model.utf8(item.displayName());
     return model.utf8(model.decoded(model.property(item, "displayName").?));
 }
 
-pub fn idOf(item: Value) []const u8 {
+pub fn idOf(item: anytype) []const u8 {
+    if (@TypeOf(item) == model.Model) return model.utf8(item.id());
     return model.utf8(model.decoded(model.property(item, "id").?));
 }
 
@@ -313,21 +321,6 @@ fn hidden(r: *const Request) []const []const u8 {
     return if (r.provenance) |p| p.hidden else &.{};
 }
 
-/// The `kind` declarations of `AuthoringDeclarations`: the model's, less the hidden imports.
-pub fn visible(r: *const Request, kind: []const u8) ![]const Value {
-    const group = if (std.mem.eql(u8, kind, "function")) "functions" else if (std.mem.eql(u8, kind, "type")) "types" else if (std.mem.eql(u8, kind, "effect")) "effects" else "capabilities";
-    var out: std.ArrayList(Value) = .empty;
-    for (model.arrayItems(r.model, group)) |item| {
-        if (!contains(hidden(r), try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, idOf(item) }))) try out.append(r.a, item);
-    }
-    std.mem.sort(Value, out.items, {}, struct {
-        fn less(_: void, x: Value, y: Value) bool {
-            return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
-        }
-    }.less);
-    return out.items;
-}
-
 /// The members of the selected dependency that provide `kind:id`; none for a local declaration.
 pub fn sources(r: *const Request, kind: []const u8, id: []const u8) ![]const wire.Provenance.Member {
     const p = r.provenance orelse return &.{};
@@ -337,13 +330,46 @@ pub fn sources(r: *const Request, kind: []const u8, id: []const u8) ![]const wir
     return out.items;
 }
 
-pub fn exactOne(r: *Request, label: []const u8, wanted: []const u8, items: []const Value) Fail!Value {
-    var found: ?Value = null;
+pub fn ownership(r: *const Request, kind: []const u8, id: []const u8) ![]const u8 {
+    return if ((try sources(r, kind, id)).len == 0) "local" else "imported";
+}
+
+/// `JsonSerializer.Serialize` of a string.
+pub fn stringOf(a: Allocator, text: []const u8) ![]const u8 {
+    var out: Writer.Allocating = .init(a);
+    try model.writeString(&out.writer, try utf16(a, text));
+    return out.written();
+}
+
+fn typedRoot(r: *const Request) model.Model {
+    return model.typedRoot(r.a, r.interner.?, r.generation.?);
+}
+fn typedNameOf(item: model.Model) []const u8 {
+    return model.utf8(item.displayName());
+}
+fn typedIdOf(item: model.Model) []const u8 {
+    return model.utf8(item.id());
+}
+pub fn typedVisible(r: *const Request, kind: []const u8) ![]const model.Model {
+    const group = if (std.mem.eql(u8, kind, "function")) "functions" else if (std.mem.eql(u8, kind, "type")) "types" else if (std.mem.eql(u8, kind, "effect")) "effects" else "capabilities";
+    var out: std.ArrayList(model.Model) = .empty;
+    for (typedRoot(r).declarations(group)) |item| {
+        if (!contains(hidden(r), try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, typedIdOf(item) }))) try out.append(r.a, item);
+    }
+    std.mem.sort(model.Model, out.items, {}, struct {
+        fn less(_: void, x: model.Model, y: model.Model) bool {
+            return std.mem.order(u16, x.id(), y.id()) == .lt;
+        }
+    }.less);
+    return out.items;
+}
+pub fn typedExactOne(r: *Request, label: []const u8, wanted: []const u8, items: []const model.Model) Fail!model.Model {
+    var found: ?model.Model = null;
     var count: usize = 0;
     var names: std.ArrayList([]const u8) = .empty;
     for (items) |item| {
-        try names.append(r.a, nameOf(item));
-        if (std.mem.eql(u8, nameOf(item), wanted)) {
+        try names.append(r.a, typedNameOf(item));
+        if (std.mem.eql(u8, typedNameOf(item), wanted)) {
             found = item;
             count += 1;
         }
@@ -353,77 +379,69 @@ pub fn exactOne(r: *Request, label: []const u8, wanted: []const u8, items: []con
     return r.fail("Ambiguous {s} '{s}'.", .{ label, wanted });
 }
 
-/// `JsonSerializer.Serialize` of a string.
-pub fn stringOf(a: Allocator, text: []const u8) ![]const u8 {
-    var out: Writer.Allocating = .init(a);
-    try @import("root").writeString(&out.writer, text);
-    return out.written();
-}
-
-/// `WireSymbolic.resolveSelector` of the property `key` of `object` (at `path`).
-fn resolve(r: *Request, kind: []const u8, object: std.json.ObjectMap, key: []const u8, path: []const []const u8) Fail!Value {
-    const items = try visible(r, kind);
+pub fn typedResolve(r: *Request, kind: []const u8, object: std.json.ObjectMap, key: []const u8, path: []const []const u8) Fail!model.Model {
+    const items = try typedVisible(r, kind);
     const selector = object.get(key) orelse return r.fail("Missing required property '{s}'.", .{key});
-    if (selector == .string) return exactOne(r, kind, try readable(r, selector.string), items);
+    if (selector == .string) return typedExactOne(r, kind, try readable(r, selector.string), items);
     if (selector != .object) return r.fail("Expected a JSON object.", .{});
     const fields = &.{ "id", "name", "dependencySnapshotId", "ownership" };
     try lookable(r, selector.object);
     if (try fieldProblem(r.a, r.line, path, selector.object, try std.fmt.allocPrint(r.a, "{s} selector", .{kind}), fields, &.{})) |message| return r.fail("{s}", .{message});
-    return guarded(r, kind, items, selector.object);
+    return typedGuarded(r, kind, items, selector.object);
 }
 
 /// The rest of `WireSymbolic.resolveSelector` for an object selector whose fields were checked.
-pub fn guarded(r: *Request, kind: []const u8, items: []const Value, object: std.json.ObjectMap) Fail!Value {
+pub fn typedGuarded(r: *Request, kind: []const u8, items: []const model.Model, object: std.json.ObjectMap) Fail!model.Model {
     const fields = &.{ "id", "name", "dependencySnapshotId", "ownership" };
     var guards: [4]?[]const u8 = .{ null, null, null, null };
     inline for (fields, 0..) |field, index| {
         if (object.get(field) != null) guards[index] = try requiredString(r, object, field);
     }
-    const id, const wanted_name, const dependency, const ownership = guards;
+    const id, const wanted_name, const dependency, const ownership_guard = guards;
     if (id == null and wanted_name == null) return r.fail("A declaration selector needs id or name.", .{});
-    if (ownership) |owned| if (!std.mem.eql(u8, owned, "local") and !std.mem.eql(u8, owned, "imported")) return r.fail("Selector ownership must be local or imported.", .{});
-    var candidates: std.ArrayList(Value) = .empty;
+    if (ownership_guard) |owned| if (!std.mem.eql(u8, owned, "local") and !std.mem.eql(u8, owned, "imported")) return r.fail("Selector ownership must be local or imported.", .{});
+    var candidates: std.ArrayList(model.Model) = .empty;
     for (items) |item| {
-        const provided = try sources(r, kind, idOf(item));
-        if (id) |wanted| if (!std.mem.eql(u8, idOf(item), wanted)) continue;
-        if (wanted_name) |wanted| if (!std.mem.eql(u8, nameOf(item), wanted)) continue;
+        const provided = try sources(r, kind, typedIdOf(item));
+        if (id) |wanted| if (!std.mem.eql(u8, typedIdOf(item), wanted)) continue;
+        if (wanted_name) |wanted| if (!std.mem.eql(u8, typedNameOf(item), wanted)) continue;
         if (dependency) |pin| {
             for (provided) |member| {
                 if (std.mem.eql(u8, member.id, pin)) break;
             } else continue;
         }
-        if (ownership) |owned| if ((provided.len == 0) != std.mem.eql(u8, owned, "local")) continue;
+        if (ownership_guard) |owned| if ((provided.len == 0) != std.mem.eql(u8, owned, "local")) continue;
         try candidates.append(r.a, item);
     }
     if (candidates.items.len == 1) return candidates.items[0];
     if (candidates.items.len > 1) return r.fail("Ambiguous {s} selector; specify an exact id or a providing dependencySnapshotId.", .{kind});
     // Advice never participates in resolution.
-    var related: std.ArrayList(Value) = .empty;
+    var related: std.ArrayList(model.Model) = .empty;
     for (items) |item| {
         if (id) |wanted| {
-            if (std.mem.eql(u8, idOf(item), wanted)) try related.append(r.a, item);
-        } else if (std.mem.eql(u8, nameOf(item), wanted_name.?)) try related.append(r.a, item);
+            if (std.mem.eql(u8, typedIdOf(item), wanted)) try related.append(r.a, item);
+        } else if (std.mem.eql(u8, typedNameOf(item), wanted_name.?)) try related.append(r.a, item);
     }
-    std.mem.sort(Value, related.items, {}, struct {
-        fn less(_: void, x: Value, y: Value) bool {
-            return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
+    std.mem.sort(model.Model, related.items, {}, struct {
+        fn less(_: void, x: model.Model, y: model.Model) bool {
+            return std.mem.order(u16, x.id(), y.id()) == .lt;
         }
     }.less);
     var advice: std.ArrayList([]const u8) = .empty;
     for (related.items[0..@min(5, related.items.len)]) |item| {
-        const provided = try sources(r, kind, idOf(item));
+        const provided = try sources(r, kind, typedIdOf(item));
         const owner = if (provided.len == 0) "local" else "imported";
         var pins: std.ArrayList([]const u8) = .empty;
         for (provided) |member| try pins.append(r.a, member.id);
         std.mem.sort([]const u8, pins.items, {}, ordinal);
         var mismatched: std.ArrayList([]const u8) = .empty;
-        if (wanted_name) |wanted| if (!std.mem.eql(u8, wanted, nameOf(item))) try mismatched.append(r.a, "name");
+        if (wanted_name) |wanted| if (!std.mem.eql(u8, wanted, typedNameOf(item))) try mismatched.append(r.a, "name");
         if (dependency) |pin| if (!contains(pins.items, pin)) try mismatched.append(r.a, "dependencySnapshotId");
-        if (ownership) |owned| if (!std.mem.eql(u8, owned, owner)) try mismatched.append(r.a, "ownership");
+        if (ownership_guard) |owned| if (!std.mem.eql(u8, owned, owner)) try mismatched.append(r.a, "ownership");
         const omitted_pins = if (pins.items.len > 5) try std.fmt.allocPrint(r.a, " (+{d} more)", .{pins.items.len - 5}) else "";
         try advice.append(r.a, try std.fmt.allocPrint(r.a, "id={s}, name={s}, ownership={s}, providing pins=[{s}]{s}, mismatched guards=[{s}]", .{
-            idOf(item),                                                 try stringOf(r.a, nameOf(item)),            owner,
-            try std.mem.join(r.a, ", ", pins.items[0..@min(5, pins.items.len)]), omitted_pins, try std.mem.join(r.a, ", ", mismatched.items),
+            typedIdOf(item),                                                     try stringOf(r.a, typedNameOf(item)), owner,
+            try std.mem.join(r.a, ", ", pins.items[0..@min(5, pins.items.len)]), omitted_pins,                         try std.mem.join(r.a, ", ", mismatched.items),
         }));
     }
     const omitted = if (related.items.len > 5) try std.fmt.allocPrint(r.a, " (+{d} more candidates)", .{related.items.len - 5}) else "";
@@ -458,56 +476,74 @@ pub fn search(r: *Request, out: *Writer) Fail!void {
     }
     if (limit < 1 or limit > 200) return r.fail("limit must be 1..200.", .{});
     var matches: std.ArrayList([]const u8) = .empty;
-    const hit = struct {
-        fn f(a: Allocator, value: Value, n: []const u16) !bool {
-            return containsIgnoringCase(a, model.decoded(value), n);
-        }
-    }.f;
+    _ = r.generation orelse return error.MissingTypedGeneration;
+    const i = r.interner orelse return error.MissingTypedGeneration;
     const named = struct {
-        fn f(a: Allocator, kind: []const u8, key: []const u8, item: Value) ![]const u8 {
+        fn f(a: Allocator, interner: *const model.session_model.Interner, kind: []const u8, key: []const u8, domain: model.session_model.Domain, id: u32, name: u32) ![]const u8 {
             var entry: Writer.Allocating = .init(a);
             try entry.writer.print("{{\"kind\":\"{s}\",\"name\":", .{kind});
-            try model.writeString(&entry.writer, model.decoded(model.property(item, "displayName").?));
+            try model.writeString(&entry.writer, interner.stringText(name));
             try entry.writer.print(",\"{s}\":", .{key});
-            try model.writeString(&entry.writer, model.decoded(model.property(item, "id").?));
+            try model.writeString(&entry.writer, interner.idText(domain, id));
             try entry.writer.writeByte('}');
             return entry.written();
         }
     }.f;
-    const groups = [_][3][]const u8{ .{ "function", "function", "functionId" }, .{ "type", "type", "typeId" }, .{ "effect", "effect", "effectId" } };
-    for (groups) |group| for (try visible(r, group[0])) |item| {
-        if (try hit(r.a, model.property(item, "displayName").?, needle)) try matches.append(r.a, try named(r.a, group[1], group[2], item));
-    };
-    for (try visible(r, "capability")) |item| {
-        if (try hit(r.a, model.property(item, "displayName").?, needle)) try matches.append(r.a, try named(r.a, "capability", "capabilityId", item));
-        for (model.arrayItems(item, "operations")) |operation| if (try hit(r.a, model.property(operation, "displayName").?, needle)) {
+    inline for (.{ .{ "function", "functionId", .function }, .{ "type", "typeId", .type }, .{ "effect", "effectId", .effect } }) |group| {
+        for (try typedVisible(r, group[0])) |item| {
+            if (try containsIgnoringCase(r.a, item.displayName(), needle)) try matches.append(r.a, try named(r.a, i, group[0], group[1], group[2], switch (item.data) {
+                .function => |v| v.id,
+                .type_declaration => |v| v.id,
+                .effect => |v| v.id,
+                else => unreachable,
+            }, switch (item.data) {
+                .function => |v| v.name,
+                .type_declaration => |v| v.name,
+                .effect => |v| v.name,
+                else => unreachable,
+            }));
+        }
+    }
+    for (try typedVisible(r, "capability")) |record| {
+        const item = record.data.capability;
+        if (try containsIgnoringCase(r.a, i.stringText(item.name), needle)) try matches.append(r.a, try named(r.a, i, "capability", "capabilityId", .capability, item.id, item.name));
+        const operations = try r.a.dupe(model.session_model.Operation, item.operations);
+        std.mem.sort(model.session_model.Operation, operations, i, struct {
+            fn less(interner: *const model.session_model.Interner, x: model.session_model.Operation, y: model.session_model.Operation) bool {
+                return interner.less(.operation, x.id, y.id);
+            }
+        }.less);
+        for (operations) |operation| if (try containsIgnoringCase(r.a, i.stringText(operation.name), needle)) {
             var entry: Writer.Allocating = .init(r.a);
             try entry.writer.writeAll("{\"kind\":\"capabilityOperation\",\"capability\":");
-            try model.writeString(&entry.writer, model.decoded(model.property(item, "displayName").?));
+            try model.writeString(&entry.writer, i.stringText(item.name));
             try entry.writer.writeAll(",\"name\":");
-            try model.writeString(&entry.writer, model.decoded(model.property(operation, "displayName").?));
+            try model.writeString(&entry.writer, i.stringText(operation.name));
             try entry.writer.writeAll(",\"operationId\":");
-            try model.writeString(&entry.writer, model.decoded(model.property(operation, "id").?));
+            try model.writeString(&entry.writer, i.idText(.operation, operation.id));
             try entry.writer.writeByte('}');
             try matches.append(r.a, entry.written());
         };
     }
-    for (try visible(r, "function")) |function| for (model.bodyNodes(r.a, function)) |node| {
-        if (!std.mem.eql(u16, model.decoded(model.property(node, "kind").?), &.{ 's', 't', 'r', 'i', 'n', 'g', 'L', 'i', 't', 'e', 'r', 'a', 'l' })) continue;
-        const value = model.decoded(model.property(node, "value").?);
-        if (!try containsIgnoringCase(r.a, value, needle)) continue;
-        var entry: Writer.Allocating = .init(r.a);
-        try entry.writer.writeAll("{\"kind\":\"stringLiteral\",\"function\":");
-        try model.writeString(&entry.writer, model.decoded(model.property(function, "displayName").?));
-        try entry.writer.writeAll(",\"functionId\":");
-        try model.writeString(&entry.writer, model.decoded(model.property(function, "id").?));
-        try entry.writer.writeAll(",\"nodeId\":");
-        try model.writeString(&entry.writer, model.decoded(model.property(node, "id").?));
-        try entry.writer.writeAll(",\"value\":");
-        try model.writeString(&entry.writer, if (value.len <= 120) value else try std.mem.concat(r.a, u16, &.{ value[0..120], &.{0x2026} }));
-        try entry.writer.writeByte('}');
-        try matches.append(r.a, entry.written());
-    };
+    for (try typedVisible(r, "function")) |record| {
+        const function = record.data.function;
+        for (try function.body.depthFirst(r.a)) |node| {
+            const handle = node.stringLiteral() orelse continue;
+            const value = i.stringText(handle);
+            if (!try containsIgnoringCase(r.a, value, needle)) continue;
+            var entry: Writer.Allocating = .init(r.a);
+            try entry.writer.writeAll("{\"kind\":\"stringLiteral\",\"function\":");
+            try model.writeString(&entry.writer, i.stringText(function.name));
+            try entry.writer.writeAll(",\"functionId\":");
+            try model.writeString(&entry.writer, i.idText(.function, function.id));
+            try entry.writer.writeAll(",\"nodeId\":");
+            try model.writeString(&entry.writer, i.idText(.node, node.id()));
+            try entry.writer.writeAll(",\"value\":");
+            try model.writeString(&entry.writer, if (value.len <= 120) value else try std.mem.concat(r.a, u16, &.{ value[0..120], &.{0x2026} }));
+            try entry.writer.writeByte('}');
+            try matches.append(r.a, entry.written());
+        }
+    }
     try out.writeAll("{\"text\":");
     try model.writeString(out, needle);
     try out.print(",\"totalCount\":{d},\"matches\":[", .{matches.items.len});
@@ -561,25 +597,25 @@ fn subjectOf(r: *Request) Fail!Subject {
         }
     }.f;
     if (is(kind, "function") or is(kind, "type") or is(kind, "effect") or is(kind, "capability"))
-        return .{ .kind = kind, .id = idOf(try resolve(r, kind, r.root, kind, &.{kind})) };
+        return .{ .kind = kind, .id = typedIdOf(try typedResolve(r, kind, r.root, kind, &.{kind})) };
     if (is(kind, "capabilityOperation")) {
-        const owner = try resolve(r, "capability", r.root, "capability", &.{"capability"});
-        const label = try std.fmt.allocPrint(r.a, "operation on {s}", .{nameOf(owner)});
-        return .{ .kind = kind, .id = idOf(try exactOne(r, label, try requiredString(r, r.root, "operation"), model.arrayItems(owner, "operations"))) };
+        const owner = try typedResolve(r, "capability", r.root, "capability", &.{"capability"});
+        const label = try std.fmt.allocPrint(r.a, "operation on {s}", .{typedNameOf(owner)});
+        return .{ .kind = kind, .id = typedIdOf(try typedExactOne(r, label, try requiredString(r, r.root, "operation"), owner.operations())) };
     }
     // F# reads each display name before the member lookup that uses it.
-    const owner = try resolve(r, "type", r.root, "type", &.{"type"});
-    const union_type = model.property(owner, "variants") != null;
+    const owner = try typedResolve(r, "type", r.root, "type", &.{"type"});
+    const union_type = !owner.data.type_declaration.product;
     if (is(kind, "variant") or has(r.root, "variant")) {
         const variant_name = try requiredString(r, r.root, "variant");
-        if (!union_type) return r.fail("Type '{s}' is not a union type.", .{nameOf(owner)});
-        const variant = try exactOne(r, try std.fmt.allocPrint(r.a, "variant on {s}", .{nameOf(owner)}), variant_name, model.arrayItems(owner, "variants"));
-        if (is(kind, "variant")) return .{ .kind = kind, .id = idOf(variant) };
-        return .{ .kind = kind, .id = idOf(try exactOne(r, try std.fmt.allocPrint(r.a, "field on variant {s}", .{nameOf(variant)}), try requiredString(r, r.root, "field"), model.arrayItems(variant, "fields"))) };
+        if (!union_type) return r.fail("Type '{s}' is not a union type.", .{typedNameOf(owner)});
+        const variant = try typedExactOne(r, try std.fmt.allocPrint(r.a, "variant on {s}", .{typedNameOf(owner)}), variant_name, owner.variants());
+        if (is(kind, "variant")) return .{ .kind = kind, .id = typedIdOf(variant) };
+        return .{ .kind = kind, .id = typedIdOf(try typedExactOne(r, try std.fmt.allocPrint(r.a, "field on variant {s}", .{typedNameOf(variant)}), try requiredString(r, r.root, "field"), variant.fields())) };
     }
     const field_name = try requiredString(r, r.root, "field");
-    if (union_type) return r.fail("Type '{s}' is not a product type.", .{nameOf(owner)});
-    return .{ .kind = kind, .id = idOf(try exactOne(r, try std.fmt.allocPrint(r.a, "field on {s}", .{nameOf(owner)}), field_name, model.arrayItems(owner, "fields"))) };
+    if (union_type) return r.fail("Type '{s}' is not a product type.", .{typedNameOf(owner)});
+    return .{ .kind = kind, .id = typedIdOf(try typedExactOne(r, try std.fmt.allocPrint(r.a, "field on {s}", .{typedNameOf(owner)}), field_name, owner.fields())) };
 }
 
 pub fn writeId(out: *Writer, units: Str) !void {
@@ -587,25 +623,25 @@ pub fn writeId(out: *Writer, units: Str) !void {
 }
 
 /// `"displayName"` of a visible `kind` declaration.
-fn visibleNamed(r: *const Request, kind: []const u8, id: Str) !?Value {
-    for (try visible(r, kind)) |item| if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), id)) return item;
+fn typedVisibleNamed(r: *const Request, kind: []const u8, id: Str) !?model.Model {
+    for (try typedVisible(r, kind)) |item| if (std.mem.eql(u16, item.id(), id)) return item;
     return null;
 }
 
-fn writeNamed(out: *Writer, field: []const u8, item: Value) !void {
+fn typedWriteNamed(out: *Writer, field: []const u8, item: model.Model) !void {
     try out.print(",\"{s}\":", .{field});
-    try model.writeString(out, model.decoded(model.property(item, "displayName").?));
+    try model.writeString(out, item.displayName());
 }
 
-fn same(item: Value, id: Str) bool {
-    return std.mem.eql(u16, model.decoded(model.property(item, "id").?), id);
+fn typedSame(item: model.Model, id: Str) bool {
+    return std.mem.eql(u16, item.id(), id);
 }
 
 /// `WireEncode.references`.
 pub fn references(r: *Request, out: *Writer) Fail!void {
     const subject = try subjectOf(r);
     const id = try utf16(r.a, subject.id);
-    const found = model.referencesTo(r.a, r.model, subject.kind, id) orelse {
+    const found = model.typedReferencesTo(r.a, typedRoot(r), subject.kind, id) orelse {
         r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No {s} has the ID '{s}'.", .{ subject.kind, subject.id }) };
         return error.Rejected;
     };
@@ -613,47 +649,47 @@ pub fn references(r: *Request, out: *Writer) Fail!void {
     try writeId(out, id);
     const kind = subject.kind;
     if (std.mem.eql(u8, kind, "variant") or std.mem.eql(u8, kind, "field")) {
-        for (try visible(r, "type")) |item| {
-            for (model.arrayItems(item, "fields")) |field| if (std.mem.eql(u8, kind, "field") and same(field, id)) {
-                try writeNamed(out, "displayName", field);
+        for (try typedVisible(r, "type")) |item| {
+            for (item.fields()) |field| if (std.mem.eql(u8, kind, "field") and typedSame(field, id)) {
+                try typedWriteNamed(out, "displayName", field);
                 try out.writeAll(",\"ownerTypeId\":");
-                try writeId(out, model.decoded(model.property(item, "id").?));
-                try writeNamed(out, "ownerDisplayName", item);
+                try writeId(out, item.id());
+                try typedWriteNamed(out, "ownerDisplayName", item);
                 break;
             };
-            for (model.arrayItems(item, "variants")) |variant| {
-                if (std.mem.eql(u8, kind, "variant") and same(variant, id)) {
-                    try writeNamed(out, "displayName", variant);
+            for (item.variants()) |variant| {
+                if (std.mem.eql(u8, kind, "variant") and typedSame(variant, id)) {
+                    try typedWriteNamed(out, "displayName", variant);
                     try out.writeAll(",\"ownerTypeId\":");
-                    try writeId(out, model.decoded(model.property(item, "id").?));
-                    try writeNamed(out, "ownerDisplayName", item);
+                    try writeId(out, item.id());
+                    try typedWriteNamed(out, "ownerDisplayName", item);
                 }
-                for (model.arrayItems(variant, "fields")) |field| if (std.mem.eql(u8, kind, "field") and same(field, id)) {
-                    try writeNamed(out, "displayName", field);
+                for (variant.fields()) |field| if (std.mem.eql(u8, kind, "field") and typedSame(field, id)) {
+                    try typedWriteNamed(out, "displayName", field);
                     try out.writeAll(",\"ownerTypeId\":");
-                    try writeId(out, model.decoded(model.property(item, "id").?));
-                    try writeNamed(out, "ownerDisplayName", item);
+                    try writeId(out, item.id());
+                    try typedWriteNamed(out, "ownerDisplayName", item);
                     try out.writeAll(",\"ownerVariantId\":");
-                    try writeId(out, model.decoded(model.property(variant, "id").?));
-                    try writeNamed(out, "ownerVariantDisplayName", variant);
+                    try writeId(out, variant.id());
+                    try typedWriteNamed(out, "ownerVariantDisplayName", variant);
                 };
             }
         }
     } else if (std.mem.eql(u8, kind, "capabilityOperation")) {
-        for (try visible(r, "capability")) |item| for (model.arrayItems(item, "operations")) |operation| if (same(operation, id)) {
-            try writeNamed(out, "displayName", operation);
+        for (try typedVisible(r, "capability")) |item| for (item.operations()) |operation| if (typedSame(operation, id)) {
+            try typedWriteNamed(out, "displayName", operation);
             try out.writeAll(",\"ownerCapabilityId\":");
-            try writeId(out, model.decoded(model.property(item, "id").?));
-            try writeNamed(out, "ownerDisplayName", item);
+            try writeId(out, item.id());
+            try typedWriteNamed(out, "ownerDisplayName", item);
         };
-    } else if (try visibleNamed(r, kind, id)) |item| try writeNamed(out, "displayName", item);
+    } else if (try typedVisibleNamed(r, kind, id)) |item| try typedWriteNamed(out, "displayName", item);
     try out.print("}},\"count\":{d},\"references\":[", .{found.len});
     for (found, 0..) |reference, index| {
         if (index > 0) try out.writeByte(',');
         const owner_kind = @tagName(reference.owner);
         try out.print("{{\"ownerKind\":\"{s}\",\"ownerId\":", .{owner_kind});
         try writeId(out, reference.owner_id);
-        if (try visibleNamed(r, owner_kind, reference.owner_id)) |item| try writeNamed(out, "ownerDisplayName", item);
+        if (try typedVisibleNamed(r, owner_kind, reference.owner_id)) |item| try typedWriteNamed(out, "ownerDisplayName", item);
         const site = reference.site;
         const op = ",\"operationId\":";
         switch (site.tag) {
@@ -718,25 +754,25 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
         }
         root_names = names.items;
     }
-    const functions = try visible(r, "function");
-    const types = try visible(r, "type");
-    const capabilities = try visible(r, "capability");
+    const functions = try typedVisible(r, "function");
+    const types = try typedVisible(r, "type");
+    const capabilities = try typedVisible(r, "capability");
     const Subject_ = struct { key: Key, kind: []const u8 };
     var subjects: std.ArrayList(Subject_) = .empty;
     const decodedId = struct {
-        fn f(item: Value) Str {
-            return model.decoded(model.property(item, "id").?);
+        fn f(item: model.Model) Str {
+            return item.id();
         }
     }.f;
     for (functions) |item| try subjects.append(r.a, .{ .key = .{ .kind = "function", .id = decodedId(item) }, .kind = "function" });
     for (types) |item| try subjects.append(r.a, .{ .key = .{ .kind = "type", .id = decodedId(item) }, .kind = "type" });
-    for (capabilities) |item| for (model.arrayItems(item, "operations")) |operation|
+    for (capabilities) |item| for (item.operations()) |operation|
         try subjects.append(r.a, .{ .key = .{ .kind = "operation", .id = decodedId(operation) }, .kind = "capabilityOperation" });
     for (capabilities) |item| try subjects.append(r.a, .{ .key = .{ .kind = "capability", .id = decodedId(item) }, .kind = "capability" });
     const Edge = struct { owner: Key, target: Key };
     var edges: std.ArrayList(Edge) = .empty;
     for (subjects.items) |subject| {
-        const found = model.referencesTo(r.a, r.model, subject.kind, subject.key.id) orelse continue;
+        const found = model.typedReferencesTo(r.a, typedRoot(r), subject.kind, subject.key.id) orelse continue;
         for (found) |reference| {
             const owner: Key = switch (reference.owner) {
                 .function => .{ .kind = "function", .id = reference.owner_id },
@@ -751,9 +787,9 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
     }
     var roots: std.ArrayList(Key) = .empty;
     if (root_names) |names| for (names) |wanted| {
-        var match: ?Value = null;
+        var match: ?model.Model = null;
         var count: usize = 0;
-        for (functions) |item| if (std.mem.eql(u8, nameOf(item), wanted)) {
+        for (functions) |item| if (std.mem.eql(u8, typedNameOf(item), wanted)) {
             match = item;
             count += 1;
         };
@@ -782,7 +818,7 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
             return true;
         }
     }.f;
-    const Row = struct { sort: []const Str, item: Value, owner: ?Value = null };
+    const Row = struct { sort: []const Str, item: model.Model, owner: ?model.Model = null };
     const rowLess = struct {
         fn less(_: void, x: Row, y: Row) bool {
             for (x.sort, y.sort) |p, q| switch (std.mem.order(u16, p, q)) {
@@ -794,20 +830,20 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
         }
     }.less;
     const local = struct {
-        fn f(req: *const Request, kind: []const u8, item: Value) !bool {
-            return (try sources(req, kind, idOf(item))).len == 0;
+        fn f(req: *const Request, kind: []const u8, item: model.Model) !bool {
+            return (try sources(req, kind, typedIdOf(item))).len == 0;
         }
     }.f;
     const displayName = struct {
-        fn f(item: Value) Str {
-            return model.decoded(model.property(item, "displayName").?);
+        fn f(item: model.Model) Str {
+            return item.displayName();
         }
     }.f;
     var unused_functions: std.ArrayList(Row) = .empty;
     for (functions) |item| if (try local(r, "function", item) and keep(marked.items, .{ .kind = "function", .id = decodedId(item) }))
         try unused_functions.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
     var unused_operations: std.ArrayList(Row) = .empty;
-    for (capabilities) |capability| if (try local(r, "capability", capability)) for (model.arrayItems(capability, "operations")) |operation| {
+    for (capabilities) |capability| if (try local(r, "capability", capability)) for (capability.operations()) |operation| {
         if (keep(marked.items, .{ .kind = "operation", .id = decodedId(operation) }))
             try unused_operations.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(operation), displayName(capability), decodedId(operation) }), .item = operation, .owner = capability });
     };
@@ -826,12 +862,12 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
             if (row.owner) |capability| {
                 try out.writeAll("\"capabilityId\":");
                 try writeId(out, decodedId(capability));
-                try writeNamed(out, "capability", capability);
+                try typedWriteNamed(out, "capability", capability);
                 try out.writeByte(',');
             }
             try out.writeAll("\"id\":");
             try writeId(out, decodedId(row.item));
-            try writeNamed(out, "name", row.item);
+            try typedWriteNamed(out, "name", row.item);
             try out.writeByte('}');
         }
         try out.writeByte(']');
@@ -841,74 +877,56 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
 
 // ---------------------------------------------------------------- bindingScopes
 
-/// `BindingFrame`: a nested scope that binds (Bool operands and branches open none).
-pub const Frame = struct { owner: Value, role: []const u8, variants: []const Value = &.{}, bindings: []const Binding };
-/// A frame's binding: its slot (`field` with the source field, `value` or `error`) and pattern.
-pub const Binding = struct { slot: []const u8, field: ?Value = null, pattern: Value };
+pub const TypedFrame = struct { owner: model.Model, role: []const u8, variants: []const model.Model = &.{}, bindings: []const TypedBinding };
+pub const TypedBinding = struct { slot: []const u8, field: ?Str = null, pattern: model.Model };
 
-fn kindIs(node: Value, comptime kind: []const u8) bool {
-    const units = model.decoded(model.property(node, "kind").?);
-    if (units.len != kind.len) return false;
-    for (units, kind) |unit, c| if (unit != c) return false;
-    return true;
-}
-
-/// `WireEncodeCommon.bindingFrames` up to the node `wanted`: its enclosing frames, innermost first.
-pub fn framesAt(a: Allocator, graph: Value, enclosing: []const Frame, wanted: Str) !?[]const Frame {
-    for (model.arrayItems(graph, "nodes")) |node| {
-        if (std.mem.eql(u16, model.decoded(model.property(node, "id").?), wanted)) return enclosing;
-        const Nested = struct { graph: Value, frame: ?Frame };
+pub fn typedFramesAt(a: Allocator, graph: model.Model, enclosing: []const TypedFrame, wanted: Str) anyerror!?[]const TypedFrame {
+    for (graph.nodes()) |node| {
+        if (std.mem.eql(u16, node.id(), wanted)) return enclosing;
+        const Nested = struct { graph: model.Model, frame: ?TypedFrame };
         var nested: std.ArrayList(Nested) = .empty;
-        const field = struct {
-            fn f(n: Value, key: []const u8) Value {
-                return model.property(n, key).?;
-            }
-        }.f;
         const one = struct {
-            fn f(al: Allocator, slot: []const u8, pattern: Value) ![]const Binding {
-                return al.dupe(Binding, &.{.{ .slot = slot, .pattern = pattern }});
+            fn f(al: Allocator, slot: []const u8, pattern: model.Model) ![]const TypedBinding {
+                return al.dupe(TypedBinding, &.{.{ .slot = slot, .pattern = pattern }});
             }
         }.f;
-        if (kindIs(node, "conditional")) {
-            try nested.appendSlice(a, &.{ .{ .graph = field(node, "whenTrue"), .frame = null }, .{ .graph = field(node, "whenFalse"), .frame = null } });
-        } else if (kindIs(node, "boolAnd") or kindIs(node, "boolOr")) {
-            try nested.append(a, .{ .graph = field(node, "right"), .frame = null });
-        } else if (kindIs(node, "matchUnion")) {
-            for (model.arrayItems(node, "arms")) |arm| {
-                var bindings: std.ArrayList(Binding) = .empty;
-                for (model.arrayItems(arm, "fieldBindings")) |item|
-                    try bindings.append(a, .{ .slot = "field", .field = field(item, "sourceFieldId"), .pattern = field(item, "binding") });
-                const variants = if (model.property(arm, "variantId")) |single| try a.dupe(Value, &.{single}) else model.arrayItems(arm, "variantIds");
-                try nested.append(a, .{ .graph = field(arm, "body"), .frame = .{ .owner = node, .role = "unionArm", .variants = variants, .bindings = bindings.items } });
+        const kind = node.data.node.kind();
+        if (std.mem.eql(u8, kind, "conditional")) {
+            try nested.appendSlice(a, &.{ .{ .graph = node.graphPayload("whenTrue"), .frame = null }, .{ .graph = node.graphPayload("whenFalse"), .frame = null } });
+        } else if (std.mem.eql(u8, kind, "boolAnd") or std.mem.eql(u8, kind, "boolOr")) {
+            try nested.append(a, .{ .graph = node.graphPayload("right"), .frame = null });
+        } else if (std.mem.eql(u8, kind, "matchUnion")) {
+            for (node.arms()) |arm| {
+                var bindings: std.ArrayList(TypedBinding) = .empty;
+                for (arm.fieldBindings()) |field| try bindings.append(a, .{ .slot = "field", .field = field.reference("sourceFieldId"), .pattern = field.boundBinding() });
+                try nested.append(a, .{ .graph = arm.body(), .frame = .{ .owner = node, .role = "unionArm", .variants = arm.variantIds(), .bindings = bindings.items } });
             }
-        } else if (kindIs(node, "bind")) {
-            const body = field(node, "boundBody");
-            try nested.append(a, .{ .graph = field(body, "body"), .frame = .{ .owner = node, .role = "bind", .bindings = try one(a, "value", field(body, "valueBinding")) } });
-        } else if (kindIs(node, "matchOption")) {
-            const some = field(node, "someArm");
-            try nested.append(a, .{ .graph = field(some, "body"), .frame = .{ .owner = node, .role = "optionSome", .bindings = try one(a, "value", field(some, "valueBinding")) } });
-            try nested.append(a, .{ .graph = field(node, "noneBody"), .frame = .{ .owner = node, .role = "optionNone", .bindings = &.{} } });
-        } else if (kindIs(node, "matchResult")) {
-            const ok_arm = field(node, "okArm");
-            const err_arm = field(node, "errArm");
-            try nested.append(a, .{ .graph = field(ok_arm, "body"), .frame = .{ .owner = node, .role = "resultOk", .bindings = try one(a, "value", field(ok_arm, "valueBinding")) } });
-            try nested.append(a, .{ .graph = field(err_arm, "body"), .frame = .{ .owner = node, .role = "resultErr", .bindings = try one(a, "error", field(err_arm, "errorBinding")) } });
+        } else if (std.mem.eql(u8, kind, "bind")) {
+            const body = node.arm("boundBody");
+            try nested.append(a, .{ .graph = body.body(), .frame = .{ .owner = node, .role = "bind", .bindings = try one(a, "value", body.armBinding()) } });
+        } else if (std.mem.eql(u8, kind, "matchOption")) {
+            const some = node.arm("someArm");
+            try nested.append(a, .{ .graph = some.body(), .frame = .{ .owner = node, .role = "optionSome", .bindings = try one(a, "value", some.armBinding()) } });
+            try nested.append(a, .{ .graph = node.graphPayload("noneBody"), .frame = .{ .owner = node, .role = "optionNone", .bindings = &.{} } });
+        } else if (std.mem.eql(u8, kind, "matchResult")) {
+            const ok = node.arm("okArm");
+            const err = node.arm("errArm");
+            try nested.append(a, .{ .graph = ok.body(), .frame = .{ .owner = node, .role = "resultOk", .bindings = try one(a, "value", ok.armBinding()) } });
+            try nested.append(a, .{ .graph = err.body(), .frame = .{ .owner = node, .role = "resultErr", .bindings = try one(a, "error", err.armBinding()) } });
         }
         for (nested.items) |scope| {
-            const frames = if (scope.frame) |frame| try std.mem.concat(a, Frame, &.{ &.{frame}, enclosing }) else enclosing;
-            if (try framesAt(a, scope.graph, frames, wanted)) |found| return found;
+            const frames = if (scope.frame) |frame| try std.mem.concat(a, TypedFrame, &.{ &.{frame}, enclosing }) else enclosing;
+            if (try typedFramesAt(a, scope.graph, frames, wanted)) |found| return found;
         }
     }
     return null;
 }
-
-/// The display name of a visible type's variant or field with ID `id` (`variants` or `fields`).
-fn memberName(r: *const Request, comptime variants: bool, id: Str) !?Value {
-    for (try visible(r, "type")) |item| {
-        if (!variants) for (model.arrayItems(item, "fields")) |f| if (same(f, id)) return f;
-        for (model.arrayItems(item, "variants")) |variant| {
-            if (variants and same(variant, id)) return variant;
-            if (!variants) for (model.arrayItems(variant, "fields")) |f| if (same(f, id)) return f;
+fn typedMemberName(r: *const Request, comptime variants: bool, id: Str) !?model.Model {
+    for (try typedVisible(r, "type")) |item| {
+        if (!variants) for (item.fields()) |field| if (typedSame(field, id)) return field;
+        for (item.variants()) |variant| {
+            if (variants and typedSame(variant, id)) return variant;
+            if (!variants) for (variant.fields()) |field| if (typedSame(field, id)) return field;
         }
     }
     return null;
@@ -919,39 +937,39 @@ pub fn bindingScopes(r: *Request, out: *Writer) Fail!void {
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "bindingScopes request", &.{ "id", "op", "function", "functionId", "nodeId" }, &.{ "id", "op", "nodeId" })) |message| return r.fail("{s}", .{message});
     const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
     if (by_name == by_id) return r.fail("bindingScopes requires exactly one of function and functionId.", .{});
-    const function = if (by_name) try resolve(r, "function", r.root, "function", &.{"function"}) else blk: {
+    const function = if (by_name) try typedResolve(r, "function", r.root, "function", &.{"function"}) else blk: {
         const wanted = try exactId(r, "functionId");
-        for (try visible(r, "function")) |item| if (std.mem.eql(u8, idOf(item), wanted)) break :blk item;
+        for (try typedVisible(r, "function")) |item| if (std.mem.eql(u8, typedIdOf(item), wanted)) break :blk item;
         return r.fail("No function has the ID '{s}'.", .{wanted});
     };
     const node_id = try exactId(r, "nodeId");
-    const frames = try framesAt(r.a, model.property(function, "body").?, &.{}, try utf16(r.a, node_id)) orelse
-        return r.fail("Function '{s}' has no node '{s}'.", .{ nameOf(function), node_id });
-    const names = model.arrayItems(function, "typeParameters");
+    const frames = try typedFramesAt(r.a, function.body(), &.{}, try utf16(r.a, node_id)) orelse
+        return r.fail("Function '{s}' has no node '{s}'.", .{ typedNameOf(function), node_id });
+    const names = function.data.function.type_parameters orelse &.{};
     try out.writeAll("{\"functionId\":");
-    try writeId(out, model.decoded(model.property(function, "id").?));
+    try writeId(out, function.id());
     try out.writeAll(",\"nodeId\":");
     try writeId(out, try utf16(r.a, node_id));
     try out.writeAll(",\"frames\":[");
     for (frames, 0..) |frame, depth| {
         if (depth > 0) try out.writeByte(',');
         try out.print("{{\"scopeDepth\":{d},\"ownerNodeId\":", .{depth});
-        try writeId(out, model.decoded(model.property(frame.owner, "id").?));
+        try writeId(out, frame.owner.id());
         try out.print(",\"role\":\"{s}\"", .{frame.role});
         if (frame.variants.len > 0) {
             try out.writeAll(",\"variantIds\":[");
             var known = true;
             for (frame.variants, 0..) |variant, index| {
                 if (index > 0) try out.writeByte(',');
-                try writeId(out, model.decoded(variant));
-                known = known and try memberName(r, true, model.decoded(variant)) != null;
+                try writeId(out, variant.literal());
+                known = known and try typedMemberName(r, true, variant.literal()) != null;
             }
             try out.writeByte(']');
             if (known) {
                 try out.writeAll(",\"variants\":[");
                 for (frame.variants, 0..) |variant, index| {
                     if (index > 0) try out.writeByte(',');
-                    try model.writeString(out, model.decoded(model.property((try memberName(r, true, model.decoded(variant))).?, "displayName").?));
+                    try model.writeString(out, (try typedMemberName(r, true, variant.literal())).?.displayName());
                 }
                 try out.writeByte(']');
             }
@@ -962,16 +980,16 @@ pub fn bindingScopes(r: *Request, out: *Writer) Fail!void {
             try out.print("{{\"slot\":\"{s}\"", .{binding.slot});
             if (binding.field) |source| {
                 try out.writeAll(",\"fieldId\":");
-                try writeId(out, model.decoded(source));
-                if (try memberName(r, false, model.decoded(source))) |f| try writeNamed(out, "field", f);
+                try writeId(out, source);
+                if (try typedMemberName(r, false, source)) |f| try typedWriteNamed(out, "field", f);
             }
             try out.writeAll(",\"bindingId\":");
-            try writeId(out, model.decoded(model.property(binding.pattern, "id").?));
+            try writeId(out, binding.pattern.id());
             try out.writeAll(",\"type\":");
-            try wire.typeRef(out, model.property(binding.pattern, "type").?, names);
-            if (model.property(binding.pattern, "displayName")) |display| {
+            try wire.typedTypeRef(out, r.interner.?, binding.pattern.data.binding.type, names);
+            if (binding.pattern.optionalDisplayName()) |display| {
                 try out.writeAll(",\"displayName\":");
-                try model.writeString(out, model.decoded(display));
+                try model.writeString(out, display);
             }
             try out.writeByte('}');
         }
@@ -1006,12 +1024,11 @@ pub fn writeSites(out: *Writer, sites: []const model.CallSite) !void {
     try out.writeByte(']');
 }
 
-/// `literals`: the String, Int64 and Bool literals of a body as `nodeLiteral` writes them.
-fn literals(r: *Request, out: *Writer, function: Value) !void {
+fn typedLiterals(r: *Request, out: *Writer, function: model.Model) !void {
     try out.writeByte('[');
     var count: usize = 0;
-    for (model.bodyNodes(r.a, function)) |node| {
-        const kind = model.decoded(model.property(node, "kind").?);
+    for (model.typedBodyNodes(r.a, function)) |node| {
+        const kind = node.kind();
         const is = struct {
             fn f(units: Str, comptime name: []const u8) bool {
                 if (units.len != name.len) return false;
@@ -1023,19 +1040,16 @@ fn literals(r: *Request, out: *Writer, function: Value) !void {
         if (count > 0) try out.writeByte(',');
         count += 1;
         try out.writeAll("{\"nodeId\":");
-        try writeId(out, model.decoded(model.property(node, "id").?));
-        const value = model.property(node, "value").?;
+        try writeId(out, node.id());
+        const value = node.payload("value").?;
         if (is(kind, "boolLiteral")) {
-            try out.writeAll(if (value == .json_true) ",\"literal\":{\"kind\":\"bool\",\"value\":true}}" else ",\"literal\":{\"kind\":\"bool\",\"value\":false}}");
+            try out.writeAll(if (value.bool) ",\"literal\":{\"kind\":\"bool\",\"value\":true}}" else ",\"literal\":{\"kind\":\"bool\",\"value\":false}}");
         } else if (is(kind, "int64Literal")) {
             try out.writeAll(",\"literal\":{\"kind\":\"int64\",\"value\":");
-            switch (value) {
-                .number => |digits| try out.print("\"{s}\"", .{digits}),
-                else => try writeId(out, model.decoded(value)),
-            }
+            try out.print("\"{d}\"", .{value.int});
             try out.writeAll("}}");
         } else {
-            const text = model.decoded(value);
+            const text = node.context.interner.stringText(value.lit);
             const limit = 256;
             try out.writeAll(",\"literal\":{\"kind\":\"string\",\"value\":");
             if (text.len <= limit) {
@@ -1063,30 +1077,30 @@ pub fn readFunction(r: *Request, out: *Writer) Fail!void {
     } else return r.fail("detail must be compact, outline or full.", .{});
     const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
     if (by_name == by_id) return r.fail("readFunction requires exactly one of function and functionId.", .{});
-    const wanted = if (by_name) model.decoded(model.property(try resolve(r, "function", r.root, "function", &.{"function"}), "id").?) else try utf16(r.a, try exactId(r, "functionId"));
+    const wanted = if (by_name) (try typedResolve(r, "function", r.root, "function", &.{"function"})).id() else try utf16(r.a, try exactId(r, "functionId"));
     // `FocusFunction` reads the whole model, the dependency's private functions included.
-    const function = for (model.arrayItems(r.model, "functions")) |item| {
-        if (same(item, wanted)) break item;
+    const function = for (typedRoot(r).functions()) |item| {
+        if (typedSame(item, wanted)) break item;
     } else {
         r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No function has the ID '{s}'.", .{model.utf8(wanted)}) };
         return error.Rejected;
     };
-    const nodes = model.bodyNodes(r.a, function);
+    const nodes = model.typedBodyNodes(r.a, function);
     const updates = for (nodes) |node| {
-        if (kindIs(node, "bytesSet") or kindIs(node, "bytesAppend")) break true;
+        if (isKind(node.kind(), "bytesSet") or isKind(node.kind(), "bytesAppend")) break true;
     } else false;
     // The compact focus, open at its end, so each detail appends its own fields.
     var compact: Writer.Allocating = .init(r.a);
     const full = std.mem.eql(u8, detail, "full");
-    try compactFocus(r, &compact.writer, function, wanted, nodes, full);
+    try typedFocusFields(r, &compact.writer, typedRoot(r), function, wanted, nodes, full, true);
     if (full) {
         try out.writeAll(compact.written());
     } else if (std.mem.eql(u8, detail, "outline")) {
-        try outline(r, out, compact.written(), function, nodes);
+        try typedOutline(r, out, compact.written(), function, nodes);
     } else {
         try out.writeAll(compact.written());
         try out.writeAll(",\"literals\":");
-        try literals(r, out, function);
+        try typedLiterals(r, out, function);
     }
     if (updates) try copiedUpdates(r, out, wanted);
     try out.writeByte('}');
@@ -1168,7 +1182,7 @@ fn successors(a: Allocator, terminator: Json, blocks: []const Json) ![]const usi
 /// `copiedUpdates` (`withCopiedUpdates`): written only when the model lowers and an update must copy.
 fn copiedUpdates(r: *Request, out: *Writer, wanted: Str) !void {
     const a = r.a;
-    const ir = model.executionIrOf(a, r.model) orelse return;
+    const ir = model.typedExecutionIrOf(a, typedRoot(r)) orelse return;
     const program = try std.json.parseFromSliceLeaky(Json, a, ir, .{});
     const semantic_id = model.utf8(wanted);
     const function = for (program.object.get("functions").?.array.items) |item| {
@@ -1276,7 +1290,7 @@ pub fn writeRequirements(out: *Writer, requirements: model.BodyRequirements) !vo
 }
 
 /// `aborts`, owned by `owner`.
-pub fn writeAborts(out: *Writer, aborts: []const model.Abort, owner: Str) !void {
+pub fn typedWriteAborts(out: *Writer, aborts: []const model.TypedAbort, owner: Str) !void {
     try out.writeByte('[');
     for (aborts, 0..) |item, index| {
         if (index > 0) try out.writeByte(',');
@@ -1287,7 +1301,7 @@ pub fn writeAborts(out: *Writer, aborts: []const model.Abort, owner: Str) !void 
         try out.writeAll(",\"errorNodeId\":");
         try writeId(out, item.error_node);
         try out.writeAll(",\"errorType\":");
-        if (item.error_type) |t| try wire.typeRef(out, t, &.{}) else try out.writeAll("null");
+        if (item.error_type) |t| try wire.typeRef(out, model.semanticTypeValue(t), &.{}) else try out.writeAll("null");
         try out.writeAll(",\"enclosingControlNodeIds\":");
         try writeIds(out, item.enclosing);
         try out.writeAll(",\"dependentContinuationNodeIds\":");
@@ -1297,32 +1311,20 @@ pub fn writeAborts(out: *Writer, aborts: []const model.Abort, owner: Str) !void 
     try out.writeByte(']');
 }
 
-/// `focusFields`: compact (the function summarized) or, for `full`, with the structured body and the node types.
-fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool) !void {
-    return focusFields(r, out, function, wanted, nodes, full, true);
-}
-
-/// A complete focus object for embedding as a review property.
-pub fn reviewFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool, structured: bool) !void {
-    try focusFields(r, out, function, wanted, nodes, full, structured);
+pub fn typedReviewFocus(r: *Request, out: *Writer, root: model.Model, function: model.Model, wanted: Str, nodes: []const model.Model, full: bool, structured: bool) !void {
+    try typedFocusFields(r, out, root, function, wanted, nodes, full, structured);
     try out.writeByte('}');
 }
-
-/// Leave the object open so readFunction can append its detail-specific fields.
-fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool, structured: bool) !void {
-    const focus = model.focusOf(r.a, r.model, function);
+fn typedFocusFields(r: *Request, out: *Writer, root: model.Model, function: model.Model, wanted: Str, nodes: []const model.Model, full: bool, structured: bool) !void {
+    const focus = model.typedFocusOf(r.a, root, function);
     try out.writeAll("{\"snapshotId\":");
-    try @import("root").writeString(out, r.snapshot_id);
+    try model.writeString(out, try utf16(r.a, r.snapshot_id));
     try out.writeAll(",\"function\":");
-    if (full and structured) {
-        // Committed materialized bodies retain traversal order for compact/plain focus. WireGraph
-        // independently sorts nodes and arms, including before the session is reopened from disk.
-        const canonical = model.canonicalRoot(r.a, r.model);
-        for (model.arrayItems(canonical, "functions")) |item| if (same(item, wanted)) {
-            try wire.functionEntity(out, item);
-            break;
-        };
-    } else if (full) try wire.functionNodes(out, function, nodes) else try wire.functionSummary(out, function, nodes.len);
+    if (full and structured) try wire.typedFunctionEntity(r.a, out, r.interner.?, function.data.function) else if (full) {
+        const typed_nodes = try r.a.alloc(model.session_model.Node, nodes.len);
+        for (nodes, typed_nodes) |node, *item| item.* = node.data.node;
+        try wire.typedFunctionNodes(out, r.interner.?, function.data.function, typed_nodes);
+    } else try wire.typedFunctionSummary(out, r.interner.?, function.data.function, nodes.len);
     try out.writeAll(",\"bodyEffectRequirements\":");
     try writeRequirements(out, focus.requirements);
     if (focus.wait_path) |path| {
@@ -1330,7 +1332,7 @@ fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: [
         try model.writeString(out, path);
     }
     try out.writeAll(",\"aborts\":");
-    try writeAborts(out, focus.aborts, wanted);
+    try typedWriteAborts(out, focus.aborts, wanted);
     if (full) {
         try out.writeAll(",\"nodeTypes\":[");
         for (focus.node_types, 0..) |item, index| {
@@ -1338,7 +1340,7 @@ fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: [
             try out.writeAll("{\"nodeId\":");
             try writeId(out, item.id);
             try out.writeAll(",\"type\":");
-            if (item.type) |t| try wire.typeRef(out, t, model.arrayItems(function, "typeParameters")) else try out.writeAll("null");
+            if (item.type) |t| try wire.inferredTypeRef(out, model.semanticTypeValue(t), function.data.function.type_parameters orelse &.{}, r.interner.?) else try out.writeAll("null");
             try out.writeByte('}');
         }
         try out.writeByte(']');
@@ -1347,14 +1349,13 @@ fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: [
     try writeSites(out, focus.callers);
     try out.writeAll(",\"callees\":");
     try writeSites(out, focus.callees);
-    // `getOpenObligations`: the open obligations whose call node the function owns.
-    const Obligation = struct { id: Str, item: Value };
+    const Obligation = struct { id: Str, item: model.Model };
     var open: std.ArrayList(Obligation) = .empty;
-    for (model.arrayItems(r.model, "obligations")) |obligation| {
-        if (!kindIsField(obligation, "status", "open")) continue;
-        const call = model.decoded(model.property(obligation, "callNodeId").?);
-        for (nodes) |node| if (same(node, call)) {
-            try open.append(r.a, .{ .id = model.decoded(model.property(obligation, "id").?), .item = obligation });
+    for (root.obligations()) |obligation| {
+        if (obligation.data.obligation.resolution != null) continue;
+        const call = obligation.reference("callNodeId");
+        for (nodes) |node| if (typedSame(node, call)) {
+            try open.append(r.a, .{ .id = obligation.id(), .item = obligation });
             break;
         };
     }
@@ -1369,9 +1370,9 @@ fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: [
         try out.writeAll("{\"obligationId\":");
         try writeId(out, obligation.id);
         try out.writeAll(",\"callNodeId\":");
-        try writeId(out, model.decoded(model.property(obligation.item, "callNodeId").?));
+        try writeId(out, obligation.item.reference("callNodeId"));
         try out.writeAll(",\"parameterId\":");
-        try writeId(out, model.decoded(model.property(obligation.item, "parameterId").?));
+        try writeId(out, obligation.item.reference("parameterId"));
         try out.writeByte('}');
     }
     try out.writeByte(']');
@@ -1385,10 +1386,10 @@ fn isKind(kind: Str, comptime name: []const u8) bool {
     return true;
 }
 
-const Outline = struct {
+const TypedOutline = struct {
     r: *Request,
     names: std.StringHashMapUnmanaged(Str) = .empty,
-    nodes: std.StringHashMapUnmanaged(Value) = .empty,
+    nodes: std.StringHashMapUnmanaged(model.Model) = .empty,
     seen: std.StringHashMapUnmanaged(void) = .empty,
     lines: std.ArrayList([]const u8) = .empty,
     /// The reply's bytes with the lines so far, `outlineTruncated: false` and the budget.
@@ -1396,26 +1397,26 @@ const Outline = struct {
     truncated: bool = false,
 
     const max_bytes = 16384;
-    const Scope = struct { depth: usize, bindings: []const Value };
+    const Scope = struct { depth: usize, bindings: []const model.Model };
 
-    fn add(self: *Outline, item: Value) !void {
-        try self.names.put(self.r.a, model.utf8(model.decoded(model.property(item, "id").?)), model.decoded(model.property(item, "displayName").?));
+    fn add(self: *TypedOutline, item: model.Model) !void {
+        try self.names.put(self.r.a, model.utf8(item.id()), item.displayName());
     }
 
-    fn named(self: *Outline, id: Str) Str {
+    fn named(self: *TypedOutline, id: Str) Str {
         return self.names.get(model.utf8(id)) orelse id;
     }
 
-    fn idAt(node: Value, name: []const u8) Str {
-        return model.decoded(model.property(node, name).?);
+    fn idAt(node: model.Model, name: []const u8) Str {
+        return if (std.mem.eql(u8, name, "id")) node.id() else node.reference(name);
     }
 
     /// A pattern binding's display name, or `fallback` when it has none.
-    fn bindingName(binding: Value, fallback: ?Str) ?Str {
-        return if (model.property(binding, "displayName")) |name| model.decoded(name) else fallback;
+    fn bindingName(binding: model.Model, fallback: ?Str) ?Str {
+        return binding.optionalDisplayName() orelse fallback;
     }
 
-    fn addLine(self: *Outline, line: []const u16) !void {
+    fn addLine(self: *TypedOutline, line: []const u16) !void {
         if (self.truncated) return;
         var encoded: Writer.Allocating = .init(self.r.a);
         try model.writeString(&encoded.writer, line);
@@ -1430,7 +1431,7 @@ const Outline = struct {
         try self.lines.append(self.r.a, encoded.written());
     }
 
-    fn visit(self: *Outline, depth: usize, scopes: []const Scope, id: Str) !void {
+    fn visit(self: *TypedOutline, depth: usize, scopes: []const Scope, id: Str) !void {
         if (self.truncated) return;
         const a = self.r.a;
         var line: std.ArrayList(u16) = .empty;
@@ -1441,7 +1442,7 @@ const Outline = struct {
             return self.addLine(line.items);
         }
         const node = self.nodes.get(model.utf8(id)).?;
-        const kind = model.decoded(model.property(node, "kind").?);
+        const kind = node.kind();
         if (isKind(kind, "parameterReference")) {
             for ("parameter") |c| try line.append(a, c);
         } else try line.appendSlice(a, kind);
@@ -1454,25 +1455,25 @@ const Outline = struct {
             try line.appendSlice(a, item);
         }
         try self.addLine(line.items);
-        for (model.operandIdsOf(node)) |child| try self.visit(depth + 1, scopes, child);
-        for (model.scopesOf(node)) |scope| {
+        for (model.typedOperandIdsOf(node)) |child| try self.visit(depth + 1, scopes, child);
+        for (model.typedScopesOf(node)) |scope| {
             var nested: std.ArrayList(Scope) = .empty;
             if (scope.bindings.len > 0) {
                 try nested.append(a, .{ .depth = 0, .bindings = scope.bindings });
                 for (scopes) |outer| try nested.append(a, .{ .depth = outer.depth + 1, .bindings = outer.bindings });
             } else try nested.appendSlice(a, scopes);
-            try self.visit(depth + 1, nested.items, idAt(scope.graph, "resultNodeId"));
+            try self.visit(depth + 1, nested.items, scope.graph.resultNodeId());
         }
     }
 
-    fn text(self: *Outline, ascii: []const u8) !Str {
+    fn text(self: *TypedOutline, ascii: []const u8) !Str {
         const units = try self.r.a.alloc(u16, ascii.len);
         for (ascii, units) |c, *unit| unit.* = c;
         return units;
     }
 
-    /// The operands `WireOutline.focus` names after a node's kind and ID.
-    fn operands(self: *Outline, out: *std.ArrayList(Str), node: Value, kind: Str, scopes: []const Scope) !void {
+    /// The operands `WireTypedOutline.focus` names after a node's kind and ID.
+    fn operands(self: *TypedOutline, out: *std.ArrayList(Str), node: model.Model, kind: Str, scopes: []const Scope) !void {
         const a = self.r.a;
         if (isKind(kind, "parameterReference")) {
             try out.append(a, self.named(idAt(node, "parameterId")));
@@ -1486,20 +1487,17 @@ const Outline = struct {
             try out.append(a, wanted);
         } else if (isKind(kind, "stringLiteral")) {
             // The first 64 UTF-16 units, as a JSON string literal.
-            const value = model.decoded(model.property(node, "value").?);
+            const value = node.context.interner.stringText(node.payload("value").?.lit);
             const shown = if (value.len > 64) try std.mem.concat(a, u16, &.{ value[0..64], &.{0x2026} }) else value;
             var literal: Writer.Allocating = .init(a);
             try model.writeString(&literal.writer, shown);
             try out.append(a, try self.text(literal.written()));
         } else if (isKind(kind, "int64Literal")) {
-            switch (model.property(node, "value").?) {
-                .number => |digits| try out.append(a, try self.text(digits)),
-                else => |value| try out.append(a, model.decoded(value)),
-            }
+            try out.append(a, try self.text(try std.fmt.allocPrint(a, "{d}", .{node.payload("value").?.int})));
         } else if (isKind(kind, "boolLiteral")) {
-            try out.append(a, try self.text(if (model.property(node, "value").? == .json_true) "true" else "false"));
+            try out.append(a, try self.text(if (node.payload("value").?.bool) "true" else "false"));
         } else if (isKind(kind, "float64Literal")) {
-            try out.append(a, idAt(node, "bits"));
+            try out.append(a, try self.text(try std.fmt.allocPrint(a, "{x:0>16}", .{node.payload("bits").?.bits})));
         } else if (isKind(kind, "fieldAccess")) {
             try out.append(a, self.named(idAt(node, "fieldId")));
         } else if (isKind(kind, "unionConstruct")) {
@@ -1509,48 +1507,44 @@ const Outline = struct {
         } else if (isKind(kind, "capabilityInvoke")) {
             try out.append(a, self.named(idAt(node, "operationId")));
         } else if (isKind(kind, "bind")) {
-            const binding = model.property(model.property(node, "boundBody").?, "valueBinding").?;
+            const binding = node.arm("boundBody").armBinding();
             try out.append(a, bindingName(binding, try self.text("value")).?);
         } else if (isKind(kind, "matchOption")) {
-            const binding = model.property(model.property(node, "someArm").?, "valueBinding").?;
+            const binding = node.arm("someArm").armBinding();
             if (bindingName(binding, null)) |name| try out.append(a, name);
         } else if (isKind(kind, "matchResult")) {
-            if (bindingName(model.property(model.property(node, "okArm").?, "valueBinding").?, null)) |name| try out.append(a, name);
-            if (bindingName(model.property(model.property(node, "errArm").?, "errorBinding").?, null)) |name| try out.append(a, name);
+            if (bindingName(node.arm("okArm").armBinding(), null)) |name| try out.append(a, name);
+            if (bindingName(node.arm("errArm").armBinding(), null)) |name| try out.append(a, name);
         } else if (isKind(kind, "matchUnion")) {
-            for (model.arrayItems(node, "arms")) |arm| {
-                if (model.property(arm, "variantId")) |variant| {
-                    try out.append(a, self.named(model.decoded(variant)));
-                } else for (model.arrayItems(arm, "variantIds")) |variant| try out.append(a, self.named(model.decoded(variant)));
-            }
-        } else for (model.functionIdsOf(node)) |function_id| try out.append(a, self.named(function_id));
+            for (node.arms()) |arm| for (arm.variantIds()) |variant| try out.append(a, self.named(variant.literal()));
+        } else for (model.typedFunctionIdsOf(node)) |function_id| try out.append(a, self.named(function_id));
     }
 };
 
-/// `WireOutline.focus`: the compact focus and a bounded outline, one line per node from the result
+/// `WireTypedOutline.focus`: the compact focus and a bounded outline, one line per node from the result
 /// node through operands and nested bodies, cut before the reply passes 16384 bytes.
-fn outline(r: *Request, out: *Writer, compact: []const u8, function: Value, nodes: []const Value) !void {
+fn typedOutline(r: *Request, out: *Writer, compact: []const u8, function: model.Model, nodes: []const model.Model) !void {
     const tail_false = "],\"outlineTruncated\":false,\"outlineMaxBytes\":16384";
-    var o: Outline = .{ .r = r, .size = compact.len + ",\"outline\":[".len + tail_false.len + "}".len };
-    for (model.arrayItems(function, "parameters")) |parameter| try o.add(parameter);
-    for (try visible(r, "function")) |item| {
+    var o: TypedOutline = .{ .r = r, .size = compact.len + ",\"outline\":[".len + tail_false.len + "}".len };
+    for (function.parameters()) |parameter| try o.add(parameter);
+    for (try typedVisible(r, "function")) |item| {
         try o.add(item);
-        for (model.arrayItems(item, "parameters")) |parameter| try o.add(parameter);
+        for (item.parameters()) |parameter| try o.add(parameter);
     }
-    for (try visible(r, "type")) |item| {
+    for (try typedVisible(r, "type")) |item| {
         try o.add(item);
-        for (model.arrayItems(item, "fields")) |field| try o.add(field);
-        for (model.arrayItems(item, "variants")) |variant| {
+        for (item.fields()) |field| try o.add(field);
+        for (item.variants()) |variant| {
             try o.add(variant);
-            for (model.arrayItems(variant, "fields")) |field| try o.add(field);
+            for (variant.fields()) |field| try o.add(field);
         }
     }
-    for (try visible(r, "capability")) |item| {
+    for (try typedVisible(r, "capability")) |item| {
         try o.add(item);
-        for (model.arrayItems(item, "operations")) |operation| try o.add(operation);
+        for (item.operations()) |operation| try o.add(operation);
     }
-    for (nodes) |node| try o.nodes.put(r.a, model.utf8(Outline.idAt(node, "id")), node);
-    try o.visit(0, &.{}, Outline.idAt(model.property(function, "body").?, "resultNodeId"));
+    for (nodes) |node| try o.nodes.put(r.a, model.utf8(TypedOutline.idAt(node, "id")), node);
+    try o.visit(0, &.{}, function.body().resultNodeId());
     try out.writeAll(compact);
     try out.writeAll(",\"outline\":[");
     for (o.lines.items, 0..) |line, index| {
@@ -1560,16 +1554,6 @@ fn outline(r: *Request, out: *Writer, compact: []const u8, function: Value, node
     try out.writeAll(if (o.truncated) "],\"outlineTruncated\":true,\"outlineMaxBytes\":16384" else tail_false);
 }
 
-
-fn kindIsField(item: Value, name: []const u8, comptime expected: []const u8) bool {
-    const value = model.property(item, name) orelse return false;
-    if (value != .string) return false;
-    const units = model.decoded(value);
-    if (units.len != expected.len) return false;
-    for (units, expected) |unit, c| if (unit != c) return false;
-    return true;
-}
-
 // ---------------------------------------------------------------- viewFunction
 
 /// `viewFunction`: the committed function's Function Focus page, written beside the snapshot.
@@ -1577,10 +1561,10 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "viewFunction request", &.{ "id", "op", "function", "functionId", "output" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
     const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
     if (by_name == by_id) return r.fail("viewFunction requires exactly one of function and functionId.", .{});
-    const wanted = if (by_name) model.decoded(model.property(try resolve(r, "function", r.root, "function", &.{"function"}), "id").?) else try utf16(r.a, try exactId(r, "functionId"));
+    const wanted = if (by_name) (try typedResolve(r, "function", r.root, "function", &.{"function"})).id() else try utf16(r.a, try exactId(r, "functionId"));
     const output = if (r.root.get("output") != null) try requiredString(r, r.root, "output") else null;
-    const function = for (model.arrayItems(r.model, "functions")) |item| {
-        if (same(item, wanted)) break item;
+    const function = for (typedRoot(r).functions()) |item| {
+        if (typedSame(item, wanted)) break item;
     } else {
         r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No function has the ID '{s}'.", .{model.utf8(wanted)}) };
         return error.Rejected;
@@ -1588,7 +1572,7 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
     const id_text = model.utf8(wanted);
     // `ViewerArtifact.focusFileName`: named by the function's ID, its UTF-8 bytes in lower-case hex.
     const name = try std.fmt.allocPrint(r.a, "nyrwvy-focus-function-{x}.html", .{id_text});
-    const content = try viewer.page(r.a, try viewer.focusData(r.a, r.model, r.snapshot_id, function));
+    const content = try viewer.page(r.a, try viewer.typedFocusData(r.a, typedRoot(r), r.snapshot_id, function));
     switch (try view_file.write(r.a, r.snapshot_path, output, ".html", name, viewer.header(), content)) {
         .refused => |message| {
             r.rejection = .{ .code = "ViewWriteFailed", .message = message };
@@ -1602,7 +1586,7 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
             try out.writeAll("{\"functionId\":");
             try writeId(out, wanted);
             try out.writeAll(",\"displayName\":");
-            try model.writeString(out, model.decoded(model.property(function, "displayName").?));
+            try model.writeString(out, function.displayName());
             try out.writeAll(",\"kind\":\"functionFocus\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
             try @import("root").writeString(out, path);
             try out.writeByte('}');
@@ -1615,7 +1599,7 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
 /// `executionReadiness`: whether the committed snapshot projects and lowers to an execution program.
 pub fn executionReadiness(r: *Request, out: *Writer) Fail!void {
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "executionReadiness request", &.{ "id", "op" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
-    switch (model.executionReadinessOf(r.a, r.model)) {
+    switch (model.typedExecutionReadinessOf(r.a, typedRoot(r))) {
         .ready => |count| {
             try out.writeAll("{\"kind\":\"ready\",\"sourceSnapshotId\":");
             try @import("root").writeString(out, r.snapshot_id);
@@ -1707,7 +1691,7 @@ pub fn functionCreationByName(r: *Request, expected_snapshot: []const u8) Fail!p
     const root: std.json.Value = .{ .object = r.root };
     const expected = expected_snapshot;
     const display_name = try d.requiredString(root, "displayName");
-    for (try visible(r, "function")) |item| if (std.mem.eql(u8, nameOf(item), display_name))
+    for (try typedVisible(r, "function")) |item| if (std.mem.eql(u8, nameOf(item), display_name))
         return r.fail("Function display name '{s}' already exists. Choose a unique name or use the exact-ID authoring surface.", .{display_name});
     d.owner = .{ .name = display_name };
     var parameters: std.ArrayList(preflight.Parameter) = .empty;
@@ -1753,8 +1737,9 @@ pub fn simulateReplaceBodyByName(r: *Request, out: *Writer) Fail!void {
     const expected = try expectedSnapshotId(r, &d, root);
     const result_id = if (r.root.get("expectedResultNodeId") != null)
         try d.stableId("expectedResultNodeId", try d.requiredString(root, "expectedResultNodeId"))
-    else model.utf8(model.decoded(model.property(model.property(target, "body").?, "resultNodeId").?));
-    const parameters = model.arrayItems(target, "parameters");
+    else
+        model.utf8(target.body().resultNodeId());
+    const parameters = target.parameters();
     const names = try r.a.alloc([]const u8, parameters.len);
     for (parameters, names) |p, *name| name.* = nameOf(p);
     d.owner = .{ .name = nameOf(target), .parameters = names, .existing = target };
@@ -1783,7 +1768,7 @@ pub fn simulateReplaceTargetByName(r: *Request, out: *Writer) Fail!void {
     const target = try d.selector("/function", try d.property(root, "function"), "function");
     const expected = try expectedSnapshotId(r, &d, root);
     const result_id = try d.stableId("targetNodeId", try d.requiredString(root, "targetNodeId"));
-    const parameters = model.arrayItems(target, "parameters");
+    const parameters = target.parameters();
     const names = try r.a.alloc([]const u8, parameters.len);
     for (parameters, names) |p, *name| name.* = nameOf(p);
     d.owner = .{ .name = nameOf(target), .parameters = names, .existing = target };
@@ -1801,26 +1786,92 @@ fn usesOriginal(a: Allocator, node: *const recipe.Node) Fail!bool {
 fn replaceBody(r: *Request, out: *Writer, function_id: []const u8, expected: []const u8, result_id: []const u8, tree: *const recipe.Node) Fail!void {
     try r.ensureUsable();
     if (!std.mem.eql(u8, expected, r.snapshot_id)) return preflight.rejected(r, "StructuralExpectedBaseMismatch", "The structural request targets a different base snapshot.");
-    const target = preflight.declaration(r, "functions", function_id) orelse return preflight.rejected(r, "StructuralTargetNotFound", "The target function does not exist.");
-    const current = model.utf8(model.decoded(model.property(model.property(target, "body").?, "resultNodeId").?));
+    const target = preflight.typedDeclaration(r, "functions", function_id) orelse return preflight.rejected(r, "StructuralTargetNotFound", "The target function does not exist.");
+    const current = model.utf8(target.body().resultNodeId());
     if (!std.mem.eql(u8, current, result_id)) return preflight.rejected(r, "StructuralExpectedResultMismatch", "The target function result node changed after inspection.");
     if (try usesOriginal(r.a, tree)) {
         return @import("target.zig").simulate(r, out, function_id, expected, result_id, tree);
     }
     try preflight.validateRecipeBounds(r, tree);
-    const parameters = model.arrayItems(target, "parameters");
+    const parameters = target.parameters();
     const owner_parameters = try r.a.alloc(preflight.Parameter, parameters.len);
-    for (parameters, owner_parameters) |p, *v| v.* = .{ .name = nameOf(p), .type = try infer.typeOf(r.a, model.property(p, "type").?) };
-    const effects = model.arrayItems(target, "requiredEffects");
+    for (parameters, owner_parameters) |p, *v| v.* = .{ .name = nameOf(p), .type = try infer.typeOf(r.a, p.declaredType()) };
+    const effects = target.requiredEffects();
     const owner_effects = try r.a.alloc([]const u8, effects.len);
-    for (effects, owner_effects) |e, *v| v.* = model.utf8(model.decoded(e));
-    const owner: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = nameOf(target), .type_parameters = null, .parameters = owner_parameters, .result_type = try infer.typeOf(r.a, model.property(target, "resultType").?), .required_effects = owner_effects, .body = tree };
+    for (effects, owner_effects) |e, *v| v.* = model.utf8(e.literal());
+    const owner: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = nameOf(target), .type_parameters = null, .parameters = owner_parameters, .result_type = try infer.typeOf(r.a, target.resultType()), .required_effects = owner_effects, .body = tree };
     var inferred = try infer.runIn(r, owner, &.{}, target);
-    const nodes = model.bodyNodes(r.a, target);
-    for (model.arrayItems(r.model, "obligations")) |obligation| {
-        const call = model.utf8(model.decoded(model.property(obligation, "callNodeId").?));
+    const nodes = model.typedBodyNodes(r.a, target);
+    for (r.typedModel().obligations()) |obligation| {
+        const call = model.utf8(obligation.reference("callNodeId"));
         for (nodes) |node| if (std.mem.eql(u8, idOf(node), call))
             return preflight.rejected(r, "StructuralBodyReferencedByObligation", try std.fmt.allocPrint(r.a, "Obligation '{s}' targets the body being replaced.", .{idOf(obligation)}));
     }
     try @import("proposals.zig").replace(r, out, target, tree, &inferred);
+}
+
+test "typed search finds visible names and literals" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    model.useAllocator(a);
+    const root = try model.parseValue(a,
+        \\{"snapshotId":"s","types":[],"effects":[{"id":"e","displayName":"Hidden needle"}],"capabilities":[],"functions":[{"id":"f","displayName":"Needle function","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"stringLiteral","value":"a needle"}],"resultNodeId":"n"}}],"obligations":[]}
+    );
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, root, null);
+    const line = "{\"id\":1,\"op\":\"search\",\"text\":\"needle\"}";
+    const request = try std.json.parseFromSlice(std.json.Value, a, line, .{});
+    var r: Request = .{ .a = a, .line = line, .root = request.value.object, .provenance = .{ .hidden = &.{"effect:e"}, .members = &.{} }, .generation = &generation, .interner = &interner };
+    var out: Writer.Allocating = .init(a);
+    try search(&r, &out.writer);
+    try std.testing.expectEqualStrings("{\"text\":\"needle\",\"totalCount\":2,\"matches\":[{\"kind\":\"function\",\"name\":\"Needle function\",\"functionId\":\"f\"},{\"kind\":\"stringLiteral\",\"function\":\"Needle function\",\"functionId\":\"f\",\"nodeId\":\"n\",\"value\":\"a needle\"}]}", out.written());
+}
+
+test "typed references and binding scopes do not read a value model" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    model.useAllocator(a);
+    const root = try model.parseValue(a,
+        \\{"snapshotId":"s","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"},{"id":"b","kind":"bind","inputNodeId":"n","boundBody":{"valueBinding":{"id":"v","displayName":"value","type":{"kind":"primitive","primitive":"unit"}},"body":{"nodes":[{"id":"x","kind":"unitLiteral"}],"resultNodeId":"x"}}}],"resultNodeId":"b"}}],"obligations":[]}
+    );
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, root, null);
+    const lines = [_][]const u8{ "{\"id\":1,\"op\":\"references\",\"kind\":\"function\",\"function\":\"F\"}", "{\"id\":2,\"op\":\"unreferenced\"}", "{\"id\":3,\"op\":\"bindingScopes\",\"functionId\":\"f\",\"nodeId\":\"n\"}", "{\"id\":4,\"op\":\"bindingScopes\",\"functionId\":\"f\",\"nodeId\":\"x\"}" };
+    const expected = [_][]const u8{ "{\"subject\":{\"kind\":\"function\",\"id\":\"f\",\"displayName\":\"F\"},\"count\":0,\"references\":[]}", "{\"functions\":[{\"id\":\"f\",\"name\":\"F\"}],\"operations\":[],\"types\":[]}", "{\"functionId\":\"f\",\"nodeId\":\"n\",\"frames\":[]}", "{\"functionId\":\"f\",\"nodeId\":\"x\",\"frames\":[{\"scopeDepth\":0,\"ownerNodeId\":\"b\",\"role\":\"bind\",\"bindings\":[{\"slot\":\"value\",\"bindingId\":\"v\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"displayName\":\"value\"}]}]}" };
+    for (lines, expected, [_]*const fn (*Request, *Writer) anyerror!void{ references, unreferenced, bindingScopes, bindingScopes }) |line, answer, run| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, a, line, .{});
+        var r: Request = .{ .a = a, .line = line, .root = parsed.value.object, .provenance = null, .generation = &generation, .interner = &interner };
+        var out: Writer.Allocating = .init(a);
+        try run(&r, &out.writer);
+        try std.testing.expectEqualStrings(answer, out.written());
+    }
+}
+
+test "typed focus and viewer use the generation without a value model" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    model.beginRequest(a);
+    const root = try model.parseValue(a,
+        \\{"snapshotId":"s","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}],"obligations":[]}
+    );
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, root, null);
+    var r: Request = .{ .a = a, .line = "", .root = .empty, .provenance = null, .generation = &generation, .interner = &interner, .snapshot_id = "s" };
+    const typed_root = r.typedModel();
+    const function = typed_root.functions()[0];
+    const nodes = model.typedBodyNodes(a, function);
+    var out: Writer.Allocating = .init(a);
+    try typedReviewFocus(&r, &out.writer, typed_root, function, function.id(), nodes, true, true);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\"resultNodeId\":\"n\"") != null);
+    var outline_out: Writer.Allocating = .init(a);
+    try typedOutline(&r, &outline_out.writer, "{}", function, nodes);
+    try std.testing.expect(std.mem.indexOf(u8, outline_out.written(), "unitLiteral n") != null);
+    const page = try viewer.typedFocusValue(a, typed_root, "s", function);
+    try std.testing.expect(std.mem.indexOf(u8, page, "\"graph\":{\"resultNodeId\":\"n\"") != null);
 }

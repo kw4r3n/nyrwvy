@@ -131,18 +131,18 @@ fn byPointer(d: *D, context: []const u8, v: V) !bool {
     if (e.eq(by, "pointer")) return true;
     return d.r.fail("{s}: by must be 'value' or 'pointer', not '{s}'.", .{ context, by });
 }
-fn parameterId(d: *D, context: []const u8, op: model.Value, v: V) ![]const u8 {
+fn parameterId(d: *D, context: []const u8, op: model.Model, v: V) ![]const u8 {
     const name = try d.requiredString(v, "from");
     var found: ?[]const u8 = null;
     var count: usize = 0;
-    for (model.arrayItems(op, "parameters")) |p| if (e.eq(q.nameOf(p), name)) {
+    for (op.parameters()) |p| if (e.eq(q.nameOf(p), name)) {
         count += 1;
         found = q.idOf(p);
     };
     if (count != 1) return d.r.fail("{s}: '{s}' names no single parameter of the operation.", .{ context, name });
     return found.?;
 }
-fn argument(d: *D, path: []const u8, context: []const u8, op: model.Value, is_field: bool, v: V) anyerror!V {
+fn argument(d: *D, path: []const u8, context: []const u8, op: model.Model, is_field: bool, v: V) anyerror!V {
     const a = d.r.a;
     if (v != .object) return d.r.fail("{s} must be an object.", .{context});
     if (has(v, "self") and !is_field) {
@@ -186,7 +186,7 @@ fn argument(d: *D, path: []const u8, context: []const u8, op: model.Value, is_fi
     const id = try parameterId(d, context, op, v);
     return obj(a, &.{ "kind", "parameterId", "value" }, &.{ e.string(k), e.string(id), try native(d, context, v, false) });
 }
-fn entry(d: *D, path: []const u8, context: []const u8, library: ?[]const u8, op: model.Value, v: V) !V {
+fn entry(d: *D, path: []const u8, context: []const u8, library: ?[]const u8, op: model.Model, v: V) !V {
     const a = d.r.a;
     try ensure(d, v, path, context, &.{ "symbol", "arguments", "result", "failure", "unavailable", "library" }, &.{});
     if (try boolValue(d, v, "unavailable", false)) {
@@ -217,7 +217,7 @@ pub fn overridePath(a: A, path: []const u8) ![]const u8 {
 pub fn bindings(r: *q.Request, paths: []const []const u8) ![]const V {
     const a = r.a;
     var out: std.ArrayList(V) = .empty;
-    const caps = try q.visible(r, "capability");
+    const caps = try q.typedVisible(r, "capability");
     for (paths) |path| {
         var decoder: D = .{ .r = r, .duplicates = .empty };
         const loaded = try @import("recipe_file.zig").load(&decoder, path, "tables", "");
@@ -233,14 +233,14 @@ pub fn bindings(r: *q.Request, paths: []const []const u8) ![]const V {
         for (try keys(Cap, a, table.capabilities)) |name| {
             const table_cap = table.capabilities.get(name).?;
             var matches: usize = 0;
-            var cap: model.Value = .json_null;
+            var cap: model.Model = undefined;
             for (caps) |candidate| if (e.eq(q.nameOf(candidate), name)) {
                 matches += 1;
                 cap = candidate;
             };
             if (matches == 0) return r.fail("mapping table {s}: no capability is named '{s}'.", .{ path, name });
             if (matches != 1) return r.fail("mapping table {s}: several capabilities are named '{s}'.", .{ path, name });
-            const ops = model.arrayItems(cap, "operations");
+            const ops = cap.operations();
             for (try keys(Entry, a, table_cap.operations)) |key| {
                 for (ops) |op| {
                     if (e.eq(q.nameOf(op), key)) break;
@@ -269,12 +269,12 @@ test "mapping rejects pointer constants and preserves failure diagnostic precede
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var r: q.Request = .{ .a = a, .line = "", .root = .empty, .model = .json_null, .provenance = null };
+    var r: q.Request = .{ .a = a, .line = "", .root = .empty, .provenance = null };
     var d: D = .{ .r = &r, .duplicates = .empty };
     const pointer = try std.json.parseFromSliceLeaky(V, a, "{\"value\":1,\"c\":\"pointer\"}", .{});
-    try std.testing.expectError(error.Rejected, argument(&d, "", "test", .json_null, false, pointer));
+    try std.testing.expectError(error.Rejected, argument(&d, "", "test", undefined, false, pointer));
     try std.testing.expectEqualStrings("test: null is the only pointer constant.", r.rejection.message);
     const invalid = try std.json.parseFromSliceLeaky(V, a, "{\"symbol\":\"x\",\"result\":{\"c\":\"bad\"},\"failure\":\"wrong\"}", .{});
-    try std.testing.expectError(error.Rejected, entry(&d, "", "test", "lib", .json_null, invalid));
+    try std.testing.expectError(error.Rejected, entry(&d, "", "test", "lib", undefined, invalid));
     try std.testing.expectEqualStrings("test: unknown failure 'wrong' (null, negative or nonzero).", r.rejection.message);
 }

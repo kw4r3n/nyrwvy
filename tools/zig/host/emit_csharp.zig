@@ -2,7 +2,6 @@
 const std = @import("std");
 const q = @import("query.zig");
 const recipe = @import("recipe.zig");
-const model = @import("model_reader");
 const emitter = @import("csharp_emitter");
 const host = @import("root");
 const files = @import("view_file.zig");
@@ -123,9 +122,9 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
             if (emitter.eq(emitter.kind(binding), "externalImplementation")) try host_ids.append(r.a, emitter.str(binding, "operationId"));
             if (emitter.eq(emitter.kind(binding), "native") and !emitter.get(emitter.get(binding, "native"), "handle").bool) try table_opids.append(r.a, emitter.str(binding, "operationId"));
         }
-        for (try q.visible(r, "capability")) |cap| {
+        for (try q.typedVisible(r, "capability")) |cap| {
             var is_table = false;
-            for (model.arrayItems(cap, "operations")) |op| {
+            for (cap.operations()) |op| {
                 for (table_opids.items) |id| {
                     if (emitter.eq(id, q.idOf(op))) is_table = true;
                 }

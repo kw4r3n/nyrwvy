@@ -1,6 +1,6 @@
 # Zig session host
 
-Status: accepted 2026-10-28; direct typed reads and Linux verification are complete and independently reviewed. Portability code is implemented for the required Linux, macOS and Windows scope, but this candidate has only been runtime-verified on Linux. The hosted macOS/Windows run is on hold after a runner-access restriction; this does not change the product support scope. Step 8a remains unmerged and the F# host remains the default on main. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
+Status: accepted 2026-10-28; main's typed-model migration (#592) is merged into this candidate, so the typed-read switch gate is cleared here, and Linux verification is complete. Portability code is implemented for the required Linux, macOS and Windows scope, but this candidate has only been runtime-verified on Linux. The hosted macOS/Windows run is on hold after a runner-access restriction; this does not change the product support scope. Step 8a remains unmerged and the F# host remains the default on main. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
 
 Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks the same JSONL protocol as the F# host (`Nyrwvy.AuthoringSession open …`). It reaches parity step by step and then replaces the F# host in one switch. Rules:
 - The Zig host never calls F#.
@@ -201,11 +201,13 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
 8. **Switch and removal** (below).
    - **8a. Runtime differences fixed before the switch.** Request lines follow `Protocol.readLine`: `\n`, `\r` or `\r\n` ends a line (a `\r` line is answered before its `\n` is read), a line over 16 Mi UTF-16 units is drained and answered `ProtocolError` `Request line exceeds 16 MiB.`, and ill-formed UTF-8 becomes U+FFFD as Console.In decodes it (extended parity test with raw bytes). Children still lead their own process groups so a deadline kills a whole tree; the host records live group IDs and, on SIGTERM, SIGINT or SIGHUP, kills every group before it exits (`process_lifetime.spawn`/`kill`; main added SIGHUP to the portable handler set when it was merged into this candidate). A host SIGKILLed without a prior stop signal still orphans its children; the adapter sends SIGTERM first. Startup init failures answer `IoFailure: <error>` with exit 2. The C# compiler driver is built once per user into `$XDG_CACHE_HOME/nyrwvy/csharp-driver/<sha256 of dotnet path, csproj and source>` (built under a fresh name, then renamed; first build limit 300 s). Session directories live under the temp root (`$TMPDIR`, or `%TEMP%`/`%TMP%` on Windows) as `nyrwvy-csharp-session-<pid>-<random>` and hold the worker and per-run directories; on POSIX, startup deletes those whose pid no longer runs (Windows has no sweep yet). `NYRWVY_REPOSITORY_ROOT`, when set, names the checkout whose `mise.toml` pins Zig, ahead of the root recorded at build time. The driver cache is `%LOCALAPPDATA%\nyrwvy\csharp-driver` on Windows.
 
-**Step 8a candidate:** make the native host the default adapter executable and mark the F# host deprecated for normal use in the same cutover PR. Retain F# as reference code and for legacy-schema migration, with `NYRWVY_HOST_EXECUTABLE`'s explicit `.dll` path as an escape hatch. Relative overrides resolve against the repository root; a `.dll` override launches through `dotnet`, while a native executable launches directly. Build the host explicitly with `npm run build:host` into `tools/zig/host/bin/nyrwvy-host` (`.exe` on Windows); this native-only build needs Node 22.6+ and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`. MCP setup (`npm --prefix tools/nyrwvy-mcp run setup`) also needs the .NET 10 SDK to build the standalone C# compiler helper for offline C# backend use. mise is the recommended Zig version selector, not a setup dependency. Starting the non-C# host does not require F#. Native CLI create/pin/upgrade are implemented and verified to avoid an F# fallback. Direct typed reads are implemented, all snapshot-model bridges have been removed, and the final architecture review reported no findings. Portability code targets Linux, macOS and Windows, but only Linux has final runtime verification; macOS and Windows verification is on hold. Main remains on F# and no F# deprecation or final-host tag has been made.
+**Step 8a candidate:** make the native host the default adapter executable and mark the F# host deprecated for normal use in the same cutover PR. Retain F# as reference code and for legacy-schema migration, with `NYRWVY_HOST_EXECUTABLE`'s explicit `.dll` path as an escape hatch. Relative overrides resolve against the repository root; a `.dll` override launches through `dotnet`, while a native executable launches directly. Build the host explicitly with `npm run build:host` into `tools/zig/host/bin/nyrwvy-host` (`.exe` on Windows); this native-only build needs Node 22.6+ and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`. MCP setup (`npm --prefix tools/nyrwvy-mcp run setup`) also needs the .NET 10 SDK to build the standalone C# compiler helper for offline C# backend use. mise is the recommended Zig version selector, not a setup dependency. Starting the non-C# host does not require F#. Native CLI create/pin/upgrade are implemented and verified to avoid an F# fallback. The session host reads only main's typed model (`Generation` + `Interner`, PR #592, merged here 2026-11-01); this branch's earlier typed-view facade was replaced by it, so the typed-read switch gate (switch step 1) is cleared on this branch. Portability code targets Linux, macOS and Windows, but only Linux has final runtime verification; macOS and Windows verification is on hold. Main remains on F# and no F# deprecation or final-host tag has been made.
+
+**Merge of origin/main #592 (2026-11-01).** Main's typed-model migration superseded this branch's `model-reader/view.zig` and the `.typed` `Value` variant, which were deleted; every host module now uses main's typed records. Main's `startup_modes.zig` was dropped: `startup.zig` stays the one startup implementation and now writes create/upgrade snapshots from the typed generation (`publish`), reloads the written files as `open` does, and no longer reloads after a pin writes the sidecar (rereading changed later proposal IDs). Main's `NYRWVY_HOST=zig` cache-path adapter selection is superseded by this branch's native default and `tools/zig/host/bin` build; `ZigTools.fs` now embeds the checkout commit in `build_info` as main does. Main's live-set session-memory rebuild and build identity are kept. The strict create parity (no `validation_bail`; `FingerprintFailed` wording) is carried onto the typed `proposals.zig`.
 
 <a id="step-8-blocker--typed-read-architecture-confirmed"></a>
 
-**Typed-read migration (implemented and verified).** The earlier candidate retained `model_root: model_reader.Value` as semantic authority; that was the confirmed blocker recorded before this migration. The committed snapshot and proposals now use `typed.Generation` and the direct typed view. Strict snapshot-model bridges in nested pin/startup, create/pin/upgrade and current-merge paths have been removed. Independent corrective reviews `mvw8mxd3-0bb9cd7a`, `mvw8lgrd-3d32a547`, and final integration review `mvw9l40u-68d16f85` reported no remaining typed-read or operations findings. The separate platform integration issue is recorded below.
+**Typed-read migration (superseded at the #592 merge).** This branch first removed the tree with a direct typed view over `typed.Generation`; main's typed-model migration below replaced that view when main was merged here (2026-11-01), and the reviews named in this paragraph concern the replaced view. The earlier candidate retained `model_root: model_reader.Value` as semantic authority; that was the confirmed blocker recorded before this migration. The committed snapshot and proposals now use `typed.Generation` and the direct typed view. Strict snapshot-model bridges in nested pin/startup, create/pin/upgrade and current-merge paths have been removed. Independent corrective reviews `mvw8mxd3-0bb9cd7a`, `mvw8lgrd-3d32a547`, and final integration review `mvw9l40u-68d16f85` reported no remaining typed-read or operations findings. The separate platform integration issue is recorded below.
 
 **Current platform status — Linux complete; macOS/Windows execution held.** Integration review `mvw8po0u-03a1f717` identified Linux-specific syscalls that motivated the portability port. Required support remains Linux, macOS and Windows; this temporary verification hold is not a Linux-only support decision. The port uses standard I/O and handle-confined filesystem operations with atomic rename; POSIX process groups/signals and Darwin `waitid`; Windows suspended spawn, job assignment, registration before resume, and kill-on-close; and platform-specific entropy, time, temp paths, PATH lookup and `.exe` handling. Full-host Debug semantic checks passed on Windows x64 and Darwin arm64 again after the latest C# alias correction. A Windows x64 Release PE link passed before the last alias change; it is not evidence of latest-binary Windows runtime behavior. Latest source includes the alias fix; non-Linux runtime remains unverified.
 
@@ -228,6 +230,53 @@ The existing lowered `ExecutionIR` JSON is a separate, explicitly accepted compi
 
 **Platform scope: main and this candidate disagree.** Main recorded on 2026-11-01 that the Zig host is Linux only, because its child handling then used Linux process groups and syscalls, and macOS and Windows would keep the F# host. This candidate replaces those syscalls with the portable layer described below and targets all three platforms, but only Linux has runtime verification. The owner has to decide which record stands before the cutover.
 
+## Pre-switch hardening (2026-11-01)
+
+The owner chose to complete startup CLI parity, bounded session memory, and build identity first, and to move all reads to the typed model in a separate stage. The F# host remains the default. Passing this hardening stage does not authorize the default switch or removal of F#.
+
+- **Startup CLI:** cover the F# `create`, `pin`, and all three `upgrade` forms, including persisted snapshot/sidecar bytes and failure paths. Keep the exact accepted argument forms: F# does not accept `open --dependency`. Legacy `migrate` remains outside the native host as already decided.
+- **Session memory:** replace history-long arena retention with a live-set rebuild. Prepare the current and pending typed generations before publication, preserving shared declarations/bodies, then install them without allocation after the disk write. Rejection also prepares the remaining live set before dropping its proposal. This replaces the original reference-counting and half-dead interner compaction design: it copies live typed state on commit/rejection but releases obsolete history and dead interned strings. The startup baseline remains allocated until exit. Besides it, retain current/pending projections and the latest dependency payload needed by the host's selection/manifest pointers; an ordinary commit must not free those dependency pointers. Full removal of read projections belongs to the typed-read stage.
+- **Build identity:** embed the checkout commit when compiling the host and include it in the build-cache identity. Runtime checkout changes must not relabel an already-built executable. A checkout without Git metadata reports no commit rather than inventing one.
+- **Adapter selection:** provide an explicit native executable override for verification while keeping the F# default. Both OpenCode and MCP use the shared authoring client. Run their Node contracts through the native executable, including create/pin/upgrade, before treating adapter parity as verified.
+
+The original typed-read switch condition below remains in force. This stage does not replace it with JSON projections or weaken it to transcript parity alone.
+
+Implemented and verified: [pre-switch verification record](../verification/zig-host-pre-switch-20261101.md). The shared adapter then accepted `NYRWVY_AUTHORING_EXECUTABLE` for opt-in native runs; merging origin/main replaced it with main's `NYRWVY_HOST=zig` and `NYRWVY_HOST_EXECUTABLE` (below), and the default remains F#. Native startup, lifecycle, adapter, and maintained suites passed. This completes the three hardening items above, not the full switch criteria.
+
+## Typed-model migration (2026-11-01, implemented and verified)
+
+The next stage replaces snapshot-tree access throughout the host, including semantic analysis,
+proposal edits, dependency planning, and persistence. Moving only query encoders is not completion.
+The F# host remains the default throughout this stage.
+
+- The runtime snapshot is a `Generation` plus its session `Interner`. Declaration records and
+  borrowed node/graph views expose domain data directly. A generic object/property facade over
+  typed storage, or serializing and reparsing a generation for semantic access, does not meet this
+  decision.
+- One shared decoder owns the packed body payload layout. Consumers use its typed payload views;
+  they do not independently calculate offsets. Traversal preserves node-then-nested-scope order,
+  rather than assuming that flat body storage has the same order.
+- Live-set rebuilding copies and remaps typed records directly, preserving shared records and
+  bodies. It must not need the old snapshot projection to reconstruct them.
+- Query, validation, inference, lowering, and editing migrate onto these shared domain APIs.
+  Source order and canonical order remain distinct wherever response/error ordering requires it.
+- Writers produce current-schema, minimum-schema, and semantic-normalized bytes directly from
+  typed records. Fingerprints retain the existing domains, ordering, and normalization rules.
+- JSON remains an external format for decoding snapshots, recipes, manifests, protocol replies,
+  immutable reviews, viewer data, and Execution IR. Snapshot syntax decoding may use a transient
+  tree, but runtime semantic validation and proposal construction must use typed records.
+
+Implementation proceeds through the shared kernel and typed live-set rebuild, simple reads,
+semantic analysis and remaining reads, typed edits/dependencies, and direct writers/lifecycle
+integration. Temporary bridges during implementation are not a relaxation of the final gate.
+Completion requires removal of retained snapshot projections and host snapshot `Value` access,
+all-kind payload/remapping tests, byte parity for replies and persisted files, lifecycle/failure
+coverage, native adapter and Rhifill checks, maintained suites, and recorded `ZigSpeed` results.
+
+These gates passed on the typed implementation: [verification record](../verification/zig-host-typed-model-20261101.md).
+The F# host remains the default; changing the default and the subsequent deprecation/removal
+steps below are separate work.
+
 ## How parity with F# is checked
 
 - **Differential transcripts.** Each request stream is fed to both hosts, as separate processes, and every response line is compared byte for byte. Both hosts get a test-only deterministic ID seed (`NYRWVY_TEST_ID_SEED`), because new UUIDv7 IDs and timestamps are the only nondeterministic output.
@@ -247,7 +296,7 @@ The existing lowered `ExecutionIR` JSON is a separate, explicitly accepted compi
 
 ## The switch
 
-1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more. No host path resumes snapshot-model reads by serializing a model to JSON and parsing it again. The direct typed-read migration is implemented and verified.
+1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more. No host path resumes snapshot-model reads by serializing a model to JSON and parsing it again. The typed-model migration is implemented and verified (main #592), and on the cutover branch after merging it.
 2. The candidate cutover PR selects the native host by default in the adapters and documentation, marks the F# host deprecated for normal use in its README and in `docs/decisions/zig-tools.md`, and retains the F# reference and `.dll` override path.
 3. After approval to merge the cutover, tag the last F# host commit (for example `fsharp-host-final`) and push that tag so the legacy implementation remains available remotely.
 4. In a later, separate removal PR, capture breadth, runtime, and filesystem golden artifacts from the F# host before deleting it. The checked-in request transcripts alone are not golden responses. Test the Zig host against the frozen evidence after removal.
@@ -265,5 +314,5 @@ These differences between the hosts are accepted. The parity tests do not cover 
 
 ## Open decisions
 
-- Direct typed reads and Linux verification are complete. Portability code targets Linux, macOS and Windows, but only Linux has final runtime evidence; macOS/Windows hosted execution is on hold because the runner jobs did not start under an account-level restriction. This is an execution hold, not a Linux-only product support decision. Step 8a remains unmerged and the native host is not the default. Golden coverage and F# removal are later work; tag and push the last F# host commit only after cutover approval.
+- The typed-model migration (main #592) and Linux verification are complete; the typed-read gate is cleared on this branch. Portability code targets Linux, macOS and Windows, but only Linux has final runtime evidence; macOS/Windows hosted execution is on hold because the runner jobs did not start under an account-level restriction. This is an execution hold, not a Linux-only product support decision. Step 8a remains unmerged and main still defaults to F#. Golden coverage and F# removal are later work; tag and push the last F# host commit only after cutover approval.
 - Platform scope: main's Linux-only record (2026-11-01) and this candidate's three-platform target conflict; see the merge note under step 8.

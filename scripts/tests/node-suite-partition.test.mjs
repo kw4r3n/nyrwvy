@@ -148,9 +148,10 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
     assert.equal(success.calls.length, 2)
     assert.ok(success.calls.every(call => call.cwd === repo))
     const linkerArgs = process.platform === "darwin" ? ["-lc"] : []
-    assert.deepEqual(success.calls[0].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/view.zig"])
+    assert.deepEqual(success.calls[0].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
     const args = success.calls[1].args
-    assert.deepEqual(args.slice(0, 31 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "typed host reads", "--test-filter", "fresh committed and stale proposal", "--test-filter", "selected typed dependencies retain source member order", "--test-filter", "operation intermediates", "--test-filter", "typed operation name lookup", "--test-filter", "path-copy edits", "--test-filter", "candidate shape failures", "--test-filter", "run declarations hide imported private members", "--test-filter", "mismatch references report visible ownership and sources", "--test-filter", "seeded UUIDv7 payloads and restart guard", "--test-filter", "unseeded IDs use the host clock and secure entropy", "--test-filter", "temporary directories use the configured root and are distinct", "--test-filter", "confined recipe paths", "--test-runner", "tools/zig/host/test_runner.zig"])
+    assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "C# runner keeps recursive codecs finite and argument values out of source"])
+    assert.ok(args.includes("--test-runner") && args.includes("tools/zig/host/test_runner.zig") && !args.includes("runner dispatch name preserves arbitrary UTF-8 stable IDs"))
     for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
     const failure = run(1)
     assert.equal(failure.status, 23)

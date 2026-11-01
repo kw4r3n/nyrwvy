@@ -1219,6 +1219,18 @@ fn arm(block: *List(*Record), m: *Record, x: *Record) RecordError!void {
 /// holds the result; `dependency_subjects` are the dependency's (`--dependency`), none without one.
 pub fn readRecords(allocator: std.mem.Allocator, input: []const u8, dependency_subjects: []const []const u8) struct { line: []const u8, json: ?[]const u8 } {
     a = allocator;
+    defer {
+        text = "";
+        records = .empty;
+        subjects = .init(std.heap.page_allocator);
+        external = .empty;
+        owned = .empty;
+        arms = .empty;
+        blocks = .empty;
+        deferred = null;
+        failure = undefined;
+        w = .{};
+    }
     external = .empty;
     for (dependency_subjects) |subject| external.put(a, subject, {}) catch oom();
     loadKinds();
@@ -1395,7 +1407,7 @@ const Encoder = struct {
                     for (match_arm.object.get("fieldBindings").?.array.items) |fb| {
                         self.acc.append(a, binding(fb.object.get("binding").?, loc, fmt("field:{s}", .{jsonStr(fb, "sourceFieldId")}))) catch oom();
                     }
-                    const arm_body = self.graph(declaration,  match_arm.object.get("body").?, loc);
+                    const arm_body = self.graph(declaration, match_arm.object.get("body").?, loc);
                     var text_out: List(u8) = .empty;
                     text_out.print(a, "arm {s}", .{loc}) catch oom();
                     if (variants.items.len > 1) {
