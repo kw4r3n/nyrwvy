@@ -200,7 +200,9 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
    - **Shared resources.** Existing F# defaults and reference behavior remain unchanged; shared resources were byte-hash compared with the baseline.
 8. **Switch and removal** (below).
 
-**Adapter executable selection remains a Step 8 prerequisite.** `tools/nyrwvy-agent/authoring.ts` currently launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet`; MCP delegates to that agent authoring client. The adapters do not yet select the Zig host, and their Node suites have not yet been run against it. Keep this explicit rather than treating the earlier one-setting plan as implemented. Step 8 must add executable selection and pass the Node adapter suites against the Zig host before switching the default.
+**Adapter executable selection is done (Step 8).** `tools/nyrwvy-agent/authoring.ts`, which MCP and OpenCode share, launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet` by default and the Zig host when `NYRWVY_HOST=zig`, with the same argv, `NYRWVY_REPOSITORY_ROOT` set to the repository root, and the same process-group kill and stderr `<code>: <message>` contract. `scripts/build-zig-host.mjs` builds the host with the module flags of `ZigTools.fs` (`tool "host"`) into `$XDG_CACHE_HOME/nyrwvy/zig-host/<hash>/host`, keyed by every imported source file, the build options and `zig version`; the adapter builds on first use, outside the per-request timeout and with its own 10-minute limit. Because the path follows the sources, a stale host cannot be launched, so the F# `staleToolWarning` has no Zig counterpart (the Zig host's `build` is `nyrwvy-zig-host`, which it ignores). `NYRWVY_HOST_EXECUTABLE` replaces the executable for transport tests only. CI builds the host on pull requests and runs the adapter and MCP suites with `NYRWVY_HOST=zig`; the MCP step does not fail the job until the host starts `create`, `pin` and `upgrade`, which those suites use.
+
+**The Zig host is Linux only** (decided 2026-11-01). Its child handling uses Linux process groups and syscalls, and only Linux is built and tested; macOS and Windows keep the F# host until someone needs them there.
 
 ## How parity with F# is checked
 
@@ -238,4 +240,4 @@ These differences between the hosts are accepted. The parity tests do not cover 
 
 ## Open decisions
 
-- No Step 7 design decision remains open. Step 8 still requires adapter executable selection and Node adapter tests against the Zig host before switching the default.
+- No Step 7 design decision remains open. Step 8 has executable selection; before switching the default the Zig host must start `create`, `pin` and `upgrade` (the adapter and MCP Node suites fail on those now), and then pass the Node adapter suites (`NYRWVY_HOST=zig`: fast-mcp, `test:adapters`, `.opencode/tests`) without the CI `continue-on-error`.
