@@ -1925,7 +1925,7 @@ fn libraryExports(exports: []const Export) []const u8 {
                 push([]const u8, &arguments, p);
             } else if (isString(t)) {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const u8, ", p, "_len: usize" }));
-                push([]const u8, &arguments, cat(&.{ "nySlice(u8, ", p, ", ", p, "_len)" }));
+                push([]const u8, &arguments, cat(&.{ "nyText(", p, ", ", p, "_len) orelse return nyExportInvalid(\"", p, " is not UTF-8\")" }));
             } else if (abiListItem(t)) |zig_type| {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const ", zig_type, ", ", p, "_len: usize" }));
                 push([]const u8, &arguments, cat(&.{ "nySlice(", zig_type, ", ", p, ", ", p, "_len)" }));

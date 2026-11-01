@@ -42,6 +42,18 @@ fn nySlice(comptime T: type, ptr: ?[*]const T, len: usize) []const T {
     return if (len == 0) &.{} else ptr.?[0..len];
 }
 
+// The runtime assumes valid UTF-8 (`catch unreachable`, `initUnchecked`), so text from C is checked here.
+fn nyText(ptr: ?[*]const u8, len: usize) ?[]const u8 {
+    const text = nySlice(u8, ptr, len);
+    return if (std.unicode.utf8ValidateSlice(text)) text else null;
+}
+
+fn nyExportInvalid(message: []const u8) c_int {
+    std.heap.page_allocator.free(ny_export_failure);
+    ny_export_failure = std.heap.page_allocator.dupe(u8, message) catch &.{};
+    return 1;
+}
+
 fn nyRows(comptime T: type, ptr: ?[*]const T, row_lens: ?[*]const usize, rows: usize) []const []const T {
     const out = nyAllocator().alloc([]const T, rows) catch @panic("out of memory");
     var at: usize = 0;

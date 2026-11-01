@@ -33,6 +33,7 @@ const harness = (narrowFirst) => `const std = @import("std");
 extern fn ny_frame(rows: ?[*]const i64, row_lens: ?[*]const usize, row_count: usize, f0: i64, f1: i64, out: ?[*]i64, cap: usize, out_len: *usize, out_row_lens: ?[*]usize, row_cap: usize, out_rows: *usize) c_int;
 extern fn ny_greet(name: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
 extern fn ny_arena_capacity() usize;
+extern fn ny_last_failure(len: *usize) [*]const u8;
 fn frame(rows: []const i64, lens: []const usize, out: []i64, out_lens: []usize, n: *usize, r: *usize) c_int {
     return ny_frame(rows.ptr, lens.ptr, lens.len, ${narrowFirst ? "7, 9" : "9, 7"}, out.ptr, out.len, n, out_lens.ptr, out_lens.len, r);
 }
@@ -51,6 +52,10 @@ test "exports" {
     var text: [16]u8 = undefined;
     try std.testing.expectEqual(@as(c_int, 0), ny_greet("日本".ptr, "日本".len, &text, text.len, &n));
     try std.testing.expectEqualStrings("hi 日本", text[0..n]);
+    // Text from C is checked: invalid UTF-8 is a fault, not a runtime panic.
+    try std.testing.expectEqual(@as(c_int, 1), ny_greet("\xff".ptr, 1, &text, text.len, &n));
+    var failure_len: usize = 0;
+    try std.testing.expectEqualStrings("a0 is not UTF-8", ny_last_failure(&failure_len)[0..failure_len]);
     // Each call resets the arena, so repeated calls keep its capacity flat.
     const rows = try std.testing.allocator.alloc(i64, 300 * 100);
     defer std.testing.allocator.free(rows);
