@@ -14,10 +14,14 @@ pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void
     compiler = env.get("NYRWVY_ZIG") orelse "zig";
     executable_search = env.get("PATH") orelse "/usr/bin:/bin";
     if (compiler.len == 0) compiler = "zig";
-    // The host is installed under the repository's mise.toml. A workspace can be elsewhere.
+    // The adapter names the checkout; otherwise the host's source sits under the repository's mise.toml.
+    if (env.get("NYRWVY_REPOSITORY_ROOT")) |root| if (root.len > 0) {
+        directory = root;
+    };
     var executable_path: []const u8 = @src().file;
     if (!std.fs.path.isAbsolute(executable_path)) executable_path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), executable_path });
-    while (std.fs.path.dirname(executable_path)) |parent| {
+    while (std.mem.eql(u8, directory, ".")) {
+        const parent = std.fs.path.dirname(executable_path) orelse break;
         const pin = try std.fs.path.join(a, &.{ parent, "mise.toml" });
         if (std.Io.Dir.cwd().access(io, pin, .{})) |_| {
             directory = parent;
@@ -27,7 +31,47 @@ pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void
     }
     if (std.mem.eql(u8, directory, ".")) directory = try std.process.currentPathAlloc(io, a);
     const root = if (env.get("XDG_CACHE_HOME")) |path| (if (path.len > 0) path else null) else null;
-    cache = try std.fs.path.join(a, &.{ root orelse try std.fs.path.join(a, &.{ env.get("HOME") orelse ".", ".cache" }), "nyrwvy", "zig-runners" });
+    cache_root = try std.fs.path.join(a, &.{ root orelse try std.fs.path.join(a, &.{ env.get("HOME") orelse ".", ".cache" }), "nyrwvy" });
+    cache = try std.fs.path.join(a, &.{ cache_root, "zig-runners" });
+    const stop_action: std.posix.Sigaction = .{ .handler = .{ .handler = stop }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    for ([_]std.posix.SIG{ .TERM, .INT, .HUP }) |sig| std.posix.sigaction(sig, &stop_action, null);
+}
+
+/// `$XDG_CACHE_HOME/nyrwvy`, or `~/.cache/nyrwvy`.
+pub var cache_root: []const u8 = "";
+
+// Children run in their own process groups so a deadline can kill a whole tree, which also puts
+// them beyond a signal to the host's group. A stop signal kills every live group, then the host.
+// shortcut: a host SIGKILLed without a prior stop signal still orphans its children; the adapter sends SIGTERM first.
+var groups: [32]std.atomic.Value(std.posix.pid_t) = @splat(.init(0));
+
+fn stop(sig: std.posix.SIG) callconv(.c) void {
+    for (&groups) |*slot| {
+        const pid = slot.load(.seq_cst);
+        if (pid > 0) _ = std.os.linux.kill(-pid, .KILL);
+    }
+    const default: std.posix.Sigaction = .{ .handler = .{ .handler = std.posix.SIG.DFL }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    std.posix.sigaction(sig, &default, null);
+    // Blocked inside its own handler, so the default action ends the host once this returns.
+    std.posix.raise(sig) catch {};
+}
+
+/// Spawns `options` as the leader of a new process group that a stop signal to the host kills.
+pub fn spawn(io: std.Io, options: std.process.SpawnOptions) std.process.SpawnError!std.process.Child {
+    var grouped = options;
+    grouped.pgid = 0;
+    const child = try std.process.spawn(io, grouped);
+    for (&groups) |*slot| if (slot.cmpxchgStrong(0, child.id.?, .seq_cst, .seq_cst) == null) break;
+    return child;
+}
+
+/// Kills the child's whole group and reaps the child.
+pub fn kill(io: std.Io, child: *std.process.Child) void {
+    if (child.id) |pid| {
+        _ = std.os.linux.kill(-pid, .KILL);
+        for (&groups) |*slot| _ = slot.cmpxchgStrong(pid, 0, .seq_cst, .seq_cst);
+    }
+    child.kill(io);
 }
 
 pub const Outcome = union(enum) { completed: std.process.RunResult, failed: Diagnostic };
@@ -35,11 +79,8 @@ pub const Outcome = union(enum) { completed: std.process.RunResult, failed: Diag
 fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io.Event, max_bytes: usize) std.process.RunError!std.process.RunResult {
     defer done.set(io);
     var child = spawned;
-    defer {
-        // std.Child.kill sends SIGTERM, which arbitrary compiler wrappers can ignore.
-        if (child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
-        child.kill(io);
-    }
+    // std.Child.kill sends SIGTERM, which arbitrary compiler wrappers can ignore.
+    defer kill(io, &child);
     var buffers: std.Io.File.MultiReader.Buffer(2) = undefined;
     var streams: std.Io.File.MultiReader = undefined;
     streams.init(a, io, buffers.toStreams(), &.{ child.stdout.?, child.stderr.? });
@@ -66,13 +107,12 @@ pub fn launch(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u
 
 /// Managed text may use four bytes per UTF-16 unit; its caller applies the decoded text limit.
 pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64, max_bytes: usize) !Outcome {
-    var child = std.process.spawn(io, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe, .pgid = 0 }) catch |e|
+    var child = spawn(io, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe }) catch |e|
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
     const pid = child.id.?;
     var done: std.Io.Event = .unset;
     var running = io.concurrent(collected, .{ a, io, child, &done, max_bytes }) catch |e| {
-        _ = std.os.linux.kill(-pid, .KILL);
-        child.kill(io);
+        kill(io, &child);
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
     };
     const deadline: std.Io.Timeout = .{ .deadline = .fromNow(io, .{ .raw = .fromSeconds(seconds), .clock = .awake }) };

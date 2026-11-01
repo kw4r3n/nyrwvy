@@ -958,31 +958,32 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("{s}", .{usage});
         std.process.exit(2);
     }
-    try @import("run_process.zig").init(process_arena, init.io, init.environ_map);
-    try @import("run_csharp.zig").init(process_arena, init.io, init.environ_map);
+    @import("run_process.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
+    @import("run_csharp.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
     defer @import("run_csharp.zig").deinit(init.io);
     try open(init.io, process_arena, args.items[2], read_only);
 
     var in_buffer: [1 << 16]u8 = undefined;
     var reader = std.Io.File.stdin().reader(init.io, &in_buffer);
-    var line: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
+    var line: std.ArrayList(u8) = .empty;
+    var skip_line_feed = false;
     var out_buffer: [1 << 16]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &out_buffer);
     const out = &writer.interface;
     defer proposals.deinit();
     defer freeRetained();
-    while (true) {
-        line.clearRetainingCapacity();
-        _ = try reader.interface.streamDelimiterEnding(&line.writer, '\n');
-        const ended = reader.interface.takeByte() == error.EndOfStream;
-        if (ended and line.written().len == 0) break;
+    while (try readLine(&reader.interface, &line, &skip_line_feed)) {
         // A request's allocations live until its response is written.
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         var response: std.Io.Writer.Allocating = .init(arena.allocator());
         var request_id: ?[]const u8 = null;
         const previous_proposals = proposals.count();
-        execute(arena.allocator(), &response.writer, std.mem.trimEnd(u8, line.written(), "\r"), &request_id) catch {
+        // Console.In decodes ill-formed UTF-8 as U+FFFD before Protocol counts the line's UTF-16 units.
+        const text = if (std.unicode.utf8ValidateSlice(line.items)) line.items else try std.fmt.allocPrint(arena.allocator(), "{f}", .{std.unicode.fmtUtf8(line.items)});
+        if (line.items.len > 3 * request_line_units or @import("managed_text.zig").units(text) > request_line_units) {
+            try failure(&response.writer, null, "ProtocolError", "Request line exceeds 16 MiB.");
+        } else execute(arena.allocator(), &response.writer, text, &request_id) catch {
             proposals.discardAfter(previous_proposals);
             response.clearRetainingCapacity();
             try failure(out, request_id, "InternalError", "Unexpected internal failure; this request was not applied and the session is unchanged.");
@@ -990,7 +991,41 @@ pub fn main(init: std.process.Init) !void {
         try out.writeAll(response.written());
         try out.writeByte('\n');
         try out.flush();
-        if (ended) break;
+    }
+}
+
+/// `Protocol.readLine` allows 16 Mi UTF-16 units; a unit takes at most three UTF-8 bytes.
+const request_line_units = 16 * 1024 * 1024;
+
+/// `Protocol.readLine`: a line ends at `\n`, `\r` or `\r\n`, and the `\n` after a `\r` is skipped
+/// only when the next line is read, so a `\r`-ended request is answered at once. Bytes beyond
+/// the most a 16 Mi unit line can take are drained, not kept. False at the end of input.
+fn readLine(reader: *std.Io.Reader, line: *std.ArrayList(u8), skip_line_feed: *bool) !bool {
+    line.clearRetainingCapacity();
+    var started = false;
+    while (true) {
+        const chunk = reader.peekGreedy(1) catch |e| switch (e) {
+            error.EndOfStream => return started,
+            else => return e,
+        };
+        if (skip_line_feed.*) {
+            skip_line_feed.* = false;
+            if (chunk[0] == '\n') {
+                reader.toss(1);
+                continue;
+            }
+        }
+        started = true;
+        const end = std.mem.indexOfAny(u8, chunk, "\r\n");
+        const piece = chunk[0 .. end orelse chunk.len];
+        const room = 3 * request_line_units + 1 -| line.items.len;
+        try line.appendSlice(std.heap.page_allocator, piece[0..@min(piece.len, room)]);
+        if (end) |at| {
+            skip_line_feed.* = chunk[at] == '\r';
+            reader.toss(at + 1);
+            return true;
+        }
+        reader.toss(chunk.len);
     }
 }
 
