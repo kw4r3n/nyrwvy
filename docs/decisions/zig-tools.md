@@ -3,7 +3,7 @@
 - **Status:** Accepted (first stage)
 - **Date:** 2026-10-27
 - **Plan:** [backend-neutral semantics and generated library bindings](../plans/multi-backend-and-bindings.md#9-tools), §9
-- **Update 2026-11-02:** the F# emitter (`Nyrwvy.Backend.Zig`, `ZigBackend.runner`) and the three parity check modes (emitter, reader, lowering) are removed ([switch step 5](zig-session-host.md#the-switch)). runPure's Zig backend always lowers with `model-reader` and emits with the Zig emitter; the extended suite sets `NYRWVY_ZIG_TOOLS=1` instead. The check-mode text below is history.
+- **Update 2026-11-02:** the F# emitter (`Nyrwvy.Backend.Zig`, `ZigBackend.runner`) and the three parity check modes (emitter, reader, lowering) are removed ([switch step 5](zig-session-host.md#the-switch)). runPure's Zig backend always lowers with `model-reader` and emits with the Zig emitter; the extended suite sets `NYRWVY_ZIG_TOOLS=1` instead. The F# session host followed the same day (tag `fsharp-host-final`), so every route described below as F# or as a choice between F# and Zig is history.
 
 §9 makes the formats, not the F# implementation, the contracts, so the tools can later leave .NET (for fewer dependencies). This decision starts that move with one part whose input and output are both fixed text: the Zig backend's emitter, which turns Execution IR JSON into Zig source.
 

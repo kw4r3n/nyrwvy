@@ -55,7 +55,7 @@ The likely first real use is small: Rhifill's `Screen.Read` (`app/Screen.cs`, ab
 2. Rhifill calls the Zig export behind a switch and renders identically on the same cases.
 3. Measured on one Linux machine with the existing Rhifill bench (`spikes/bench-nyrwvy`): per-frame `layoutFrame` p50 and p99 for C# and Zig at 80×24 and 300×100, and process RSS over a one-hour scrolling run, flat after warm-up.
 
-Reference counting (1) and the persistent List are the second milestone and start right after the first (owner: land it early, not gated on a long-lived program). To unblock it, switch steps 4 and 5 come next; if they lag behind the first milestone, the emitter check is retired early instead of waiting. The emitter check was retired on 2026-11-02, ahead of the F# host's removal.
+Reference counting (1) and the persistent List are the second milestone and start right after the first (owner: land it early, not gated on a long-lived program). To unblock it, switch steps 4 and 5 come next; if they lag behind the first milestone, the emitter check is retired early instead of waiting. The emitter check was retired on 2026-11-02, and the F# host was removed the same day (switch step 5 done; [verification](../verification/zig-fsharp-host-removal-20261102.md)).
 
 ## Library mode as built
 

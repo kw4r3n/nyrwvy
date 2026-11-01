@@ -83,8 +83,11 @@ async function replay() {
   const [head, requestLine, ...rest] = unpack(runFile).toString("utf8").trimEnd().split("\n").map((line) => JSON.parse(line));
   const exit = rest.pop();
   const steps = rest;
-  const actual = JSON.stringify(identity());
-  if (actual !== JSON.stringify(head)) return fail(`the host was started as ${actual}, recorded as ${JSON.stringify(head)}`);
+  // A PATH override is the test's directory before the caller's PATH, which is the recording
+  // machine's; only the test's own first entry is part of the identity.
+  const comparable = (run) => JSON.stringify({ ...run, env: run.env.map(([name, value]) => [name, name === "PATH" ? value.split(path.delimiter)[0] : value]) });
+  const actual = comparable(identity());
+  if (actual !== comparable(head)) return fail(`the host was started as ${actual}, recorded as ${comparable(head)}`);
   const apply = (files) => {
     for (const [file, blob] of Object.entries(files ?? {})) {
       const target = denormalize(file);
