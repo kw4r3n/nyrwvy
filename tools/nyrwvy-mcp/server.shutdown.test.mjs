@@ -16,7 +16,7 @@ async function abnormalServer(t, phase) {
   const root = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-shutdown-"))
   const log = join(root, "child-events.jsonl")
   await writeFile(log, "")
-  await writeFile(join(root, "dotnet"), `#!${process.execPath}
+  await writeFile(join(root, "host"), `#!${process.execPath}
     const fs = require('node:fs');
     const recovering = fs.readFileSync(${JSON.stringify(log)}, 'utf8').includes('"kind":"ready"');
     const phase = ${JSON.stringify(phase)};
@@ -50,7 +50,7 @@ async function abnormalServer(t, phase) {
     const alive = setInterval(() => {}, 1000);
   `, { mode: 0o700 })
   const server = spawn(process.execPath, ["--experimental-strip-types", serverPath], {
-    cwd: root, env: { ...process.env, PATH: `${root}:${process.env.PATH}` }, stdio: ["pipe", "pipe", "pipe"],
+    cwd: root, env: { ...process.env, NYRWVY_HOST_EXECUTABLE: join(root, "host") }, stdio: ["pipe", "pipe", "pipe"],
   })
   let stderr = ""
   server.stderr.on("data", chunk => { stderr += chunk })

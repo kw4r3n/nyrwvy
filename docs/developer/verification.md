@@ -21,12 +21,13 @@ framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
 
 GitHub Actions minutes are billed, so the only workflow,
-[`ci.yml`](../../.github/workflows/ci.yml), does not run on push or pull request: it
-runs only on demand (`workflow_dispatch`), at major milestones (owner decision,
-2026-10-05). The extended suite runs locally only; its GitHub workflow was removed
+[`ci.yml`](../../.github/workflows/ci.yml), ran only on demand (`workflow_dispatch`), at
+major milestones (owner decision, 2026-10-05). While the Zig session host replaces the
+F# one it also runs on pull requests, with a Linux job that tests the adapters against
+the Zig host ([decision](../decisions/zig-session-host.md)). The extended suite runs locally only; its GitHub workflow was removed
 on 2026-10-17 (owner decision). Before
 opening a pull request, run the fast suite and the tests related to the change
-in a local or cloud session; a PR does not wait on GitHub Actions.
+in a local or cloud session.
 
 The verification entry points require Node 22.6+ (22.22.2 recommended, see
 `.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts,

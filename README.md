@@ -18,6 +18,8 @@ The example authors a function that reads a file through a capability and aborts
 
 To drive the same tools from an AI agent, run the MCP server (`npm --prefix tools/nyrwvy-mcp run setup`, then point your MCP client at `tools/nyrwvy-mcp/server.mjs`) as the [MCP guide](docs/specs/mcp-graph-tools.md) describes; OpenCode users can load the plugin under `.opencode/` instead. The [tool contract](docs/specs/agent-graph-tools.md) lists the twelve `nyrwvy_*` tools.
 
+The adapters launch the F# AuthoringSession by default. `NYRWVY_HOST=zig` in their environment selects the native Zig session host instead ([decision](docs/decisions/zig-session-host.md)); it is still being brought to parity, as the decision record tracks. The Zig host is supported on Linux only and needs Zig 0.17.0 (pinned in [`mise.toml`](mise.toml); `NYRWVY_ZIG` names another compiler). The adapter builds it on first use, which takes a few minutes, or ahead of time with `node scripts/build-zig-host.mjs` (the MCP `setup` does this when Zig is available); the binary is cached under `$XDG_CACHE_HOME/nyrwvy/zig-host/` keyed by its sources. The .NET SDK is still required with either host, since the C# backend (`runPure`, `emitCSharp`) builds with it.
+
 ## Core model
 
 Source text is not the authoritative program form. Stable semantic identity, relationships, validation, change review, and unresolved work are represented explicitly so AI agents can make typed semantic changes without reconstructing program meaning from text, while humans can review what was requested and what will actually change.

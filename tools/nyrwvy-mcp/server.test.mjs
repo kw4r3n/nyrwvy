@@ -5,7 +5,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Client } from "@modelcontextprotocol/client"
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio"
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio"
+
+// The SDK passes the server only a few variables; the host selection must reach it too.
+const hostSelection = Object.fromEntries(["NYRWVY_HOST"].filter(name => process.env[name]).map(name => [name, process.env[name]]))
 
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
@@ -15,7 +18,7 @@ async function connect(cwd, workspace, options, extraArgs = []) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--experimental-strip-types", serverPath, ...(workspace ? ["--workspace", workspace] : []), ...extraArgs], cwd, stderr: "pipe" }))
+      args: ["--experimental-strip-types", serverPath, ...(workspace ? ["--workspace", workspace] : []), ...extraArgs], cwd, stderr: "pipe", env: { ...getDefaultEnvironment(), ...hostSelection } }))
     return client
   } catch (error) { await client.close().catch(() => undefined); throw error }
 }
@@ -128,7 +131,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     // A person reviews the pending proposal before it is rejected.
     const review = (await call(first, "view", { proposalId: discard.proposalId })).result
     assert.equal(review.kind, "changeReview")
-    assert.match(await readFile(review.path, "utf8"), /Change Review — replaceBody/)
+    assert.match(await readFile(review.path, "utf8"), /"proposalKind":"replaceBody"/) // The page renders its title from this embedded data.
     await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })
     await failed(first, "view", { proposalId: discard.proposalId })
