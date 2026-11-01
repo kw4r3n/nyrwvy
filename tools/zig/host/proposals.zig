@@ -131,11 +131,6 @@ fn initialize(_: *query.Request) !void {
     std.debug.assert(storage != null);
 }
 
-const validation_bail = "The Zig host does not word proposed-snapshot validation failures yet.";
-fn unsupported(r: *query.Request, message: []const u8) anyerror {
-    r.rejection = .{ .code = "UnsupportedOperation", .message = message };
-    return error.Rejected;
-}
 
 fn receipt(a: Allocator, transaction: Value, snapshot: Value, r: *query.Request, fingerprints: model.Fingerprints) ![]const u8 {
     const value = try m.object(a, &.{
@@ -236,7 +231,12 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
         r.rejection = .{ .code = "SimulationRejected", .message = if (declaration) |d| if (m.same(d.group, "functions")) "The structural request was rejected." else try std.fmt.allocPrint(r.a, "The {s} declaration was rejected.", .{d.subject}) else "The structural request was rejected.", .details = details.written() };
         return error.Rejected;
     }
-    if (read.root == .json_null or read.fingerprints == null) return unsupported(r, validation_bail);
+    // F# `computeReceipt` -> `FingerprintFailed`, worded by WireEncode's `caseName` arm; no valid request reaches it.
+    if (read.root == .json_null or read.fingerprints == null) {
+        const group_code: []const u8 = if (declaration) |d| if (m.same(d.group, "types")) "TypeDeclarationSimulationFailure" else if (m.same(d.group, "effects")) "EffectDeclarationSimulationFailure" else if (m.same(d.group, "capabilities")) "CapabilityDeclarationSimulationFailure" else "StructuralSimulationFailure" else "StructuralSimulationFailure";
+        r.rejection = .{ .code = group_code, .message = "FingerprintFailed" };
+        return error.Rejected;
+    }
     if (previous != null or declaration != null) if (r.provenance) |provenance| {
         if (previous) |old| if (try imported(r, provenance, "function", query.idOf(old)))
             return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
