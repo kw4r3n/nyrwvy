@@ -67,7 +67,7 @@ pub const Interner = struct {
             self.gpa.free(text);
             table.tombstones += 1;
         }
-        // Tombstones are never reused as free slots, so lookups slow as they pile up; clear them past a quarter.
+        // Misses probe past tombstones (only inserts reuse them), so lookups slow as they pile up; clear them past a quarter (an upper count).
         if (table.tombstones > table.map.capacity() / 4) {
             table.map.rehash(Utf16Context{});
             table.tombstones = 0;
