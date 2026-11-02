@@ -131,6 +131,8 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
   const preload = join(fixture, "fake zig.cjs")
   mkdirSync(join(repo, "scripts"), { recursive: true })
   for (const file of ["test-typed-host.mjs", "test-typed-host.fish"]) copyFileSync(join(repositoryRoot, "scripts", file), join(repo, "scripts", file))
+  mkdirSync(join(repo, "tools/zig/emitter"), { recursive: true })
+  for (const file of ["runtime.zig", "case_mapping.zig", "runtime_test.zig"]) copyFileSync(join(repositoryRoot, "tools/zig/emitter", file), join(repo, "tools/zig/emitter", file))
   writeFileSync(preload, `const fs = require('node:fs');\nif (!process.argv[1]?.endsWith('test-typed-host.mjs')) {\n  fs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: ['test', ...process.argv.slice(2)]}) + '\\n');\n  process.exit(Number(process.env.TYPED_FAIL) === fs.readFileSync(process.env.TYPED_CALLS, 'utf8').trim().split('\\n').length ? 23 : 0);\n}\n`)
   const run = (fail, fish = false) => {
     writeFileSync(calls, "")
@@ -145,11 +147,14 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
   try {
     const success = run(0)
     assert.equal(success.status, 0, success.stderr)
-    assert.equal(success.calls.length, 2)
+    assert.equal(success.calls.length, 3)
     assert.ok(success.calls.every(call => call.cwd === repo))
     const linkerArgs = process.platform === "darwin" ? ["-lc"] : []
-    assert.deepEqual(success.calls[0].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
-    const args = success.calls[1].args
+    // The emitter runtime test runs first, from a temporary file that joins the runtime sources.
+    assert.deepEqual(success.calls[0].args.slice(0, -1), ["test", ...linkerArgs, "-O", "ReleaseSafe"])
+    assert.ok(success.calls[0].args.at(-1).endsWith("runtime.zig"))
+    assert.deepEqual(success.calls[1].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
+    const args = success.calls[2].args
     assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "C# runner keeps recursive codecs finite and argument values out of source"])
     assert.ok(args.includes("--test-runner") && args.includes("tools/zig/host/test_runner.zig") && args.includes("runner dispatch name preserves arbitrary UTF-8 stable IDs"))
     for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
@@ -159,6 +164,7 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
     const secondFailure = run(2)
     assert.equal(secondFailure.status, 23)
     assert.equal(secondFailure.calls.length, 2)
-    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(run(0, true).calls, success.calls)
+    const stable = calls => calls.slice(1)
+    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(stable(run(0, true).calls), stable(success.calls))
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })
