@@ -20,7 +20,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
             if (std.testing.allocator_instance.deinit() != 0) leaked = true;
         }
         std.debug.print("{s}...", .{case.name});
-        try case.func();
+        case.func() catch |err| switch (err) {
+            error.SkipZigTest => {
+                std.debug.print("SKIP\n", .{});
+                continue;
+            },
+            else => return err,
+        };
         std.debug.print("OK\n", .{});
     }
     if (leaked) return error.MemoryLeak;

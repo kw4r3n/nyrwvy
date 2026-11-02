@@ -18,7 +18,8 @@ delete process.env.NYRWVY_HOST_EXECUTABLE
 
 function direct(args, input = '{"id":"status","op":"status"}\n', env = process.env) {
   const result = spawnSync(binary, args, { input, env, encoding: "utf8", timeout: 15_000 })
-  assert.ifError(result.error)
+  // A host that refuses at once (LockUnavailable) can exit before reading stdin; that EPIPE is not a failure.
+  if (result.error?.code !== "EPIPE") assert.ifError(result.error)
   return result
 }
 

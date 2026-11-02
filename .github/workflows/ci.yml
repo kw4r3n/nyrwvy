@@ -112,6 +112,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    # PowerShell splits arguments such as -Mroot=a/b.zig at the dot; bash passes them whole.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
