@@ -61,3 +61,76 @@ test "counted runtime frees everything" {
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+/// A worker in the shape the emitter writes (main.zig `taskStart`): moved captures, `drop` for a
+/// task that never starts.
+const Echo = struct {
+    fn call(c: anytype) NyError![]const u8 {
+        if (c.text.len == 0) return nyFail("Test", "empty", false);
+        return c.text;
+    }
+    fn drop(c: anytype) void {
+        nyReleaseAll(.{c.text});
+    }
+};
+const EchoJob = NyJob(struct { text: []const u8 }, NyError![]const u8, Echo);
+
+/// A failing call in the shape the emitter writes: what the frame holds is released by `errdefer`
+/// when the failure propagates (main.zig `blockLines`).
+fn failAfterHolding(held: []const u8) NyError![]const u8 {
+    var result: []const u8 = undefined;
+    {
+        errdefer nyRelease(held);
+        result = try nyRethrow([]const u8, .{ .type_name = "Test", .message = "failed" });
+    }
+    nyRelease(held);
+    return result;
+}
+
+test "failures, tasks and hand-off cells release their values" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    ny_io = std.testing.io;
+    {
+        // A caught failure leaves nothing behind.
+        if (failAfterHolding(nyInt64ToString(7))) |_| return error.TestUnexpectedResult else |_| {}
+        const scope = nyScopeOpen();
+        // A handle dropped before its task runs: the run's own reference releases the value.
+        nyRelease(nyStartTask([]const u8, scope, EchoJob{ .c = .{ .text = nyInt64ToString(1) } }));
+        // A waited task: the waiter owns its copy, the record's goes with the last handle.
+        const waited = nyStartTask([]const u8, scope, EchoJob{ .c = .{ .text = nyInt64ToString(2) } });
+        const results = try nyTaskWait([]const u8, &.{waited}, true, null);
+        try std.testing.expectEqualStrings("2", results[0].?);
+        nyRelease(results);
+        // A failed task holds no value.
+        const failed = nyStartTask([]const u8, scope, EchoJob{ .c = .{ .text = "" } });
+        try std.testing.expectError(error.NyFailure, nyScopeClose(scope, false));
+        nyRelease(failed);
+        // A handle that escaped its scope still reads its value; a task started after the close runs at once.
+        const late = nyStartTask([]const u8, scope, EchoJob{ .c = .{ .text = nyInt64ToString(3) } });
+        const again = try nyTaskWait([]const u8, &.{ waited, late }, true, null);
+        nyRelease(again);
+        nyRelease(waited);
+        nyRelease(late);
+        // A completed cell releases its value with its last handle; a closed one refuses (and releases) it.
+        const open_scope = nyScopeOpen();
+        const cell = nyOneShotCreate([]const u8, open_scope);
+        nyRetain(cell);
+        try std.testing.expect(nyOneShotComplete([]const u8, cell, nyInt64ToString(4)));
+        try std.testing.expect(!nyOneShotComplete([]const u8, cell, nyInt64ToString(5)));
+        nyRelease(cell);
+        nyRelease(cell);
+        try nyScopeClose(open_scope, false);
+        // A task that never starts (the clock failed every waiter) releases its captured arguments.
+        const ticket = nyAllocator().create(NyWaiter) catch unreachable;
+        ticket.* = .{ .ready = nyAlways, .context = undefined, .due = null, .order = 0, .is_delay = false, .released = true, .failed = true };
+        const task = nyAllocator().create(NyTask([]const u8)) catch unreachable;
+        task.* = .{ .base = .{ .cancel = nyLinked(null) } };
+        var job = EchoJob{ .c = .{ .text = nyInt64ToString(6) } };
+        ny_running += 1; // the task thread's exit gives it back
+        nyTaskThread([]const u8, EchoJob)(task, &job, ticket);
+        try std.testing.expect(task.base.failed);
+        nyRelease(task);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
