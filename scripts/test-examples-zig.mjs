@@ -1,7 +1,8 @@
 // Runs the examples whose runPure cases the Zig backend supports on that backend: each example
 // authors its bundle once (C#, the default target), then its saved cases are replayed after the
 // workspace's `<snapshot>.backends.json` names Zig. Bundles live in a temporary directory.
-// config-request-batch stays C#-only (owner decision); other examples are not yet run on Zig.
+// cleanup-shield, exception-boundary and task-cancellation-outcome replay on Zig inside their own
+// extended Node tests, which already author their bundles. config-request-batch stays C#-only (owner decision).
 import { spawnSync } from "node:child_process"
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -10,11 +11,10 @@ import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const examples = [
-  "bounded-stream", "cleanup-shield", "exception-boundary", "task-cancellation-outcome", "function-abort",
+  "bounded-stream", "function-abort",
   "dynamic-worker-collector", "bounded-worker-stream", "scoped-result-handoff",
 ]
-// cleanup-shield takes its directory first and --replay anywhere after it.
-const replayArgs = (example, directory) => example === "cleanup-shield" ? [directory, "--replay"] : ["--replay", directory]
+const replayArgs = (example, directory) => ["--replay", directory]
 // function-abort has no replay mode and accepts a non-empty directory, so its sidecar is written first.
 const presetOnly = new Set(["function-abort"])
 const only = process.argv.slice(2)

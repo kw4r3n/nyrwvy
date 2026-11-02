@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,readFile,cp,rm} from 'node:fs/promises'
+import {mkdtemp,readFile,readdir,writeFile,cp,rm} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {execFileSync} from 'node:child_process'
@@ -22,6 +22,10 @@ test('cleanup shield preserves parent cancellation, errors, replay and ownership
     execFileSync('node',['--experimental-strip-types','examples/cleanup-shield/run.mjs',moved,'--replay'],options)
     assert.deepEqual(JSON.parse(await readFile(join(moved,'replay-evidence.json'),'utf8')),first)
     assert.deepEqual(await readFile(join(moved,'shield.nyrec')),await readFile(join(bundle,'shield.nyrec')))
+    // The same saved cases replay on the Zig backend once the sidecar names it.
+    for(const name of (await readdir(moved)).filter(n=>n.endsWith('.backends.json')))await writeFile(join(moved,name),'{"targets": ["zig"]}\n')
+    execFileSync('node',['--experimental-strip-types','examples/cleanup-shield/run.mjs',moved,'--replay'],options)
+    assert.deepEqual(JSON.parse(await readFile(join(moved,'replay-evidence.json'),'utf8')),first)
     execFileSync('node',['examples/cleanup-shield/test-runtime.mjs',bundle],options)
     const runtime=JSON.parse(await readFile(join(bundle,'runtime-evidence.json'),'utf8'))
     assert.deepEqual(runtime.results,expected.results)
