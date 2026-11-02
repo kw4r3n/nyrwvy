@@ -62,7 +62,6 @@ module ZigHostParityTests =
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
-        info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
         for name, value in environment do info.Environment[name] <- value
         Process.Start info
 
