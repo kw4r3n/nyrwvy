@@ -107,6 +107,9 @@ pub fn deinit() void {
     }
     storage = null;
 }
+/// Each pending proposal keeps its own arena and is rebuilt on every commit or reject, so a session
+/// that never resolves them would grow without bound; simulate is refused at this many.
+pub const pending_limit = 64;
 pub fn count() usize {
     return pending.items.len;
 }

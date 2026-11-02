@@ -305,6 +305,8 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request
         .{ "simulateReplaceBodyByName", query.simulateReplaceBodyByName },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
+        if (std.mem.startsWith(u8, op, "simulate") and proposals.count() >= proposals.pending_limit)
+            return failure(out, id, "SessionError", try std.fmt.allocPrint(a, "This session already holds {d} pending proposals; commit or reject one (list them with 'proposals') before simulating another.", .{proposals.pending_limit}));
         var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path, .session_invalidated = invalidated };
         try proposals.bindTypedRead(&request);
         const previous_count = proposals.count();
