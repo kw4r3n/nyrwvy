@@ -1402,7 +1402,9 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const travelled = deferred(text, names.items);
             const worker = str(b.o, "workerFunctionId");
             const result = cat(&.{ if (failing(worker)) "NyError!" else "", zig(work) });
-            break :blk labeled(cat(&.{ "const captured = ", travelled[0], "; break :blk nyStartTask(", zig(work), ", ", b.f("scopeValueId"), ", NyJob(@TypeOf(captured), ", result, ", struct { fn call(c: anytype) ", result, " { return ", attempt(worker, travelled[1]), "; } }.call){ .c = captured });" }));
+            // A task that never starts releases the arguments the call would have moved in.
+            const arguments = travelled[1][std.mem.indexOfScalar(u8, travelled[1], '(').? + 1 .. travelled[1].len - 1];
+            break :blk labeled(cat(&.{ "const captured = ", travelled[0], "; break :blk nyStartTask(", zig(work), ", ", b.f("scopeValueId"), ", NyJob(@TypeOf(captured), ", result, ", struct { fn call(c: anytype) ", result, " { return ", attempt(worker, travelled[1]), "; } fn drop(c: anytype) void { _ = &c; nyReleaseAll(.{ ", arguments, " }); } }){ .c = captured });" }));
         },
         .taskWait => blk: {
             const work = argumentOf(itemType(b.typeAt("tasksValueId")), 0);
@@ -1511,14 +1513,14 @@ fn valueKey(item: Value) []const u8 {
 
 // ---------------------------------------------------------------- reference counting (Perceus)
 
-/// Whether a value of this type holds counted storage (runtime `nyCounted`). Task handles, scopes,
-/// cells, exceptions (their messages are static or runtime records), capabilities and function
-/// values carry no count.
+/// Whether a value of this type holds counted storage (runtime `nyCounted`); task and hand-off cell
+/// handles count their records. Scopes, exceptions (their messages are static or runtime records),
+/// capabilities and function values carry no count.
 fn counted(t: *const Type) bool {
     return switch (t.*) {
         .primitive => |kind| eql(kind, "primitiveString") or eql(kind, "primitiveBytes"),
         .builtin => |builtin| blk: {
-            for ([_][]const u8{ "task", "oneShot", "taskScope", "exception" }) |kind| if (eql(builtin.kind, kind)) break :blk false;
+            for ([_][]const u8{ "taskScope", "exception" }) |kind| if (eql(builtin.kind, kind)) break :blk false;
             if (eql(builtin.kind, "option") or eql(builtin.kind, "result")) {
                 for (builtin.args) |arg| if (counted(arg)) break :blk true;
                 break :blk false;

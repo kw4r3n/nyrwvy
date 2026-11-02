@@ -36,17 +36,16 @@ fn NyResult(comptime Ok: type, comptime Err: type) type {
 // frees exactly. A call consumes its arguments and returns an owned result; runtime helpers borrow
 // their arguments and return owned results. Values come from `ny_values` (a checked or freeing
 // allocator in the runner; the arena when null, as library mode resets it per call).
-// shortcut: runtime records (scheduler, tasks, cancellation, fake scripts, failures) still live in
-// `ny_arena` for the life of the process; task ownership (stage b) moves them to counted storage.
+// Task and hand-off cell handles are counted too (`ny_handle`): the record keeps its value until
+// the last handle (and, for a task, its own run) drops it, so an escaped handle still reads it.
+// shortcut: runtime records (scheduler, task and cell records, cancellation, fake scripts,
+// failures) still live in `ny_arena` for the life of the process; move them to counted storage
+// when a long-running program starts many tasks.
 var ny_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 var ny_values: ?std.mem.Allocator = null;
 /// While set, values are allocated in the arena with a static count (never retained or freed):
 /// scripted fake responses, which the script keeps for the whole run.
 var ny_static_values = false;
-/// Set once a run leaves values that stage (a) cannot release yet: a caught failure unwound frames
-/// that have no errdefer, or a task or hand-off cell holds a value. The runner's leak check then
-/// does not run (stage b, errdefer and task ownership, removes this).
-var ny_leak_exempt = false;
 
 fn nyAllocator() std.mem.Allocator {
     return ny_arena.allocator();
@@ -97,14 +96,22 @@ fn nyStatic(comptime text: []const u8) []const u8 {
     return &Holder.data.bytes;
 }
 
-/// Whether a value of type T holds counted storage. Mutable pointers are runtime records (tasks,
-/// scopes, cells) and function pointers carry no count.
+/// Whether a value of type T holds counted storage. Other mutable pointers are runtime records
+/// (scopes, cancellation) and function pointers carry no count; task and cell handles count.
 fn nyCounted(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .pointer => |info| info.size == .slice or (info.size == .one and info.attrs.@"const" and @typeInfo(info.child) != .@"fn"),
+        .pointer => |info| info.size == .slice or (info.size == .one and info.attrs.@"const" and @typeInfo(info.child) != .@"fn") or nyHandle(T),
         .optional => |info| nyCounted(info.child),
         .@"struct" => @hasDecl(T, "ny_set") or @hasDecl(T, "ny_map") or @hasDecl(T, "ny_bytes"),
         .@"union" => |info| !@hasDecl(T, "ny_ids") and (nyCounted(info.field_types[0]) or nyCounted(info.field_types[1])),
+        else => false,
+    };
+}
+
+/// A task or hand-off cell handle: a record in the arena with its own count of handles.
+fn nyHandle(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |info| info.size == .one and !info.attrs.@"const" and @typeInfo(info.child) == .@"struct" and @hasDecl(info.child, "ny_handle"),
         else => false,
     };
 }
@@ -126,7 +133,9 @@ fn nyRetain(value: anytype) void {
     const T = @TypeOf(value);
     if (comptime !nyCounted(T)) return;
     switch (@typeInfo(T)) {
-        .pointer => |info| if (info.size != .slice) nyIncrement(value) else if (value.len > 0) nyIncrement(value.ptr),
+        .pointer => |info| if (comptime nyHandle(T)) {
+            value.refs += 1;
+        } else if (info.size != .slice) nyIncrement(value) else if (value.len > 0) nyIncrement(value.ptr),
         .optional => if (value) |item| nyRetain(item),
         .@"struct" => if (comptime @hasDecl(T, "ny_set")) nyRetain(value.items) else if (comptime @hasDecl(T, "ny_map")) {
             nyRetain(value.keys);
@@ -150,6 +159,7 @@ fn nyRelease(value: anytype) void {
     if (comptime !nyCounted(T)) return;
     switch (@typeInfo(T)) {
         .pointer => |info| {
+            if (comptime nyHandle(T)) return value.drop();
             if (info.size != .slice) return nyReleaseBox(value);
             if (value.len == 0 or !nyDrop(value.ptr)) return;
             if (comptime nyCounted(info.child)) for (value) |item| nyRelease(item);
@@ -196,6 +206,11 @@ fn nyReleaseFields(comptime P: type, fields: anytype, next: *?P) void {
             next.* = field;
         } else nyRelease(field);
     }
+}
+
+/// Releases every field of a struct or tuple (a never-started task's captured arguments).
+fn nyReleaseAll(values: anytype) void {
+    inline for (@typeInfo(@TypeOf(values)).@"struct".field_names) |name| nyRelease(@field(values, name));
 }
 
 /// Retains every field of a copied Product, so the copy owns its own references.
@@ -459,8 +474,20 @@ const NyTaskBase = struct {
     cancel: *NyCancel,
 };
 
+/// A task record; `refs` counts its handles plus one for the run until it is done. The value (set
+/// when the task succeeds) is released with the last reference.
 fn NyTask(comptime W: type) type {
-    return struct { base: NyTaskBase, value: W = undefined };
+    return struct {
+        base: NyTaskBase,
+        value: W = undefined,
+        refs: u32 = 2,
+        pub const ny_handle = {};
+
+        pub fn drop(task: *@This()) void {
+            task.refs -= 1;
+            if (task.refs == 0 and !task.base.failed) nyRelease(task.value);
+        }
+    };
 }
 
 const NyOneShotState = enum { pending, completed, closed };
@@ -529,7 +556,6 @@ fn nyScopeClose(scope: *NyScope, body_failed: bool) NyError!void {
 fn nyStartTask(comptime W: type, scope: *NyScope, job: anytype) *NyTask(W) {
     const task = nyAllocator().create(NyTask(W)) catch @panic("out of memory");
     task.* = .{ .base = .{ .cancel = nyLinked(scope.cancel) } };
-    if (comptime nyCounted(W)) ny_leak_exempt = true;
     const Job = @TypeOf(job);
     const held = nyAllocator().create(Job) catch @panic("out of memory");
     held.* = job;
@@ -557,17 +583,19 @@ fn nyRunJob(comptime W: type, task: *NyTask(W), job: anytype) void {
         }
     } else task.value = outcome;
     task.base.done = true;
+    task.drop();
 }
 
 fn nyTaskThread(comptime W: type, comptime Job: type) fn (*NyTask(W), *Job, *NyWaiter) void {
     return struct {
         fn run(task: *NyTask(W), job: *Job, ticket: *NyWaiter) void {
             if (!nyStart(ticket)) {
-                // The clock failed every waiter: the task fails before it starts (its captures stay unreleased).
-                ny_leak_exempt = true;
+                // The clock failed every waiter: the task fails before it starts and drops its captures.
+                job.discard();
                 task.base.failed = true;
                 task.base.failure = ny_deadlock;
                 task.base.done = true;
+                task.drop();
             } else {
                 ny_token = task.base.cancel;
                 nyRunJob(W, task, job);
@@ -599,8 +627,20 @@ fn nyTaskWait(comptime W: type, tasks: []const *NyTask(W), all: bool, limit: ?i6
     return out;
 }
 
+/// A hand-off cell; `refs` counts its handles, and the last one releases a completed value.
 fn NyOneShot(comptime T: type) type {
-    return struct { state: NyOneShotState, value: T = undefined, scope: *NyScope };
+    return struct {
+        state: NyOneShotState,
+        value: T = undefined,
+        scope: *NyScope,
+        refs: u32 = 1,
+        pub const ny_handle = {};
+
+        pub fn drop(cell: *@This()) void {
+            cell.refs -= 1;
+            if (cell.refs == 0 and cell.state == .completed) nyRelease(cell.value);
+        }
+    };
 }
 
 fn nyOneShotCreate(comptime T: type, scope: *NyScope) *NyOneShot(T) {
@@ -616,7 +656,6 @@ fn nyOneShotComplete(comptime T: type, cell: *NyOneShot(T), value: T) bool {
         return false;
     }
     cell.value = value;
-    if (comptime nyCounted(T)) ny_leak_exempt = true;
     cell.state = .completed;
     return true;
 }
@@ -655,13 +694,18 @@ fn nyAwaitCancellation() NyError!void {
 /// ParallelAll: runs `worker(item)` for every item as tasks sharing one cancellation source linked to
 /// the caller's; a worker's Err or failure cancels the others. The first failure by index fails the
 /// call, else the lowest-index Err is the result, else the Ok values in index order.
-/// A task's work: `body` applied to the values the starting instruction captured.
-fn NyJob(comptime C: type, comptime R: type, comptime body: anytype) type {
+/// A task's work: `Work.call` applied to the values the starting instruction captured (moved in);
+/// `Work.drop` releases them when the task never starts.
+fn NyJob(comptime C: type, comptime R: type, comptime Work: type) type {
     return struct {
         c: C,
 
         fn run(job: *const @This()) R {
-            return body(job.c);
+            return Work.call(job.c);
+        }
+
+        fn discard(job: *const @This()) void {
+            Work.drop(job.c);
         }
     };
 }
@@ -684,6 +728,9 @@ fn nyParallelAll(comptime T: type, comptime U: type, comptime E: type, items: []
             if (outcome == .err) job.shared.cancel();
             return outcome;
         }
+
+        // The item and context are borrowed from the caller, which outlives every worker.
+        fn discard(_: *const @This()) void {}
     };
     for (items, 0..) |item, index| {
         const task = nyAllocator().create(NyTask(Outcome)) catch @panic("out of memory");

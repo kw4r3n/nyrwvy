@@ -294,7 +294,7 @@ fn nyUseValueAllocator() void {
 
 /// Exit code 86 with "leak: ..." on stderr when a value is still live at the end of the run.
 fn nyLeakCheck() void {
-    if (@import("builtin").mode != .safe or ny_leak_exempt) return;
+    if (@import("builtin").mode != .safe) return;
     const live = ny_debug_allocator.detectLeaks();
     if (live == 0) return;
     ny_out.flush() catch {};
