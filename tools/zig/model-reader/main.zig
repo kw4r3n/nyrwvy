@@ -7024,6 +7024,11 @@ pub fn main(init: std.process.Init) !void {
     }
     var index: usize = if (validating or typing) 2 else 1;
     while (index < args.len) : (index += if (validating) 1 else if (typing) 3 else 2) {
+        // Each input gets its own arena and state, as in `bench`; one shared arena grew to ~18 GB over the validator corpus.
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        a = arena.allocator();
+        resetState();
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);
         emit_text = !(validating or typing);
         const read = canonicalJson(input);
