@@ -23,11 +23,11 @@ The check now runs on every run except one: a run that exceeds 1,024 capability 
 | --- | --- |
 | `tools/zig/emitter/runtime_test.zig`, new test (a failure releasing held values, a handle dropped before its task runs, a waited task, a failed task, a handle escaping its closed scope, a task started on a closed scope, a cell completed then refused, a never-started task) under `DebugAllocator` | passed, no leak |
 | The new test with the never-started `drop` removed, and with the run's own `drop` removed | fails with leaks |
-| `ZigHostRunPure` and `ZigBackend` filters (replayed replies unchanged, goldens not re-recorded); the query test's uncaught-failure cases now run the leak check | RESULT_DOTNET |
-| `npm run test:host` | RESULT_HOST |
-| `.opencode/tests/nyrwvy-zig-library.test.mjs` (library mode) | RESULT_LIBRARY |
-| `scripts/test-fast.fish` | RESULT_FAST |
-| `scripts/test-extended.fish` | RESULT_EXTENDED |
+| `ZigHostRunPure` and `ZigBackend` filters (replayed replies unchanged, goldens not re-recorded); the query test's uncaught-failure cases now run the leak check | 15 passed |
+| `npm run test:host` | passed (runtime tests 2 of 2, model reader, host tests) |
+| `.opencode/tests/nyrwvy-zig-library.test.mjs` (library mode) | passed |
+| `scripts/test-fast.fish` | 710 passed; fast-contracts 64 passed after fixing `typed host gate selects both Zig suites` (stage (a) made the gate run the emitter runtime test first, and the test still expected two calls; it fails on `origin/main` too) |
+| `scripts/test-extended.fish` | Core 134 passed, Extended 2 passed, node extended 4 passed |
 | Examples with every runPure forced to Zig (temporary host patch, not committed), leak check on every run: `bounded-stream`, `cleanup-shield`, `exception-boundary`, `task-cancellation-outcome`, `function-abort` | passed, no leak |
 
 `bounded-worker-stream` and `dynamic-worker-collector` (emitter type error `expected type 'u32', found 'i64'`), `scoped-result-handoff` (generic type parameter) and `config-request-batch` (host sources) fail on Zig for the same reasons as before stage (a); no leak was reported for any of them. The first forced-Zig `cleanup-shield` run found that `@hasDecl` does not see a non-`pub` declaration, so the handle marker and `drop` are `pub`.
