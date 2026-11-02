@@ -30,18 +30,211 @@ fn NyResult(comptime Ok: type, comptime Err: type) type {
     return union(enum) { ok: Ok, err: Err };
 }
 
-// shortcut: every String and boxed value lives in one arena for the life of the process; replace
-// with reference counting (plan: Zig backend notes) before long-running programs use this backend.
+// Memory (docs/decisions/zig-backend-memory-ownership.md). Program values (String bytes, boxed
+// Products and Unions, List, Set and Map storage, Bytes) are reference counted: an 8-byte header
+// before the payload holds the count and the allocated length, so a prefix of a fresh allocation
+// frees exactly. A call consumes its arguments and returns an owned result; runtime helpers borrow
+// their arguments and return owned results. Values come from `ny_values` (a checked or freeing
+// allocator in the runner; the arena when null, as library mode resets it per call).
+// shortcut: runtime records (scheduler, tasks, cancellation, fake scripts, failures) still live in
+// `ny_arena` for the life of the process; task ownership (stage b) moves them to counted storage.
 var ny_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+var ny_values: ?std.mem.Allocator = null;
+/// While set, values are allocated in the arena with a static count (never retained or freed):
+/// scripted fake responses, which the script keeps for the whole run.
+var ny_static_values = false;
+/// Set once a run leaves values that stage (a) cannot release yet: a caught failure unwound frames
+/// that have no errdefer, or a task or hand-off cell holds a value. The runner's leak check then
+/// does not run (stage b, errdefer and task ownership, removes this).
+var ny_leak_exempt = false;
 
 fn nyAllocator() std.mem.Allocator {
     return ny_arena.allocator();
 }
 
+/// The allocator of value storage and of temporary buffers freed in the same call.
+fn nyRaw() std.mem.Allocator {
+    return ny_values orelse ny_arena.allocator();
+}
+
+const NyHeader = extern struct { count: u32, cap: u32 };
+const ny_static: u32 = std.math.maxInt(u32);
+
+fn nyHeader(ptr: anytype) *NyHeader {
+    return @ptrFromInt(@intFromPtr(ptr) - @sizeOf(NyHeader));
+}
+
+/// Counted storage for `count` items with a count of one; no allocation for zero items.
+fn nyAlloc(comptime T: type, count: usize) []T {
+    comptime std.debug.assert(@alignOf(T) <= 8);
+    if (count == 0) return &.{};
+    if (count > std.math.maxInt(u32)) nyOom();
+    const bytes = (if (ny_static_values) nyAllocator() else nyRaw()).alignedAlloc(u8, .@"8", @sizeOf(NyHeader) + count * @sizeOf(T)) catch nyOom();
+    const header: *NyHeader = @ptrCast(bytes.ptr);
+    header.* = .{ .count = if (ny_static_values) ny_static else 1, .cap = @intCast(count) };
+    const items: [*]T = @ptrCast(@alignCast(bytes.ptr + @sizeOf(NyHeader)));
+    return items[0..count];
+}
+
+fn nyFree(comptime T: type, ptr: anytype) void {
+    const header = nyHeader(ptr);
+    const bytes: [*]align(8) u8 = @ptrCast(@alignCast(header));
+    nyRaw().free(bytes[0 .. @sizeOf(NyHeader) + @as(usize, header.cap) * @sizeOf(T)]);
+}
+
 fn nyBox(comptime T: type, value: T) *const T {
-    const slot = nyAllocator().create(T) catch @panic("out of memory");
+    const slot = &nyAlloc(T, 1)[0];
     slot.* = value;
     return slot;
+}
+
+/// A string literal as a static counted value.
+fn nyStatic(comptime text: []const u8) []const u8 {
+    if (text.len == 0) return "";
+    const Holder = struct {
+        const data: extern struct { header: NyHeader, bytes: [text.len]u8 } = .{ .header = .{ .count = ny_static, .cap = text.len }, .bytes = text[0..text.len].* };
+    };
+    return &Holder.data.bytes;
+}
+
+/// Whether a value of type T holds counted storage. Mutable pointers are runtime records (tasks,
+/// scopes, cells) and function pointers carry no count.
+fn nyCounted(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |info| info.size == .slice or (info.size == .one and info.attrs.@"const" and @typeInfo(info.child) != .@"fn"),
+        .optional => |info| nyCounted(info.child),
+        .@"struct" => @hasDecl(T, "ny_set") or @hasDecl(T, "ny_map") or @hasDecl(T, "ny_bytes"),
+        .@"union" => |info| !@hasDecl(T, "ny_ids") and (nyCounted(info.field_types[0]) or nyCounted(info.field_types[1])),
+        else => false,
+    };
+}
+
+fn nyIncrement(ptr: anytype) void {
+    const header = nyHeader(ptr);
+    if (header.count != ny_static) header.count += 1;
+}
+
+/// Drops one reference; true when it was the last.
+fn nyDrop(ptr: anytype) bool {
+    const header = nyHeader(ptr);
+    if (header.count == ny_static) return false;
+    header.count -= 1;
+    return header.count == 0;
+}
+
+fn nyRetain(value: anytype) void {
+    const T = @TypeOf(value);
+    if (comptime !nyCounted(T)) return;
+    switch (@typeInfo(T)) {
+        .pointer => |info| if (info.size != .slice) nyIncrement(value) else if (value.len > 0) nyIncrement(value.ptr),
+        .optional => if (value) |item| nyRetain(item),
+        .@"struct" => if (comptime @hasDecl(T, "ny_set")) nyRetain(value.items) else if (comptime @hasDecl(T, "ny_map")) {
+            nyRetain(value.keys);
+            nyRetain(value.values);
+        } else nyRetain(value.data),
+        .@"union" => switch (value) {
+            inline else => |item| nyRetain(item),
+        },
+        else => unreachable,
+    }
+}
+
+/// The value with one more reference: a borrowed value passed on as owned.
+fn nyShare(value: anytype) @TypeOf(value) {
+    nyRetain(value);
+    return value;
+}
+
+fn nyRelease(value: anytype) void {
+    const T = @TypeOf(value);
+    if (comptime !nyCounted(T)) return;
+    switch (@typeInfo(T)) {
+        .pointer => |info| {
+            if (info.size != .slice) return nyReleaseBox(value);
+            if (value.len == 0 or !nyDrop(value.ptr)) return;
+            if (comptime nyCounted(info.child)) for (value) |item| nyRelease(item);
+            nyFree(info.child, value.ptr);
+        },
+        .optional => if (value) |item| nyRelease(item),
+        .@"struct" => if (comptime @hasDecl(T, "ny_set")) nyRelease(value.items) else if (comptime @hasDecl(T, "ny_map")) {
+            nyRelease(value.keys);
+            nyRelease(value.values);
+        } else nyRelease(value.data),
+        .@"union" => switch (value) {
+            inline else => |item| nyRelease(item),
+        },
+        else => unreachable,
+    }
+}
+
+/// Releases a box; a field of the box's own type (a list-like spine) continues the loop instead of
+/// recursing, so a long chain never overflows the stack.
+fn nyReleaseBox(first: anytype) void {
+    const P = @TypeOf(first);
+    const T = @typeInfo(P).pointer.child;
+    var next: ?P = first;
+    while (next) |box| {
+        next = null;
+        if (!nyDrop(box)) return;
+        const value = box.*;
+        nyFree(T, box);
+        switch (@typeInfo(T)) {
+            .@"struct" => nyReleaseFields(P, value, &next),
+            .@"union" => switch (value) {
+                inline else => |payload| nyReleaseFields(P, payload, &next),
+            },
+            else => unreachable,
+        }
+    }
+}
+
+fn nyReleaseFields(comptime P: type, fields: anytype, next: *?P) void {
+    inline for (@typeInfo(@TypeOf(fields)).@"struct".field_names) |name| {
+        const field = @field(fields, name);
+        if (@TypeOf(field) == P or @TypeOf(field) == ?P) {
+            if (next.*) |earlier| nyRelease(earlier);
+            next.* = field;
+        } else nyRelease(field);
+    }
+}
+
+/// Retains every field of a copied Product, so the copy owns its own references.
+fn nyRetainFields(value: anytype) void {
+    inline for (@typeInfo(@TypeOf(value)).@"struct".field_names) |name| nyRetain(@field(value, name));
+}
+
+/// Counted copies: `nyListOf` retains the items (borrowed), `nyListMove` takes them over.
+fn nyListOf(comptime T: type, items: []const T) []const T {
+    const copy = nyAlloc(T, items.len);
+    @memcpy(copy, items);
+    for (copy) |item| nyRetain(item);
+    return copy;
+}
+
+fn nyListMove(comptime T: type, items: []const T) []const T {
+    const copy = nyAlloc(T, items.len);
+    @memcpy(copy, items);
+    return copy;
+}
+
+/// A fresh allocation cut to its first `count` items (which it owns); freed when none remain.
+fn nyShrink(comptime T: type, items: []T, count: usize) []const T {
+    if (count > 0) return items[0..count];
+    if (items.len > 0) nyFree(T, items.ptr);
+    return &.{};
+}
+
+/// Takes over a temporary buffer from `nyRaw()`: a counted copy, then the buffer is freed.
+fn nyAdopt(comptime T: type, raw: []const T) []const T {
+    const copy = nyListMove(T, raw);
+    nyRaw().free(raw);
+    return copy;
+}
+
+fn nyAdoptList(comptime T: type, list: *std.ArrayList(T)) []const T {
+    const copy = nyListMove(T, list.items);
+    list.deinit(nyRaw());
+    return copy;
 }
 
 fn nyFloorDivide(dividend: i64, divisor: i64) i64 {
@@ -70,7 +263,8 @@ fn nyShiftRight(value: i64, count: i64) i64 {
 }
 
 fn nyInt64ToString(value: i64) []const u8 {
-    return std.fmt.allocPrint(nyAllocator(), "{d}", .{value}) catch @panic("out of memory");
+    var buffer: [24]u8 = undefined;
+    return nyListMove(u8, std.fmt.bufPrint(&buffer, "{d}", .{value}) catch unreachable);
 }
 
 /// Strings are UTF-8 sequences of Unicode scalar values, so this never fails.
@@ -79,9 +273,9 @@ fn nyStringLength(text: []const u8) i64 {
 }
 
 fn nyConcat(left: []const u8, right: []const u8) []const u8 {
-    if (left.len == 0) return right;
-    if (right.len == 0) return left;
-    const joined = nyAllocator().alloc(u8, left.len + right.len) catch @panic("out of memory");
+    if (left.len == 0) return nyShare(right);
+    if (right.len == 0) return nyShare(left);
+    const joined = nyAlloc(u8, left.len + right.len);
     @memcpy(joined[0..left.len], left);
     @memcpy(joined[left.len..], right);
     return joined;
@@ -319,7 +513,7 @@ fn nyWaitAll(tasks: []const *NyTaskBase) NyError!void {
 fn nyScopeClose(scope: *NyScope, body_failed: bool) NyError!void {
     scope.closeHandoffs();
     scope.closed = true;
-    const tasks = nyListOf(*NyTaskBase, scope.tasks.items);
+    const tasks = nyAllocator().dupe(*NyTaskBase, scope.tasks.items) catch nyOom();
     scope.cancel.cancel();
     try nyWaitAll(tasks);
     if (body_failed) return;
@@ -335,6 +529,7 @@ fn nyScopeClose(scope: *NyScope, body_failed: bool) NyError!void {
 fn nyStartTask(comptime W: type, scope: *NyScope, job: anytype) *NyTask(W) {
     const task = nyAllocator().create(NyTask(W)) catch @panic("out of memory");
     task.* = .{ .base = .{ .cancel = nyLinked(scope.cancel) } };
+    if (comptime nyCounted(W)) ny_leak_exempt = true;
     const Job = @TypeOf(job);
     const held = nyAllocator().create(Job) catch @panic("out of memory");
     held.* = job;
@@ -357,6 +552,7 @@ fn nyRunJob(comptime W: type, task: *NyTask(W), job: anytype) void {
     const outcome = job.run();
     if (@typeInfo(@TypeOf(outcome)) == .error_union) {
         if (outcome) |value| task.value = value else |_| {
+            ny_leak_exempt = true;
             task.base.failed = true;
             task.base.failure = ny_failure;
         }
@@ -368,7 +564,8 @@ fn nyTaskThread(comptime W: type, comptime Job: type) fn (*NyTask(W), *Job, *NyW
     return struct {
         fn run(task: *NyTask(W), job: *Job, ticket: *NyWaiter) void {
             if (!nyStart(ticket)) {
-                // The clock failed every waiter: the task fails before it starts.
+                // The clock failed every waiter: the task fails before it starts (its captures stay unreleased).
+                ny_leak_exempt = true;
                 task.base.failed = true;
                 task.base.failure = ny_deadlock;
                 task.base.done = true;
@@ -387,19 +584,19 @@ const NyTaskWaitContext = struct { tasks: []const *NyTaskBase };
 /// all of them (or `limit` of virtual time). A failed finished task fails the wait.
 fn nyTaskWait(comptime W: type, tasks: []const *NyTask(W), all: bool, limit: ?i64) NyError![]const ?W {
     if (tasks.len == 0) return &.{};
-    const bases = nyAlloc(*NyTaskBase, tasks.len);
+    const bases = nyAllocator().alloc(*NyTaskBase, tasks.len) catch nyOom();
     for (tasks, 0..) |task, index| bases[index] = &task.base;
     const held = nyAllocator().create([]const *NyTaskBase) catch @panic("out of memory");
     held.* = bases;
     _ = try nyBlock(if (all) nyAllDone else nyAnyDone, @ptrCast(held), if (limit) |value| @max(value, 0) else null, false);
-    const out = nyAlloc(?W, tasks.len);
-    for (tasks, 0..) |task, index| {
+    for (tasks) |task| {
         if (task.base.done and task.base.failed) {
             ny_failure = task.base.failure;
             return error.NyFailure;
         }
-        out[index] = if (task.base.done) task.value else null;
     }
+    const out = nyAlloc(?W, tasks.len);
+    for (tasks, 0..) |task, index| out[index] = if (task.base.done) nyShare(task.value) else null;
     return out;
 }
 
@@ -415,8 +612,12 @@ fn nyOneShotCreate(comptime T: type, scope: *NyScope) *NyOneShot(T) {
 }
 
 fn nyOneShotComplete(comptime T: type, cell: *NyOneShot(T), value: T) bool {
-    if (cell.state != .pending or cell.scope.handoffs_closed) return false;
+    if (cell.state != .pending or cell.scope.handoffs_closed) {
+        nyRelease(value);
+        return false;
+    }
     cell.value = value;
+    if (comptime nyCounted(T)) ny_leak_exempt = true;
     cell.state = .completed;
     return true;
 }
@@ -437,7 +638,7 @@ fn nyOneShotWait(comptime T: type, cell: *NyOneShot(T), limit: ?i64) NyError!?T 
     const context = nyAllocator().create(NyOneShotWaitContext(T)) catch @panic("out of memory");
     context.* = .{ .cell = cell, .token = ny_token };
     _ = try nyBlock(NyOneShotWaitContext(T).ready, @ptrCast(context), limit, false);
-    return if (cell.state == .completed) cell.value else null;
+    return if (cell.state == .completed) nyShare(cell.value) else null;
 }
 
 fn nyCancelledContext(context: *const anyopaque) bool {
@@ -469,8 +670,8 @@ fn NyJob(comptime C: type, comptime R: type, comptime body: anytype) type {
 fn nyParallelAll(comptime T: type, comptime U: type, comptime E: type, items: []const T, context: anytype, comptime worker: anytype) NyError!NyResult([]const U, E) {
     const Outcome = NyResult(U, E);
     const shared = nyLinked(ny_token);
-    const tasks = nyAlloc(*NyTask(Outcome), items.len);
-    const bases = nyAlloc(*NyTaskBase, items.len);
+    const tasks = nyAllocator().alloc(*NyTask(Outcome), items.len) catch nyOom();
+    const bases = nyAllocator().alloc(*NyTaskBase, items.len) catch nyOom();
     const Job = struct {
         item: T,
         context: @TypeOf(context),
@@ -497,33 +698,28 @@ fn nyParallelAll(comptime T: type, comptime U: type, comptime E: type, items: []
         thread.detach();
     }
     try nyWaitAll(bases);
-    for (tasks) |task| {
-        if (task.base.failed) {
-            ny_failure = task.base.failure;
+    // The outcomes move out of the task records: into the result, or released when it is a failure or an Err.
+    const failed = for (tasks) |task| {
+        if (task.base.failed) break &task.base;
+    } else null;
+    const first_err = if (failed != null) null else for (tasks, 0..) |task, index| {
+        if (task.value == .err) break index;
+    } else null;
+    if (failed != null or first_err != null) {
+        for (tasks, 0..) |task, index| if (!task.base.failed and index != first_err) nyRelease(task.value);
+        if (failed) |base| {
+            ny_failure = base.failure;
             return error.NyFailure;
         }
+        return .{ .err = tasks[first_err.?].value.err };
     }
     const values = nyAlloc(U, items.len);
-    for (tasks, 0..) |task, index| {
-        switch (task.value) {
-            .ok => |value| values[index] = value,
-            .err => |failure| return .{ .err = failure },
-        }
-    }
+    for (tasks, 0..) |task, index| values[index] = task.value.ok;
     return .{ .ok = values };
 }
 
 // Lists are immutable slices. shortcut: every update copies (O(n)); a persistent vector, as the C#
 // backend uses, replaces this when a consumer needs the documented O(log n) updates.
-fn nyAlloc(comptime T: type, count: usize) []T {
-    return nyAllocator().alloc(T, count) catch @panic("out of memory");
-}
-
-fn nyListOf(comptime T: type, items: []const T) []const T {
-    const copy = nyAlloc(T, items.len);
-    @memcpy(copy, items);
-    return copy;
-}
 
 fn nyIndex(index: i64, length: usize) ?usize {
     return if (index >= 0 and index < @as(i64, @intCast(length))) @intCast(index) else null;
@@ -543,68 +739,75 @@ fn nyListRange(start: i64, end: i64) []const i64 {
     return items;
 }
 
+/// Copies borrowed items into fresh storage, retaining each.
+fn nyCopyItems(comptime T: type, into: []T, items: []const T) void {
+    @memcpy(into, items);
+    for (items) |item| nyRetain(item);
+}
+
 fn nyListAppend(comptime T: type, list: []const T, item: T) []const T {
     const items = nyAlloc(T, list.len + 1);
-    @memcpy(items[0..list.len], list);
-    items[list.len] = item;
+    nyCopyItems(T, items[0..list.len], list);
+    items[list.len] = nyShare(item);
     return items;
 }
 
 fn nyListConcat(comptime T: type, left: []const T, right: []const T) []const T {
-    if (left.len == 0) return right;
-    if (right.len == 0) return left;
+    if (left.len == 0) return nyShare(right);
+    if (right.len == 0) return nyShare(left);
     const items = nyAlloc(T, left.len + right.len);
-    @memcpy(items[0..left.len], left);
-    @memcpy(items[left.len..], right);
+    nyCopyItems(T, items[0..left.len], left);
+    nyCopyItems(T, items[left.len..], right);
     return items;
 }
 
 fn nyListReverse(comptime T: type, list: []const T) []const T {
     const items = nyAlloc(T, list.len);
-    for (list, 0..) |item, position| items[list.len - 1 - position] = item;
+    for (list, 0..) |item, position| items[list.len - 1 - position] = nyShare(item);
     return items;
 }
 
 fn nyListItemAt(comptime T: type, list: []const T, index: i64) ?T {
-    return if (nyIndex(index, list.len)) |at| list[at] else null;
+    return if (nyIndex(index, list.len)) |at| nyShare(list[at]) else null;
 }
 
 fn nyListLast(comptime T: type, list: []const T) ?T {
-    return if (list.len == 0) null else list[list.len - 1];
+    return if (list.len == 0) null else nyShare(list[list.len - 1]);
 }
 
 fn nyListDropLast(comptime T: type, list: []const T) []const T {
-    return if (list.len == 0) list else list[0 .. list.len - 1];
+    return if (list.len == 0) list else nyListOf(T, list[0 .. list.len - 1]);
 }
 
 fn nyListSlice(comptime T: type, list: []const T, start: i64, end: i64) []const T {
     const from = nyClamp(start, list.len);
     const to = nyClamp(end, list.len);
-    return if (to <= from) &.{} else list[from..to];
+    return if (to <= from) &.{} else nyListOf(T, list[from..to]);
 }
 
 fn nyListSetAt(comptime T: type, list: []const T, index: i64, item: T) []const T {
-    const at = nyIndex(index, list.len) orelse return list;
+    const at = nyIndex(index, list.len) orelse return nyShare(list);
     const items = nyAlloc(T, list.len);
-    @memcpy(items, list);
-    items[at] = item;
+    nyCopyItems(T, items[0..at], list[0..at]);
+    items[at] = nyShare(item);
+    nyCopyItems(T, items[at + 1 ..], list[at + 1 ..]);
     return items;
 }
 
 fn nyListInsertAt(comptime T: type, list: []const T, index: i64, item: T) []const T {
     const at = nyClamp(index, list.len);
     const items = nyAlloc(T, list.len + 1);
-    @memcpy(items[0..at], list[0..at]);
-    items[at] = item;
-    @memcpy(items[at + 1 ..], list[at..]);
+    nyCopyItems(T, items[0..at], list[0..at]);
+    items[at] = nyShare(item);
+    nyCopyItems(T, items[at + 1 ..], list[at..]);
     return items;
 }
 
 fn nyListRemoveAt(comptime T: type, list: []const T, index: i64) []const T {
-    const at = nyIndex(index, list.len) orelse return list;
+    const at = nyIndex(index, list.len) orelse return nyShare(list);
     const items = nyAlloc(T, list.len - 1);
-    @memcpy(items[0..at], list[0..at]);
-    @memcpy(items[at..], list[at + 1 ..]);
+    nyCopyItems(T, items[0..at], list[0..at]);
+    nyCopyItems(T, items[at..], list[at + 1 ..]);
     return items;
 }
 
@@ -672,25 +875,40 @@ fn nyFind(comptime T: type, items: []const T, item: T) ?usize {
 }
 
 fn nySetInsert(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    if (nyFind(T, set.items, item) != null) return set;
+    if (nyFind(T, set.items, item) != null) return nyShare(set);
     return .{ .items = nyListAppend(T, set.items, item) };
 }
 
+/// Inserts into a set this call owns, consuming both the set and the item.
+fn nySetInsertOwned(comptime T: type, set: NySet(T), item: T) NySet(T) {
+    const out = nySetInsert(T, set, item);
+    nyRelease(set);
+    nyRelease(item);
+    return out;
+}
+
 fn nySetRemove(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    const at = nyFind(T, set.items, item) orelse return set;
+    const at = nyFind(T, set.items, item) orelse return nyShare(set);
     return .{ .items = nyListRemoveAt(T, set.items, @intCast(at)) };
 }
 
+/// The distinct items in first-seen order.
+fn nyDistinct(comptime T: type, first: []const T, second: []const T) []const T {
+    var kept: std.ArrayList(T) = .empty;
+    for ([_][]const T{ first, second }) |items| for (items) |item| {
+        if (nyFind(T, kept.items, item) == null) kept.append(nyRaw(), item) catch nyOom();
+    };
+    for (kept.items) |item| nyRetain(item);
+    return nyAdoptList(T, &kept);
+}
+
 fn nySetFromList(comptime T: type, items: []const T) NySet(T) {
-    var set = NySet(T){ .items = &.{} };
-    for (items) |item| set = nySetInsert(T, set, item);
-    return set;
+    return .{ .items = nyDistinct(T, items, &.{}) };
 }
 
 fn nySetUnion(comptime T: type, left: NySet(T), right: NySet(T)) NySet(T) {
-    var set = left;
-    for (right.items) |item| set = nySetInsert(T, set, item);
-    return set;
+    if (right.items.len == 0) return nyShare(left);
+    return .{ .items = nyDistinct(T, left.items, right.items) };
 }
 
 fn nySetKeep(comptime T: type, left: NySet(T), right: NySet(T), present: bool) NySet(T) {
@@ -698,11 +916,11 @@ fn nySetKeep(comptime T: type, left: NySet(T), right: NySet(T), present: bool) N
     var count: usize = 0;
     for (left.items) |item| {
         if ((nyFind(T, right.items, item) != null) == present) {
-            out[count] = item;
+            out[count] = nyShare(item);
             count += 1;
         }
     }
-    return .{ .items = out[0..count] };
+    return .{ .items = nyShrink(T, out, count) };
 }
 
 fn nySetIsSubset(comptime T: type, left: NySet(T), right: NySet(T)) bool {
@@ -712,22 +930,31 @@ fn nySetIsSubset(comptime T: type, left: NySet(T), right: NySet(T)) bool {
 }
 
 fn nyMapInsert(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
-    if (nyFind(K, map.keys, key)) |at| return .{ .keys = map.keys, .values = nyListSetAt(V, map.values, @intCast(at), value) };
+    if (nyFind(K, map.keys, key)) |at| return .{ .keys = nyShare(map.keys), .values = nyListSetAt(V, map.values, @intCast(at), value) };
     return .{ .keys = nyListAppend(K, map.keys, key), .values = nyListAppend(V, map.values, value) };
 }
 
+/// Inserts into a map this call owns, consuming the map, the key and the value.
+fn nyMapInsertOwned(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
+    const out = nyMapInsert(K, V, map, key, value);
+    nyRelease(map);
+    nyRelease(key);
+    nyRelease(value);
+    return out;
+}
+
 fn nyMapRemove(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) NyMap(K, V) {
-    const at: i64 = @intCast(nyFind(K, map.keys, key) orelse return map);
+    const at: i64 = @intCast(nyFind(K, map.keys, key) orelse return nyShare(map));
     return .{ .keys = nyListRemoveAt(K, map.keys, at), .values = nyListRemoveAt(V, map.values, at) };
 }
 
 fn nyMapGet(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) ?V {
-    return if (nyFind(K, map.keys, key)) |at| map.values[at] else null;
+    return if (nyFind(K, map.keys, key)) |at| nyShare(map.values[at]) else null;
 }
 
 fn nyMapUnion(comptime K: type, comptime V: type, left: NyMap(K, V), right: NyMap(K, V)) NyMap(K, V) {
-    var map = left;
-    for (right.keys, right.values) |key, value| map = nyMapInsert(K, V, map, key, value);
+    var map = nyShare(left);
+    for (right.keys, right.values) |key, value| map = nyMapInsertOwned(K, V, map, nyShare(key), nyShare(value));
     return map;
 }
 
@@ -765,23 +992,35 @@ fn nyBytesToLatin1(bytes: NyBytes) []const u8 {
     for (bytes.data) |byte| {
         var buffer: [2]u8 = undefined;
         const size = std.unicode.utf8Encode(byte, &buffer) catch unreachable;
-        out.appendSlice(nyAllocator(), buffer[0..size]) catch @panic("out of memory");
+        out.appendSlice(nyRaw(), buffer[0..size]) catch @panic("out of memory");
     }
-    return out.items;
+    return nyAdoptList(u8, &out);
 }
 
 /// The language's sort: a top-down merge sort; a list of 0 or 1 items is returned as is, the
 /// first length / 2 items and the rest are sorted, then merged taking the right head only when
 /// less(right head, left head) holds.
 fn nySortBy(comptime T: type, list: []const T, context: anytype, comptime less: anytype) []const T {
-    if (list.len <= 1) return list;
-    const half = list.len / 2;
-    const left = nySortBy(T, list[0..half], context, less);
-    const right = nySortBy(T, list[half..], context, less);
+    if (list.len <= 1) return nyShare(list);
     const out = nyAlloc(T, list.len);
+    nyCopyItems(T, out, list);
+    const scratch = nyRaw().alloc(T, list.len) catch nyOom();
+    defer nyRaw().free(scratch);
+    nySortRun(T, out, scratch, context, less);
+    return out;
+}
+
+fn nySortRun(comptime T: type, items: []T, scratch: []T, context: anytype, comptime less: anytype) void {
+    if (items.len <= 1) return;
+    const half = items.len / 2;
+    nySortRun(T, items[0..half], scratch[0..half], context, less);
+    nySortRun(T, items[half..], scratch[half..], context, less);
+    @memcpy(scratch, items);
+    const left = scratch[0..half];
+    const right = scratch[half..];
     var l: usize = 0;
     var r: usize = 0;
-    for (out) |*slot| {
+    for (items) |*slot| {
         if (l < left.len and (r >= right.len or !less(context, right[r], left[l]))) {
             slot.* = left[l];
             l += 1;
@@ -790,7 +1029,6 @@ fn nySortBy(comptime T: type, list: []const T, context: anytype, comptime less: 
             r += 1;
         }
     }
-    return out;
 }
 
 /// The first best item: a later item replaces it only when better(context, item, best) holds.
@@ -800,7 +1038,7 @@ fn nyBestBy(comptime T: type, list: []const T, context: anytype, comptime better
     for (list[1..]) |item| {
         if (better(context, item, best)) best = item;
     }
-    return best;
+    return nyShare(best);
 }
 
 // Text positions count code points. A String is valid UTF-8, so a byte-level match of a String
@@ -833,7 +1071,7 @@ fn nyInSet(set: []const u8, point: []const u8) bool {
 fn nyStringSlice(text: []const u8, start: i64, end: i64) []const u8 {
     const from = nyOffsetOf(text, start);
     const to = if (end > start) nyOffsetOf(text, end) else from;
-    return text[from..to];
+    return nyListMove(u8, text[from..to]);
 }
 
 fn nyStringIndexOf(text: []const u8, value: []const u8, from: i64) ?i64 {
@@ -878,8 +1116,8 @@ fn nyStringSplit(text: []const u8, separator: []const u8) []const []const u8 {
     if (separator.len == 0) return nyListOf([]const u8, &.{text});
     var pieces: std.ArrayList([]const u8) = .empty;
     var parts = std.mem.splitSequence(u8, text, separator);
-    while (parts.next()) |piece| pieces.append(nyAllocator(), piece) catch nyOom();
-    return pieces.items;
+    while (parts.next()) |piece| pieces.append(nyRaw(), nyListMove(u8, piece)) catch nyOom();
+    return nyAdoptList([]const u8, &pieces);
 }
 
 /// Lines split at code points of `breaks`; "\r\n" is one break when both are members, and a final
@@ -894,19 +1132,19 @@ fn nyStringSplitLines(text: []const u8, breaks: []const u8) []const []const u8 {
     while (offset < text.len) {
         var next = offset + nyWidth(text, offset);
         if (nyInSet(breaks, text[offset..next])) {
-            lines.append(nyAllocator(), text[start..offset]) catch nyOom();
+            lines.append(nyRaw(), nyListMove(u8, text[start..offset])) catch nyOom();
             if (crlf and text[offset] == '\r' and next < text.len and text[next] == '\n') next += 1;
             start = next;
         }
         offset = next;
     }
-    if (start < text.len) lines.append(nyAllocator(), text[start..]) catch nyOom();
-    return lines.items;
+    if (start < text.len) lines.append(nyRaw(), nyListMove(u8, text[start..])) catch nyOom();
+    return nyAdoptList([]const u8, &lines);
 }
 
 fn nyStringReplace(text: []const u8, pattern: []const u8, replacement: []const u8) []const u8 {
-    if (pattern.len == 0) return text;
-    return std.mem.replaceOwned(u8, nyAllocator(), text, pattern, replacement) catch nyOom();
+    if (pattern.len == 0) return nyShare(text);
+    return nyAdopt(u8, std.mem.replaceOwned(u8, nyRaw(), text, pattern, replacement) catch nyOom());
 }
 
 /// The Unicode White_Space property (.NET char.IsWhiteSpace); every member is in the BMP.
@@ -925,7 +1163,7 @@ fn nyStringTrimStart(text: []const u8) []const u8 {
         if (!nyIsWhiteSpace(text[start..next])) break;
         start = next;
     }
-    return text[start..];
+    return if (start == 0) nyShare(text) else nyListMove(u8, text[start..]);
 }
 
 fn nyStringTrimEnd(text: []const u8) []const u8 {
@@ -936,11 +1174,17 @@ fn nyStringTrimEnd(text: []const u8) []const u8 {
         if (!nyIsWhiteSpace(text[previous..end])) break;
         end = previous;
     }
-    return text[0..end];
+    return if (end == text.len) nyShare(text) else nyListMove(u8, text[0..end]);
+}
+
+fn nyStringTrim(text: []const u8) []const u8 {
+    const start = nyStringTrimStart(text);
+    defer nyRelease(start);
+    return nyStringTrimEnd(start);
 }
 
 fn nyStringJoin(list: []const []const u8, separator: []const u8) []const u8 {
-    return std.mem.join(nyAllocator(), separator, list) catch nyOom();
+    return nyAdopt(u8, std.mem.join(nyRaw(), separator, list) catch nyOom());
 }
 
 fn nyStringCodePoints(text: []const u8) []const []const u8 {
@@ -948,7 +1192,7 @@ fn nyStringCodePoints(text: []const u8) []const []const u8 {
     var offset: usize = 0;
     for (points) |*point| {
         const next = offset + nyWidth(text, offset);
-        point.* = text[offset..next];
+        point.* = nyListMove(u8, text[offset..next]);
         offset = next;
     }
     return points;
@@ -957,8 +1201,8 @@ fn nyStringCodePoints(text: []const u8) []const []const u8 {
 /// Python chr limited to Unicode scalar values.
 fn nyStringFromCodePoint(code: i64) ?[]const u8 {
     if (code < 0 or code > 0x10FFFF or (code >= 0xD800 and code <= 0xDFFF)) return null;
-    const out = nyAlloc(u8, 4);
-    return out[0 .. std.unicode.utf8Encode(@intCast(code), out) catch unreachable];
+    var out: [4]u8 = undefined;
+    return nyListMove(u8, out[0 .. std.unicode.utf8Encode(@intCast(code), &out) catch unreachable]);
 }
 
 /// Python ord: exactly one code point.
@@ -975,13 +1219,15 @@ fn nyStringEncodeUtf8(text: []const u8) []const u8 {
 /// The inverse: code points as bytes (above U+00FF reads as 0xFF), decoded with one U+FFFD per
 /// maximal ill-formed subpart, as .NET and Python's decode("utf-8", "replace") do.
 fn nyStringDecodeUtf8Lossy(text: []const u8) []const u8 {
-    return std.fmt.allocPrint(nyAllocator(), "{f}", .{std.unicode.fmtUtf8(nyBytesFromLatin1(text).data)}) catch nyOom();
+    const bytes = nyBytesFromLatin1(text);
+    defer nyRelease(bytes);
+    return nyAdopt(u8, std.fmt.allocPrint(nyRaw(), "{f}", .{std.unicode.fmtUtf8(bytes.data)}) catch nyOom());
 }
 
 /// Python text * count; a result longer than a .NET string (2^31 - 1 UTF-16 units) fails as the
 /// C# backend's allocation does.
 fn nyStringRepeat(text: []const u8, count: i64) []const u8 {
-    if (count <= 0 or text.len == 0) return "";
+    if (count <= 0 or text.len == 0) return &.{};
     const units = std.unicode.calcUtf16LeLen(text) catch unreachable;
     if (count > @divTrunc(std.math.maxInt(i32), @as(i64, @intCast(units)))) nyOom();
     const out = nyAlloc(u8, text.len * @as(usize, @intCast(count)));
@@ -992,7 +1238,8 @@ fn nyStringRepeat(text: []const u8, count: i64) []const u8 {
 
 /// Python format(value, "x").
 fn nyInt64ToHexString(value: i64) []const u8 {
-    return std.fmt.allocPrint(nyAllocator(), "{s}{x}", .{ if (value < 0) "-" else "", @abs(value) }) catch nyOom();
+    var buffer: [24]u8 = undefined;
+    return nyListMove(u8, std.fmt.bufPrint(&buffer, "{s}{x}", .{ if (value < 0) "-" else "", @abs(value) }) catch unreachable);
 }
 
 /// Only '-'? ASCII digits; the Int64 range is then enforced by parseInt.
@@ -1042,9 +1289,9 @@ fn nyShortest(magnitude: f64, digits: *[24]u8) NyDecimal {
 /// Python repr(float): exponent notation when point <= -4 or > 16, with a signed exponent of at
 /// least two digits, otherwise fixed notation with at least one fractional digit.
 fn nyFloat64ToString(value: f64) []const u8 {
-    if (std.math.isNan(value)) return "nan";
-    if (std.math.isInf(value)) return if (value > 0) "inf" else "-inf";
-    if (value == 0) return if (std.math.signbit(value)) "-0.0" else "0.0";
+    if (std.math.isNan(value)) return nyStatic("nan");
+    if (std.math.isInf(value)) return if (value > 0) nyStatic("inf") else nyStatic("-inf");
+    if (value == 0) return if (std.math.signbit(value)) nyStatic("-0.0") else nyStatic("0.0");
     var buffer: [24]u8 = undefined;
     const decimal = nyShortest(@abs(value), &buffer);
     const digits = decimal.digits;
@@ -1052,14 +1299,14 @@ fn nyFloat64ToString(value: f64) []const u8 {
     const zeros = "0000000000000000";
     const point = decimal.point;
     const text = if (point <= -4 or point > 16)
-        std.fmt.allocPrint(nyAllocator(), "{s}{c}{s}{s}e{s}{d:0>2}", .{ sign, digits[0], if (digits.len > 1) "." else "", digits[1..], if (point - 1 < 0) "-" else "+", @abs(point - 1) })
+        std.fmt.allocPrint(nyRaw(), "{s}{c}{s}{s}e{s}{d:0>2}", .{ sign, digits[0], if (digits.len > 1) "." else "", digits[1..], if (point - 1 < 0) "-" else "+", @abs(point - 1) })
     else if (point <= 0)
-        std.fmt.allocPrint(nyAllocator(), "{s}0.{s}{s}", .{ sign, zeros[0..@intCast(-point)], digits })
+        std.fmt.allocPrint(nyRaw(), "{s}0.{s}{s}", .{ sign, zeros[0..@intCast(-point)], digits })
     else if (point >= digits.len)
-        std.fmt.allocPrint(nyAllocator(), "{s}{s}{s}.0", .{ sign, digits, zeros[0 .. @as(usize, @intCast(point)) - digits.len] })
+        std.fmt.allocPrint(nyRaw(), "{s}{s}{s}.0", .{ sign, digits, zeros[0 .. @as(usize, @intCast(point)) - digits.len] })
     else
-        std.fmt.allocPrint(nyAllocator(), "{s}{s}.{s}", .{ sign, digits[0..@intCast(point)], digits[@intCast(point)..] });
-    return text catch nyOom();
+        std.fmt.allocPrint(nyRaw(), "{s}{s}.{s}", .{ sign, digits[0..@intCast(point)], digits[@intCast(point)..] });
+    return nyAdopt(u8, text catch nyOom());
 }
 
 /// Python float(text) on the JSON number grammar only; parseFloat is correctly rounded and gives a

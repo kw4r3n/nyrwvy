@@ -1,5 +1,6 @@
 // Library mode's C ABI (docs/decisions/zig-backend-memory-ownership.md, section 3 and the first
-// milestone). Arguments are borrowed for the call; a result is copied into caller buffers and the
+// milestone). Arguments are borrowed for the call (copied into counted values the call consumes;
+// values live in the arena, `ny_values` stays null); a result is copied into caller buffers and the
 // arena is then reset, so memory per call stays bounded. One mutex serialises every export. Status:
 // 0 ok, 1 fault and 2 cancelled (message through `ny_last_failure`), 3 a result buffer too small
 // (the lengths written say what is needed). OOM, stack overflow and safety panics still abort.
@@ -39,13 +40,15 @@ export fn ny_arena_capacity() usize {
 }
 
 fn nySlice(comptime T: type, ptr: ?[*]const T, len: usize) []const T {
-    return if (len == 0) &.{} else ptr.?[0..len];
+    return if (len == 0) &.{} else nyListMove(T, ptr.?[0..len]);
 }
 
 // The runtime assumes valid UTF-8 (`catch unreachable`, `initUnchecked`), so text from C is checked here.
 fn nyText(ptr: ?[*]const u8, len: usize) ?[]const u8 {
     const text = nySlice(u8, ptr, len);
-    return if (std.unicode.utf8ValidateSlice(text)) text else null;
+    if (std.unicode.utf8ValidateSlice(text)) return text;
+    nyRelease(text);
+    return null;
 }
 
 fn nyExportInvalid(message: []const u8) c_int {
@@ -55,11 +58,11 @@ fn nyExportInvalid(message: []const u8) c_int {
 }
 
 fn nyRows(comptime T: type, ptr: ?[*]const T, row_lens: ?[*]const usize, rows: usize) []const []const T {
-    const out = nyAllocator().alloc([]const T, rows) catch @panic("out of memory");
+    const out = nyAlloc([]const T, rows);
     var at: usize = 0;
     for (out, 0..) |*row, index| {
         const len = row_lens.?[index];
-        row.* = if (len == 0) &.{} else ptr.?[at..][0..len];
+        row.* = if (len == 0) &.{} else nyListMove(T, ptr.?[at..][0..len]);
         at += len;
     }
     return out;

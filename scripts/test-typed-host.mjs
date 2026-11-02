@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process"
-import { dirname, resolve } from "node:path"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -76,7 +78,11 @@ const modules = [
   ["viewer_asset", "src/Nyrwvy.Viewer/asset.zig"],
   ["build_info", "tools/zig/host/build_info.zig"],
 ]
+// The emitter's runtime is text embedded into generated programs; its test is that text plus a test block.
+const runtimeTest = join(mkdtempSync(join(tmpdir(), "nyrwvy-runtime-")), "runtime.zig")
+writeFileSync(runtimeTest, ["runtime.zig", "case_mapping.zig", "runtime_test.zig"].map(name => readFileSync(join(root, "tools/zig/emitter", name), "utf8")).join("\n"))
 const commands = [
+  ["test", "-O", "ReleaseSafe", runtimeTest],
   ["test", "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"],
   ["test", "-O", "ReleaseSafe", ...filters.flatMap(filter => ["--test-filter", filter]),
     "--test-runner", "tools/zig/host/test_runner.zig", "--dep", "host=root",

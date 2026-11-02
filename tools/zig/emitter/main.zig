@@ -992,9 +992,12 @@ const Body = struct {
     }
 
     /// A callback call: context-bound parameters take their values, the others take `roles` in
-    /// declaration order.
+    /// declaration order. The callee owns its arguments, so a borrowed value (a context value, an
+    /// item read from the source) is passed shared; a fold's state and a started task's captures move.
     fn callback(self: *const Body, function_key: []const u8, context_key: []const u8, roles: []const Role, result: *const Type) []const u8 {
         const function_id = str(self.o, function_key);
+        const kind = str(self.o, "kind");
+        const moves = eql(kind, "taskStart");
         const context = self.bindings(context_key);
         var remaining = roles;
         var expressions: List([]const u8) = .empty;
@@ -1005,10 +1008,14 @@ const Body = struct {
                 if (eql(str(binding.object, "targetParameterId"), parameter.id)) bound = str(binding.object, "valueId");
             }
             if (bound) |value_id| {
-                push([]const u8, &expressions, v(value_id));
+                push([]const u8, &expressions, if (moves) v(value_id) else cat(&.{ "nyShare(", v(value_id), ")" }));
                 push(Field, &args, .{ .id = parameter.id, .type = self.valueType(value_id) });
             } else {
-                push([]const u8, &expressions, remaining[0].expression);
+                const role = remaining[0].expression;
+                const borrowed = for ([_][]const u8{ "item", "l", "r", "key", "value", "resource" }) |name| {
+                    if (eql(role, name)) break true;
+                } else eql(kind, "listScan") and eql(role, "state");
+                push([]const u8, &expressions, if (borrowed) cat(&.{ "nyShare(", role, ")" }) else role);
                 push(Field, &args, .{ .id = parameter.id, .type = remaining[0].type });
                 remaining = remaining[1..];
             }
@@ -1113,7 +1120,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             .number_string => |text| text,
             else => @panic("int64Literal value"),
         },
-        .stringLiteral => stringLiteral(str(b.o, "value")),
+        .stringLiteral => cat(&.{ "nyStatic(", stringLiteral(str(b.o, "value")), ")" }),
         .boolNot => cat(&.{ "!", b.f("valueId") }),
         .int64WrappingAdd => binary(b, "+%"),
         .int64WrappingSubtract => binary(b, "-%"),
@@ -1142,33 +1149,37 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .stringConcat => pair(b, "nyConcat"),
         .valueEqual => pair(b, "nyEqual"),
         .productConstruct => cat(&.{ "nyBox(", b.resultTypeName(), ", ", fieldList(arr(b.o, "fields")), ")" }),
-        .fieldAccess => cat(&.{ b.f("sourceValueId"), ".", fieldName(str(b.o, "fieldId")) }),
+        .fieldAccess => cat(&.{ "nyShare(", b.f("sourceValueId"), ".", fieldName(str(b.o, "fieldId")), ")" }),
         .productUpdate => blk: {
             const fields = a.dupe(json.Value, arr(b.o, "fields")) catch oom();
             byId(json.Value, fields, targetFieldKey);
             var updates: List([]const u8) = .empty;
-            for (fields) |field| push([]const u8, &updates, cat(&.{ " copy.", fieldName(str(field.object, "targetFieldId")), " = ", v(str(field.object, "valueId")), ";" }));
-            break :blk labeled(cat(&.{ "var copy = ", b.f("sourceValueId"), ".*;", cat(updates.items), " break :blk nyBox(", b.resultTypeName(), ", copy);" }));
+            // The copy shares the source's fields; an updated field drops the shared one and takes the new value.
+            for (fields) |field| {
+                const name = fieldName(str(field.object, "targetFieldId"));
+                push([]const u8, &updates, cat(&.{ " nyRelease(copy.", name, "); copy.", name, " = ", v(str(field.object, "valueId")), ";" }));
+            }
+            break :blk labeled(cat(&.{ "var copy = ", b.f("sourceValueId"), ".*; nyRetainFields(copy);", cat(updates.items), " break :blk nyBox(", b.resultTypeName(), ", copy);" }));
         },
         .unionConstruct => cat(&.{ "nyBox(", b.resultTypeName(), ", .{ .", variantName(str(b.o, "variantId")), " = ", fieldList(arr(b.o, "fields")), " })" }),
         .optionNone => "null",
         .optionSome => b.f("valueId"),
         .resultOk => cat(&.{ ".{ .ok = ", b.f("valueId"), " }" }),
         .resultErr => cat(&.{ ".{ .err = ", b.f("errorValueId"), " }" }),
-        .extractUnionField => cat(&.{ b.f("inputValueId"), ".", variantName(str(b.o, "variantId")), ".", fieldName(str(b.o, "fieldId")) }),
-        .extractOptionSome => cat(&.{ b.f("inputValueId"), ".?" }),
-        .extractResultOk => cat(&.{ b.f("inputValueId"), ".ok" }),
-        .extractResultErr => cat(&.{ b.f("inputValueId"), ".err" }),
+        .extractUnionField => cat(&.{ "nyShare(", b.f("inputValueId"), ".", variantName(str(b.o, "variantId")), ".", fieldName(str(b.o, "fieldId")), ")" }),
+        .extractOptionSome => cat(&.{ "nyShare(", b.f("inputValueId"), ".?)" }),
+        .extractResultOk => cat(&.{ "nyShare(", b.f("inputValueId"), ".ok)" }),
+        .extractResultErr => cat(&.{ "nyShare(", b.f("inputValueId"), ".err)" }),
         .optionIsSome => cat(&.{ b.f("valueId"), " != null" }),
         .resultIsOk => cat(&.{ b.f("valueId"), " == .ok" }),
-        .optionGetOrDefault => cat(&.{ b.f("optionValueId"), " orelse ", b.f("defaultValueId") }),
-        .resultGetOrDefault => cat(&.{ "switch (", b.f("resultValueId"), ") { .ok => |item| item, .err => ", b.f("defaultValueId"), " }" }),
+        .optionGetOrDefault => cat(&.{ "nyShare(", b.f("optionValueId"), " orelse ", b.f("defaultValueId"), ")" }),
+        .resultGetOrDefault => cat(&.{ "nyShare(switch (", b.f("resultValueId"), ") { .ok => |item| item, .err => ", b.f("defaultValueId"), " })" }),
         .listEmpty => "&.{}",
         .listConstruct => blk: {
             var items: List([]const u8) = .empty;
             for (arr(b.o, "itemValueIds")) |item| push([]const u8, &items, v(item.string));
             const element = b.resultElement();
-            break :blk cat(&.{ "nyListOf(", element, ", &[_]", b.resultElement(), "{ ", join(", ", items.items), " })" });
+            break :blk cat(&.{ "nyListMove(", element, ", &[_]", b.resultElement(), "{ ", join(", ", items.items), " })" });
         },
         .listRange => wrap(b, "nyListRange", &.{ "startValueId", "endValueId" }),
         .listLength => cat(&.{ "@as(i64, @intCast(", b.f("listValueId"), ".len))" }),
@@ -1206,7 +1217,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const text = b.callback("predicateFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceListValueId")))}, &bool_type);
             const source = b.f("sourceListValueId");
             break :blk labeled(switch (kind) {
-                .listFilter => cat(&.{ "const out = nyAlloc(", b.elementOf("sourceListValueId"), ", ", source, ".len); var count: usize = 0; for (", source, ") |item| { if (", text, ") { out[count] = item; count += 1; } } break :blk out[0..count];" }),
+                .listFilter => cat(&.{ "const out = nyAlloc(", b.elementOf("sourceListValueId"), ", ", source, ".len); var count: usize = 0; for (", source, ") |item| { if (", text, ") { out[count] = nyShare(item); count += 1; } } break :blk nyShrink(", b.elementOf("sourceListValueId"), ", out, count);" }),
                 .listAny => cat(&.{ "for (", source, ") |item| { if (", text, ") break :blk true; } break :blk false;" }),
                 .listAll => cat(&.{ "for (", source, ") |item| { if (!", text, ") break :blk false; } break :blk true;" }),
                 else => cat(&.{ "for (", source, ", 0..) |item, at| { if (", text, ") break :blk @as(i64, @intCast(at)); } break :blk null;" }),
@@ -1220,7 +1231,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         },
         .listFlatMap => blk: {
             const text = b.callback("mapperFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceListValueId")))}, b.result);
-            break :blk labeled(cat(&.{ "var out: std.ArrayList(", b.resultElement(), ") = .empty; for (", b.f("sourceListValueId"), ") |item| out.appendSlice(nyAllocator(), ", text, ") catch @panic(\"out of memory\"); break :blk out.items;" }));
+            break :blk labeled(cat(&.{ "var out: std.ArrayList(", b.resultElement(), ") = .empty; for (", b.f("sourceListValueId"), ") |item| { const part = ", text, "; for (part) |each| nyRetain(each); out.appendSlice(nyRaw(), part) catch @panic(\"out of memory\"); nyRelease(part); } break :blk nyAdoptList(", b.resultElement(), ", &out);" }));
         },
         .float64Literal => cat(&.{ "@as(f64, @bitCast(@as(u64, 0x", str(b.o, "bits"), ")))" }),
         .float64Add => binary(b, "+"),
@@ -1248,7 +1259,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .setEmpty => ".{ .items = &.{} }",
         .mapEmpty => ".{ .keys = &.{}, .values = &.{} }",
         .setFromList => b.listCall("nySetFromList", "listValueId", &.{}),
-        .setToList => cat(&.{ b.f("setValueId"), ".items" }),
+        .setToList => cat(&.{ "nyShare(", b.f("setValueId"), ".items)" }),
         .setSize => cat(&.{ "@as(i64, @intCast(", b.f("setValueId"), ".items.len))" }),
         .setInsert => b.listCall("nySetInsert", "setValueId", &.{b.f("itemValueId")}),
         .setRemove => b.listCall("nySetRemove", "setValueId", &.{b.f("itemValueId")}),
@@ -1260,21 +1271,21 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .setFilter => blk: {
             const text = b.callback("predicateFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceSetValueId")))}, &bool_type);
             const source = b.f("sourceSetValueId");
-            break :blk labeled(cat(&.{ "const out = nyAlloc(", b.elementOf("sourceSetValueId"), ", ", source, ".items.len); var count: usize = 0; for (", source, ".items) |item| { if (", text, ") { out[count] = item; count += 1; } } break :blk .{ .items = out[0..count] };" }));
+            break :blk labeled(cat(&.{ "const out = nyAlloc(", b.elementOf("sourceSetValueId"), ", ", source, ".items.len); var count: usize = 0; for (", source, ".items) |item| { if (", text, ") { out[count] = nyShare(item); count += 1; } } break :blk .{ .items = nyShrink(", b.elementOf("sourceSetValueId"), ", out, count) };" }));
         },
         .setMap => blk: {
             const text = b.callback("mapperFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceSetValueId")))}, itemType(b.result));
-            break :blk labeled(cat(&.{ "var out: ", zig(b.result), " = .{ .items = &.{} }; for (", b.f("sourceSetValueId"), ".items) |item| out = nySetInsert(", b.resultElement(), ", out, ", text, "); break :blk out;" }));
+            break :blk labeled(cat(&.{ "var out: ", zig(b.result), " = .{ .items = &.{} }; for (", b.f("sourceSetValueId"), ".items) |item| out = nySetInsertOwned(", b.resultElement(), ", out, ", text, "); break :blk out;" }));
         },
         .mapSize => cat(&.{ "@as(i64, @intCast(", b.f("mapValueId"), ".keys.len))" }),
-        .mapKeys => cat(&.{ b.f("mapValueId"), ".keys" }),
-        .mapValues => cat(&.{ b.f("mapValueId"), ".values" }),
+        .mapKeys => cat(&.{ "nyShare(", b.f("mapValueId"), ".keys)" }),
+        .mapValues => cat(&.{ "nyShare(", b.f("mapValueId"), ".values)" }),
         .mapInsert => b.mapCall("nyMapInsert", "mapValueId", &.{ b.f("keyValueId"), b.f("valueValueId") }),
         .mapRemove => b.mapCall("nyMapRemove", "mapValueId", &.{b.f("keyValueId")}),
         .mapGet => b.mapCall("nyMapGet", "mapValueId", &.{b.f("keyValueId")}),
         .mapGetOrDefault => blk: {
             const types = b.mapTypes("mapValueId");
-            break :blk cat(&.{ "nyMapGet(", zig(types[0]), ", ", zig(types[1]), ", ", b.f("mapValueId"), ", ", b.f("keyValueId"), ") orelse ", b.f("defaultValueId") });
+            break :blk cat(&.{ "nyMapGet(", zig(types[0]), ", ", zig(types[1]), ", ", b.f("mapValueId"), ", ", b.f("keyValueId"), ") orelse nyShare(", b.f("defaultValueId"), ")" });
         },
         .mapContainsKey => cat(&.{ "nyFind(", zig(b.mapTypes("mapValueId")[0]), ", ", b.f("mapValueId"), ".keys, ", b.f("keyValueId"), ") != null" }),
         .mapUnion => b.mapCall("nyMapUnion", "leftMapValueId", &.{b.f("rightMapValueId")}),
@@ -1289,20 +1300,20 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const types = b.mapTypes("sourceMapValueId");
             const text = b.callback("keepFunctionId", "context", &.{ role("key", types[0]), role("value", types[1]) }, &bool_type);
             const source = b.f("sourceMapValueId");
-            break :blk labeled(cat(&.{ "var out: ", zig(b.result), " = .{ .keys = &.{}, .values = &.{} }; for (", source, ".keys, ", source, ".values) |key, value| { if (", text, ") out = nyMapInsert(", zig(types[0]), ", ", zig(types[1]), ", out, key, value); } break :blk out;" }));
+            break :blk labeled(cat(&.{ "var out: ", zig(b.result), " = .{ .keys = &.{}, .values = &.{} }; for (", source, ".keys, ", source, ".values) |key, value| { if (", text, ") out = nyMapInsertOwned(", zig(types[0]), ", ", zig(types[1]), ", out, nyShare(key), nyShare(value)); } break :blk out;" }));
         },
         .mapMapValues => blk: {
             const types = b.mapTypes("sourceMapValueId");
             const result_value = if (b.result.* == .builtin and b.result.builtin.args.len == 2) b.result.builtin.args[1] else b.result;
             const text = b.callback("mapperFunctionId", "context", &.{ role("key", types[0]), role("value", types[1]) }, result_value);
             const source = b.f("sourceMapValueId");
-            break :blk labeled(cat(&.{ "const out = nyAlloc(", zig(result_value), ", ", source, ".keys.len); for (", source, ".keys, ", source, ".values, 0..) |key, value, at| out[at] = ", text, "; break :blk .{ .keys = ", source, ".keys, .values = out };" }));
+            break :blk labeled(cat(&.{ "const out = nyAlloc(", zig(result_value), ", ", source, ".keys.len); for (", source, ".keys, ", source, ".values, 0..) |key, value, at| out[at] = ", text, "; break :blk .{ .keys = nyShare(", source, ".keys), .values = out };" }));
         },
         .mapFromList => blk: {
             const key_type = if (b.result.* == .builtin and b.result.builtin.args.len == 2) b.result.builtin.args[0] else b.result;
             const element = itemType(b.typeAt("sourceListValueId"));
             const text = b.callback("keyOfFunctionId", "context", &.{role("item", element)}, key_type);
-            break :blk labeled(cat(&.{ "var out: ", zig(b.result), " = .{ .keys = &.{}, .values = &.{} }; for (", b.f("sourceListValueId"), ") |item| out = nyMapInsert(", zig(key_type), ", ", zig(element), ", out, ", text, ", item); break :blk out;" }));
+            break :blk labeled(cat(&.{ "var out: ", zig(b.result), " = .{ .keys = &.{}, .values = &.{} }; for (", b.f("sourceListValueId"), ") |item| out = nyMapInsertOwned(", zig(key_type), ", ", zig(element), ", out, ", text, ", nyShare(item)); break :blk out;" }));
         },
         .bytesEmpty => ".{ .data = &.{} }",
         .bytesFill => wrap(b, "nyBytesFill", &.{ "lengthId", "valueId" }),
@@ -1328,10 +1339,10 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const body_call = b.callback("bodyFunctionId", "bodyContext", &.{role("NyUnit{}", &unit_type)}, b.result);
             if (!failing(str(b.o, "bodyFunctionId"))) break :blk body_call;
             const handler_call = b.callback("handlerFunctionId", "handlerContext", &.{role("failure", &exception_type)}, b.result);
-            break :blk cat(&.{ body_call, " catch blk: { const failure = ny_failure; break :blk ", attempt(str(b.o, "handlerFunctionId"), handler_call), "; }" });
+            break :blk cat(&.{ body_call, " catch blk: { ny_leak_exempt = true; const failure = ny_failure; break :blk ", attempt(str(b.o, "handlerFunctionId"), handler_call), "; }" });
         },
         .exceptionRethrow => cat(&.{ "try nyRethrow(", zig(parseType(b.o.get("resultType").?)), ", ", b.f("valueId"), ")" }),
-        .exceptionMessage => cat(&.{ b.f("valueId"), ".message" }),
+        .exceptionMessage => cat(&.{ "nyListMove(u8, ", b.f("valueId"), ".message)" }),
         .exceptionIsCancellation => cat(&.{ b.f("valueId"), ".cancelled" }),
         // Release runs once acquisition succeeded: on Ok and Err exits, and before a failure of the
         // body propagates (a release failure then is ignored). A body Err wins over a release Err.
@@ -1346,10 +1357,10 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             else
                 body_call;
             const finish = if (operation.result.* == .builtin and eql(operation.result.builtin.kind, "result"))
-                cat(&.{ "const released = try ", release, "; if (outcome == .ok and released == .err) break :blk .{ .err = released.err }; break :blk outcome;" })
+                cat(&.{ "const released = try ", release, "; if (outcome == .ok and released == .err) { nyRelease(outcome); break :blk .{ .err = released.err }; } nyRelease(released); break :blk outcome;" })
             else
-                cat(&.{ "_ = try ", release, "; break :blk outcome;" });
-            break :blk labeled(cat(&.{ "const acquired = ", b.f("acquireValueId"), "; if (acquired == .err) break :blk .{ .err = acquired.err }; const resource = acquired.ok; const outcome = ", guarded, "; ", finish }));
+                cat(&.{ "nyRelease(try ", release, "); break :blk outcome;" });
+            break :blk labeled(cat(&.{ "const acquired = ", b.f("acquireValueId"), "; if (acquired == .err) break :blk .{ .err = nyShare(acquired.err) }; const resource = acquired.ok; const outcome = ", guarded, "; ", finish }));
         },
         .listSortBy, .listMinBy, .listMaxBy => blk: {
             // The best is replaced when lessThan(best, item): the same comparator with the items swapped.
@@ -1450,7 +1461,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .stringSplit => wrap(b, "nyStringSplit", &.{ "valueId", "separatorId" }),
         .stringSplitLines => wrap(b, "nyStringSplitLines", &.{ "valueId", "breaksId" }),
         .stringReplace => wrap(b, "nyStringReplace", &.{ "valueId", "patternId", "replacementId" }),
-        .stringTrim => cat(&.{ "nyStringTrimEnd(nyStringTrimStart(", b.f("valueId"), "))" }),
+        .stringTrim => unary(b, "nyStringTrim"),
         .stringTrimStart => unary(b, "nyStringTrimStart"),
         .stringTrimEnd => unary(b, "nyStringTrimEnd"),
         .stringJoin => wrap(b, "nyStringJoin", &.{ "listValueId", "separatorId" }),
@@ -1498,7 +1509,234 @@ fn valueKey(item: Value) []const u8 {
     return item.id;
 }
 
-fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const []const u8) void {
+// ---------------------------------------------------------------- reference counting (Perceus)
+
+/// Whether a value of this type holds counted storage (runtime `nyCounted`). Task handles, scopes,
+/// cells, exceptions (their messages are static or runtime records), capabilities and function
+/// values carry no count.
+fn counted(t: *const Type) bool {
+    return switch (t.*) {
+        .primitive => |kind| eql(kind, "primitiveString") or eql(kind, "primitiveBytes"),
+        .builtin => |builtin| blk: {
+            for ([_][]const u8{ "task", "oneShot", "taskScope", "exception" }) |kind| if (eql(builtin.kind, kind)) break :blk false;
+            if (eql(builtin.kind, "option") or eql(builtin.kind, "result")) {
+                for (builtin.args) |arg| if (counted(arg)) break :blk true;
+                break :blk false;
+            }
+            break :blk true;
+        },
+        .named => true,
+        else => false,
+    };
+}
+
+/// The operands an instruction consumes (owned: stored or passed to a call); every other operand
+/// is borrowed for the instruction.
+fn consumedKey(kind: []const u8, key: []const u8) bool {
+    const table = [_][2][]const u8{
+        .{ "readParameter", "sourceValueId" },   .{ "readPatternBinding", "sourceValueId" }, .{ "optionSome", "valueId" },
+        .{ "resultOk", "valueId" },              .{ "resultErr", "errorValueId" },           .{ "productConstruct", "fields" },
+        .{ "unionConstruct", "fields" },         .{ "productUpdate", "fields" },             .{ "listConstruct", "itemValueIds" },
+        .{ "directCall", "arguments" },          .{ "functionInvoke", "arguments" },         .{ "listFold", "seedValueId" },
+        .{ "listScan", "seedValueId" },          .{ "setFold", "seedValueId" },              .{ "mapFold", "seedValueId" },
+        .{ "listEffectFold", "seedValueId" },    .{ "taskStart", "itemValueId" },            .{ "taskStart", "context" },
+        .{ "oneShotComplete", "valueValueId" },  .{ "return", "valueId" },                   .{ "abort", "errorValueId" },
+        .{ "jump", "arguments" },                .{ "tailCall", "arguments" },
+    };
+    for (table) |row| if (eql(row[0], kind) and eql(row[1], key)) return true;
+    return false;
+}
+
+const Use = struct { id: []const u8, consumed: bool };
+const Set = std.StringArrayHashMapUnmanaged(void);
+
+const Ownership = struct {
+    values: *const std.StringHashMap(*const Type),
+    fn_: Function,
+    live_in: std.StringHashMap(Set),
+
+    fn isCounted(self: *const Ownership, id: []const u8) bool {
+        return if (self.values.get(id)) |t| counted(t) else false;
+    }
+
+    fn collect(self: *const Ownership, node: json.Value, consumed: bool, out: *List(Use)) void {
+        switch (node) {
+            .string => |id| if (self.isCounted(id)) push(Use, out, .{ .id = id, .consumed = consumed }),
+            .array => |items| for (items.items) |item| self.collect(item, consumed, out),
+            .object => |o| {
+                var it = o.iterator();
+                while (it.next()) |entry| {
+                    if (std.mem.startsWith(u8, entry.key_ptr.*, "target")) continue;
+                    self.collect(entry.value_ptr.*, consumed, out);
+                }
+            },
+            else => {},
+        }
+    }
+
+    /// The counted values an instruction or terminator reads, each with whether it is consumed.
+    fn uses(self: *const Ownership, o: json.ObjectMap) []const Use {
+        const kind = str(o, "kind");
+        var out: List(Use) = .empty;
+        var it = o.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            if (eql(key, "result") or eql(key, "kind") or std.mem.startsWith(u8, key, "target")) continue;
+            self.collect(entry.value_ptr.*, consumedKey(kind, key), &out);
+        }
+        return out.items;
+    }
+
+    fn block(self: *const Ownership, id: []const u8) Block {
+        for (self.fn_.blocks) |b| if (eql(b.id, id)) return b;
+        std.debug.panic("unknown block {s}", .{id});
+    }
+
+    /// Each successor with the values its entry defines (block or function parameters).
+    fn successors(self: *const Ownership, t: json.ObjectMap) []const []const u8 {
+        const kind = str(t, "kind");
+        var out: List([]const u8) = .empty;
+        if (eql(kind, "jump")) push([]const u8, &out, str(t, "blockId"));
+        if (eql(kind, "tailCall")) push([]const u8, &out, self.fn_.entry);
+        for ([_][2][]const u8{ .{ "branch", "whenTrue" }, .{ "branch", "whenFalse" }, .{ "matchOption", "someBlock" }, .{ "matchOption", "noneBlock" }, .{ "matchResult", "okBlock" }, .{ "matchResult", "errBlock" } }) |row| {
+            if (eql(kind, row[0])) push([]const u8, &out, str(t, row[1]));
+        }
+        if (eql(kind, "matchUnion")) for (arr(t, "targets")) |target| push([]const u8, &out, str(target.object, "blockId"));
+        return out.items;
+    }
+
+    /// Values an edge into `target` defines: its block parameters, or the function parameters on a tail call.
+    fn defined(self: *const Ownership, kind: []const u8, target: []const u8) []const []const u8 {
+        var out: List([]const u8) = .empty;
+        if (eql(kind, "tailCall")) {
+            for (self.fn_.parameters) |parameter| push([]const u8, &out, parameter.value.id);
+        } else for (self.block(target).parameters) |parameter| push([]const u8, &out, parameter.id);
+        return out.items;
+    }
+
+    /// The values live on the edge into `target` after it defines its parameters' values.
+    fn edgeLive(self: *const Ownership, kind: []const u8, target: []const u8) Set {
+        var live = self.copy(self.live_in.get(target).?);
+        for (self.defined(kind, target)) |id| _ = live.swapRemove(id);
+        return live;
+    }
+
+    fn copy(_: *const Ownership, set: Set) Set {
+        return set.clone(a) catch oom();
+    }
+
+    /// Values live before the terminator: its uses and what any successor needs.
+    fn beforeTerminator(self: *const Ownership, b: Block) Set {
+        var live = Set.empty;
+        const kind = str(b.terminator, "kind");
+        for (self.successors(b.terminator)) |target| {
+            const entering = self.edgeLive(kind, target);
+            for (entering.keys()) |id| live.put(a, id, {}) catch oom();
+        }
+        for (self.uses(b.terminator)) |use| live.put(a, use.id, {}) catch oom();
+        return live;
+    }
+
+    /// Live-in per block (before its parameters are defined), to a fixpoint.
+    fn analyse(self: *Ownership) void {
+        for (self.fn_.blocks) |b| self.live_in.put(b.id, Set.empty) catch oom();
+        var changed = true;
+        while (changed) {
+            changed = false;
+            var index = self.fn_.blocks.len;
+            while (index > 0) {
+                index -= 1;
+                const b = self.fn_.blocks[index];
+                var live = self.beforeTerminator(b);
+                var at = b.instructions.len;
+                while (at > 0) {
+                    at -= 1;
+                    _ = live.swapRemove(b.instructions[at].result.id);
+                    for (self.uses(b.instructions[at].o)) |use| live.put(a, use.id, {}) catch oom();
+                }
+                const old = self.live_in.getPtr(b.id).?;
+                for (live.keys()) |id| if (!old.contains(id)) {
+                    old.put(a, id, {}) catch oom();
+                    changed = true;
+                };
+            }
+        }
+    }
+
+    /// Retains before and releases after one instruction or terminator edge, given what is live after it.
+    fn around(self: *const Ownership, used: []const Use, after: *const Set, before: *List([]const u8), released: *List([]const u8)) void {
+        var seen = Set.empty;
+        for (used) |use| {
+            if ((seen.getOrPut(a, use.id) catch oom()).found_existing) continue;
+            var consumed: usize = 0;
+            var borrowed: usize = 0;
+            for (used) |other| if (eql(other.id, use.id)) {
+                if (other.consumed) consumed += 1 else borrowed += 1;
+            };
+            const dies = !after.contains(use.id);
+            const retains = if (dies and consumed > 0 and borrowed == 0) consumed - 1 else consumed;
+            for (0..retains) |_| push([]const u8, before, cat(&.{ "nyRetain(", v(use.id), ");" }));
+            if (dies and (consumed == 0 or borrowed > 0)) push([]const u8, released, cat(&.{ "nyRelease(", v(use.id), ");" }));
+        }
+        _ = self;
+    }
+
+    /// The instruction lines of a block with their retains and releases.
+    fn blockLines(self: *const Ownership, b: Block, lines: []const []const u8) []const []const u8 {
+        var live = self.beforeTerminator(b);
+        const out = a.alloc([]const u8, lines.len) catch oom();
+        var at = b.instructions.len;
+        while (at > 0) {
+            at -= 1;
+            const instruction = b.instructions[at];
+            var before: List([]const u8) = .empty;
+            var after: List([]const u8) = .empty;
+            self.around(self.uses(instruction.o), &live, &before, &after);
+            const result = instruction.result.id;
+            if (counted(instruction.result.type) and !live.contains(result)) push([]const u8, &after, cat(&.{ "nyRelease(", v(result), ");" }));
+            out[at] = cat(&.{ cat(before.items), lines[at], cat(after.items) });
+            _ = live.swapRemove(result);
+            for (self.uses(instruction.o)) |use| live.put(a, use.id, {}) catch oom();
+        }
+        return out;
+    }
+
+    /// Releases of the values an edge drops: the terminator's live values the target does not need
+    /// (borrowed terminator operands included), plus retains of consumed arguments still live.
+    fn edge(self: *const Ownership, b: Block, target: ?[]const u8) []const u8 {
+        const kind = str(b.terminator, "kind");
+        const live = self.beforeTerminator(b);
+        const after = if (target) |id| self.edgeLive(kind, id) else Set.empty;
+        const used = self.uses(b.terminator);
+        var before: List([]const u8) = .empty;
+        var released: List([]const u8) = .empty;
+        self.around(used, &after, &before, &released);
+        for (live.keys()) |id| {
+            if (after.contains(id)) continue;
+            const is_use = for (used) |use| {
+                if (eql(use.id, id)) break true;
+            } else false;
+            if (!is_use) push([]const u8, &released, cat(&.{ "nyRelease(", v(id), ");" }));
+        }
+        return cat(&.{ cat(before.items), cat(released.items) });
+    }
+
+    /// Releases of parameters the entered block never reads, after an edge (or the call) defines them.
+    fn deadParameters(self: *const Ownership, kind: []const u8, target: []const u8) []const u8 {
+        const live = self.live_in.get(target).?;
+        var out: List([]const u8) = .empty;
+        if (eql(kind, "tailCall") or eql(kind, "call")) {
+            for (self.fn_.parameters) |parameter| if (counted(parameter.value.type) and !live.contains(parameter.value.id))
+                push([]const u8, &out, cat(&.{ "nyRelease(", v(parameter.value.id), ");" }));
+        } else for (self.block(target).parameters) |parameter| if (counted(parameter.type) and !live.contains(parameter.id))
+            push([]const u8, &out, cat(&.{ "nyRelease(", v(parameter.id), ");" }));
+        return cat(out.items);
+    }
+};
+
+fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const []const u8, values_of: *const std.StringHashMap(*const Type)) void {
+    var own = Ownership{ .values = values_of, .fn_ = fn_, .live_in = .init(a) };
+    own.analyse();
     var parameters: List([]const u8) = .empty;
     for (fn_.parameters) |parameter| push([]const u8, &parameters, cat(&.{ identifier("p_", parameter.id), ": ", zigOf(parameter.value.type).? }));
     const failure = if (failing(fn_.id)) "NyError!" else "";
@@ -1517,6 +1755,7 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
         lineCat(out, &.{ "    _ = &", v(value.id), ";" });
     }
     for (fn_.parameters) |parameter| lineCat(out, &.{ "    ", v(parameter.value.id), " = ", identifier("p_", parameter.id), ";" });
+    line(out, cat(&.{ "    ", own.deadParameters("call", fn_.entry) }));
     var names: List([]const u8) = .empty;
     for (fn_.blocks) |b| push([]const u8, &names, blockName(b.id));
     lineCat(out, &.{ "    const Block = enum { ", join(", ", names.items), " };" });
@@ -1531,17 +1770,22 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
     var next: usize = 0;
     for (fn_.blocks) |b| {
         lineCat(out, &.{ "        .", blockName(b.id), " => {" });
-        for (b.instructions) |_| {
-            lineCat(out, &.{ "            ", lines[next] });
-            next += 1;
-        }
+        if (!eql(b.id, fn_.entry)) lineCat(out, &.{ "            ", own.deadParameters("jump", b.id) });
+        for (own.blockLines(b, lines[next..][0..b.instructions.len])) |text| lineCat(out, &.{ "            ", text });
+        next += b.instructions.len;
         const t = b.terminator;
         const kind = str(t, "kind");
+        const edge = struct {
+            fn to(o: *const Ownership, from: Block, target: []const u8) []const u8 {
+                return cat(&.{ "{ ", o.edge(from, target), "continue :body .", blockName(target), "; }" });
+            }
+        }.to;
         if (eql(kind, "return")) {
-            lineCat(out, &.{ "            return ", v(str(t, "valueId")), ";" });
+            lineCat(out, &.{ "            ", own.edge(b, null), "return ", v(str(t, "valueId")), ";" });
         } else if (eql(kind, "abort")) {
-            lineCat(out, &.{ "            return .{ .err = ", v(str(t, "errorValueId")), " };" });
+            lineCat(out, &.{ "            ", own.edge(b, null), "return .{ .err = ", v(str(t, "errorValueId")), " };" });
         } else if (eql(kind, "jump")) {
+            lineCat(out, &.{ "            ", own.edge(b, str(t, "blockId")) });
             var pairs: List([2][]const u8) = .empty;
             const arguments = a.dupe(json.Value, arr(t, "arguments")) catch oom();
             byId(json.Value, arguments, targetValueKey);
@@ -1549,19 +1793,19 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
             assignAll(out, pairs.items);
             lineCat(out, &.{ "            continue :body .", blockName(str(t, "blockId")), ";" });
         } else if (eql(kind, "branch")) {
-            lineCat(out, &.{ "            if (", v(str(t, "conditionValueId")), ") continue :body .", blockName(str(t, "whenTrue")), ";" });
-            lineCat(out, &.{ "            continue :body .", blockName(str(t, "whenFalse")), ";" });
+            lineCat(out, &.{ "            if (", v(str(t, "conditionValueId")), ") ", edge(&own, b, str(t, "whenTrue")) });
+            lineCat(out, &.{ "            ", edge(&own, b, str(t, "whenFalse")) });
         } else if (eql(kind, "matchOption")) {
-            lineCat(out, &.{ "            if (", v(str(t, "inputValueId")), " != null) continue :body .", blockName(str(t, "someBlock")), ";" });
-            lineCat(out, &.{ "            continue :body .", blockName(str(t, "noneBlock")), ";" });
+            lineCat(out, &.{ "            if (", v(str(t, "inputValueId")), " != null) ", edge(&own, b, str(t, "someBlock")) });
+            lineCat(out, &.{ "            ", edge(&own, b, str(t, "noneBlock")) });
         } else if (eql(kind, "matchResult")) {
-            lineCat(out, &.{ "            if (", v(str(t, "inputValueId")), " == .ok) continue :body .", blockName(str(t, "okBlock")), ";" });
-            lineCat(out, &.{ "            continue :body .", blockName(str(t, "errBlock")), ";" });
+            lineCat(out, &.{ "            if (", v(str(t, "inputValueId")), " == .ok) ", edge(&own, b, str(t, "okBlock")) });
+            lineCat(out, &.{ "            ", edge(&own, b, str(t, "errBlock")) });
         } else if (eql(kind, "matchUnion")) {
             lineCat(out, &.{ "            switch (", v(str(t, "inputValueId")), ".*) {" });
             const targets = a.dupe(json.Value, arr(t, "targets")) catch oom();
             byId(json.Value, targets, variantKey);
-            for (targets) |target| lineCat(out, &.{ "                .", variantName(str(target.object, "variantId")), " => continue :body .", blockName(str(target.object, "blockId")), "," });
+            for (targets) |target| lineCat(out, &.{ "                .", variantName(str(target.object, "variantId")), " => ", edge(&own, b, str(target.object, "blockId")), "," });
             line(out, "            }");
         } else if (eql(kind, "tailCall")) {
             var pairs: List([2][]const u8) = .empty;
@@ -1570,8 +1814,9 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
                     if (eql(str(argument.object, "targetParameterId"), parameter.id)) push([2][]const u8, &pairs, .{ parameter.value.id, str(argument.object, "valueId") });
                 }
             }
+            lineCat(out, &.{ "            ", own.edge(b, fn_.entry) });
             assignAll(out, pairs.items);
-            lineCat(out, &.{ "            continue :body .", blockName(fn_.entry), ";" });
+            lineCat(out, &.{ "            ", own.deadParameters("tailCall", fn_.entry), "continue :body .", blockName(fn_.entry), ";" });
         } else std.debug.panic("unknown terminator {s}", .{kind});
         line(out, "        },");
     }
@@ -1698,7 +1943,7 @@ fn emit(ordered: []const Function) ?[]const u8 {
                 problem(cat(&.{ &.{std.ascii.toUpper(kind[0])}, kind[1..] }));
             }
         };
-        if (problems.items.len == 0) emitFunction(&bodies, instanceName(instance.id, instance.args), fn_, lines.items);
+        if (problems.items.len == 0) emitFunction(&bodies, instanceName(instance.id, instance.args), fn_, lines.items, &body.values);
     }
     // Fake declarations also mention types that no selected function necessarily uses.
     for (capabilities) |capability| for (capability.operations) |operation| {
@@ -1831,6 +2076,7 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\    ny_out = out;
         \\    ny_io = init.io;
         \\    ny_calls = .init(nyAllocator());
+        \\    nyUseValueAllocator();
         \\    var value: std.Io.Writer.Allocating = .init(nyAllocator());
         \\
     ) catch oom();
@@ -1850,11 +2096,12 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
                 fake += 1;
             } else out.print(a, "        const {s} = nyDecode({s}, &tokens);\n", .{ argument, zigType(parameter.value.type, false).? }) catch oom();
         }
-        out.print(a, "        try nyEncode(&value.writer, nyValue({s}({s})));\n    }}\n", .{ name, join(", ", names.items) }) catch oom();
+        out.print(a, "        const result = nyValue({s}({s}));\n        try nyEncode(&value.writer, result);\n        nyRelease(result);\n    }}\n", .{ name, join(", ", names.items) }) catch oom();
     }
     out.appendSlice(a,
         \\    try out.print("[\"value\",{s},[{s}]]\n", .{ value.written(), ny_calls.written() });
         \\    try out.flush();
+        \\    nyLeakCheck();
         \\}
         \\
     ) catch oom();

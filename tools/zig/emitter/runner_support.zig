@@ -17,7 +17,7 @@ fn nyDecodeText(token: []const u8) []const u8 {
     const units = nyAllocator().alloc(u16, size / 2) catch @panic("out of memory");
     std.base64.standard.Decoder.decode(std.mem.sliceAsBytes(units), encoded) catch @panic("bad String token");
     for (units) |*unit| unit.* = std.mem.littleToNative(u16, unit.*);
-    return std.unicode.utf16LeToUtf8Alloc(nyAllocator(), units) catch @panic("bad String token");
+    return nyAdopt(u8, std.unicode.utf16LeToUtf8Alloc(nyRaw(), units) catch @panic("bad String token"));
 }
 
 fn nyEncodeText(out: *std.Io.Writer, text: []const u8) !void {
@@ -41,7 +41,7 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
             if (info.size == .slice and info.child == u8) return nyDecodeText(tokens.next());
             if (info.size == .slice) {
                 const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad List token");
-                const items = nyAllocator().alloc(info.child, count) catch @panic("out of memory");
+                const items = nyAlloc(info.child, count);
                 for (items) |*item| item.* = nyDecode(info.child, tokens);
                 return items;
             }
@@ -54,10 +54,16 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
             }
             if (comptime @hasDecl(T, "ny_set")) {
                 const Item = @typeInfo(@FieldType(T, "items")).pointer.child;
-                return nySetFromList(Item, nyDecode([]const Item, tokens));
+                const list = nyDecode([]const Item, tokens);
+                defer nyRelease(list);
+                return nySetFromList(Item, list);
             }
             // Bytes travel as the String token of their latin-1 form.
-            if (comptime @hasDecl(T, "ny_bytes")) return nyBytesFromLatin1(nyDecodeText(tokens.next()));
+            if (comptime @hasDecl(T, "ny_bytes")) {
+                const text = nyDecodeText(tokens.next());
+                defer nyRelease(text);
+                return nyBytesFromLatin1(text);
+            }
             if (comptime @hasDecl(T, "ny_map")) {
                 const K = @typeInfo(@FieldType(T, "keys")).pointer.child;
                 const V = @typeInfo(@FieldType(T, "values")).pointer.child;
@@ -65,7 +71,7 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
                 var map = T{ .keys = &.{}, .values = &.{} };
                 for (0..count) |_| {
                     const key = nyDecode(K, tokens);
-                    map = nyMapInsert(K, V, map, key, nyDecode(V, tokens));
+                    map = nyMapInsertOwned(K, V, map, key, nyDecode(V, tokens));
                 }
                 return map;
             }
@@ -113,7 +119,10 @@ fn nyReadResponse(comptime R: type, tokens: *NyTokens) NyResponse(R) {
     };
 }
 
+/// Scripted responses are static values: the script keeps them for the whole run.
 fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
+    ny_static_values = true;
+    defer ny_static_values = false;
     const keyed = std.mem.eql(u8, tokens.next(), "1");
     const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token");
     const keys = nyAlloc([]const u8, count);
@@ -193,7 +202,11 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) std.Io.Writer.Error
         },
         .@"struct" => |info| {
             if (T == NyUnit) return nyToken(w, first, "u", .{});
-            if (comptime @hasDecl(T, "ny_bytes")) return nyToken(w, first, "{s}", .{nyTextToken(nyBytesToLatin1(value))});
+            if (comptime @hasDecl(T, "ny_bytes")) {
+                const text = nyBytesToLatin1(value);
+                defer nyRelease(text);
+                return nyToken(w, first, "{s}", .{nyTextToken(text)});
+            }
             if (comptime @hasDecl(T, "ny_set")) {
                 try nyToken(w, first, "{d}", .{value.items.len});
                 for (value.items) |item| try nyTokens(w, first, item);
@@ -240,7 +253,54 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) std.Io.Writer.Error
 /// Ends the run with the envelope of a failure no ExceptionCatch handled.
 fn nyUncaught() noreturn {
     nyUncaughtWrite() catch {};
+    // shortcut: no leak check after an uncaught failure; the frames it unwound have no errdefer
+    // releasing their owned bindings until stage (b) of reference counting.
     std.process.exit(0);
+}
+
+// The conformance runner (ReleaseSafe, as runPure builds it) checks that every value was released;
+// any other build frees through the general-purpose allocator without checking.
+var ny_debug_allocator: std.heap.DebugAllocator(.{ .stack_trace_frames = 0, .backing_allocator_zeroes = false }) = .{ .backing_allocator = .{ .ptr = undefined, .vtable = &ny_page_cache } };
+
+// The checked allocator returns a bucket page as soon as its last slot is freed, so a loop that
+// allocates and frees one value would map and fault in a fresh page every time; keep a few.
+var ny_cached_pages: [64][*]u8 = undefined;
+var ny_cached_count: usize = 0;
+const ny_page_cache: std.mem.Allocator.VTable = .{
+    .alloc = struct {
+        fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, ret: usize) ?[*]u8 {
+            if (len == ny_page_bytes and ny_cached_count > 0 and alignment.toByteUnits() <= ny_page_bytes) {
+                ny_cached_count -= 1;
+                return ny_cached_pages[ny_cached_count];
+            }
+            return std.heap.page_allocator.rawAlloc(len, if (len == ny_page_bytes) .fromByteUnits(ny_page_bytes) else alignment, ret);
+        }
+    }.alloc,
+    .resize = std.mem.Allocator.noResize,
+    .remap = std.mem.Allocator.noRemap,
+    .free = struct {
+        fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret: usize) void {
+            if (memory.len == ny_page_bytes and ny_cached_count < ny_cached_pages.len) {
+                ny_cached_pages[ny_cached_count] = memory.ptr;
+                ny_cached_count += 1;
+            } else std.heap.page_allocator.rawFree(memory, if (memory.len == ny_page_bytes) .fromByteUnits(ny_page_bytes) else alignment, ret);
+        }
+    }.free,
+};
+const ny_page_bytes = (std.heap.DebugAllocatorConfig{}).page_size;
+
+fn nyUseValueAllocator() void {
+    ny_values = if (@import("builtin").mode == .safe) ny_debug_allocator.allocator() else std.heap.smp_allocator;
+}
+
+/// Exit code 86 with "leak: ..." on stderr when a value is still live at the end of the run.
+fn nyLeakCheck() void {
+    if (@import("builtin").mode != .safe or ny_leak_exempt) return;
+    const live = ny_debug_allocator.detectLeaks();
+    if (live == 0) return;
+    ny_out.flush() catch {};
+    std.debug.print("leak: {d} values are still allocated after the run.\n", .{live});
+    std.process.exit(86);
 }
 
 fn nyUncaughtWrite() !void {
@@ -317,7 +377,11 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
         .@"struct" => |info| {
             if (T == NyUnit) return out.writeAll("\"unit\"");
             if (comptime @hasDecl(T, "ny_set")) return nyEncode(out, value.items);
-            if (comptime @hasDecl(T, "ny_bytes")) return nyEncodeText(out, nyBytesToLatin1(value));
+            if (comptime @hasDecl(T, "ny_bytes")) {
+                const text = nyBytesToLatin1(value);
+                defer nyRelease(text);
+                return nyEncodeText(out, text);
+            }
             if (comptime @hasDecl(T, "ny_map")) {
                 try out.writeAll("[");
                 for (value.keys, value.values, 0..) |key, item, position| {
