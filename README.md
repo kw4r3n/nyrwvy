@@ -1,5 +1,8 @@
 # Nyrwvy
 
+> [!WARNING]
+> **Under active development; not for use.** Formats, protocols and APIs change without notice or migration, and nothing here is supported. Please do not depend on it, and do not open issues or pull requests for now.
+
 **Nyrwvy is an AI-native semantic programming system in which programs are persistent typed semantic graphs and changes are validated meaning-level operations.**
 
 In plain terms: an AI agent writes and maintains a small, strongly typed program by calling a few tools (open a snapshot, inspect, create a type or function, replace one expression, review, commit) instead of editing source text. Every proposed change is validated and shown as a before/after review before it is published; stable IDs keep the program's identity across edits and sessions; and the committed graph is compiled to C# and run on .NET. The repository holds the F# implementation, the tool adapters (an MCP server and an OpenCode plugin), the specifications, the decision records and the verification evidence.
