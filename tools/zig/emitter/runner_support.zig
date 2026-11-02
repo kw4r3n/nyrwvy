@@ -253,8 +253,7 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) std.Io.Writer.Error
 /// Ends the run with the envelope of a failure no ExceptionCatch handled.
 fn nyUncaught() noreturn {
     nyUncaughtWrite() catch {};
-    // shortcut: no leak check after an uncaught failure; the frames it unwound have no errdefer
-    // releasing their owned bindings until stage (b) of reference counting.
+    nyLeakCheck();
     std.process.exit(0);
 }
 
@@ -295,7 +294,7 @@ fn nyUseValueAllocator() void {
 
 /// Exit code 86 with "leak: ..." on stderr when a value is still live at the end of the run.
 fn nyLeakCheck() void {
-    if (@import("builtin").mode != .safe or ny_leak_exempt) return;
+    if (@import("builtin").mode != .safe) return;
     const live = ny_debug_allocator.detectLeaks();
     if (live == 0) return;
     ny_out.flush() catch {};
