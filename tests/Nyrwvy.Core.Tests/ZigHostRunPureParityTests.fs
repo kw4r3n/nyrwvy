@@ -71,7 +71,9 @@ module ZigHostRunPureParityTests =
     let private responses responses = provider $""""responses":[{String.concat "," responses}]"""
     let private returns value = $"""{{"kind":"return","value":{value}}}"""
 
-    let private strictPair path requests =
+    /// The recorded F# replies and the Zig replies, equal except at the `differing` request indices,
+    /// which the caller checks itself (where the Zig backend now supports what the F# host did not).
+    let private pairExcept differing path requests =
         // Building a tool is outside either host's first-response budget.
         zigHost () |> ignore
         ZigTools.tool "emitter" |> unwrap |> ignore
@@ -82,9 +84,11 @@ module ZigHostRunPureParityTests =
             Assert.Equal(requests.Length, replies.Length)
             replies
         let expected, actual = runHost false, runHost true
-        for request, (wanted, found) in List.zip requests (List.zip expected actual) do
-            Assert.True((wanted = found), $"{request}\n F#: {wanted}\nZig: {found}")
-        expected
+        for index, (request, (wanted, found)) in List.indexed (List.zip requests (List.zip expected actual)) do
+            if not (List.contains index differing) then Assert.True((wanted = found), $"{request}\n F#: {wanted}\nZig: {found}")
+        expected, actual
+
+    let private strictPair path requests = fst (pairExcept [] path requests)
 
     let private withHost environment zig path action =
         use host = startWithEnvironment environment zig [ "open"; "--snapshot"; path ]
@@ -332,10 +336,17 @@ module ZigHostRunPureParityTests =
     let ``native Zig host preserves emitter limits and reachable fallback includes fake signature types`` () =
         withDirectory (fun directory ->
             let path, _ = fixture directory
-            publishWithZigHost "open" path [ """{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"bits32"}}],"resultType":{"kind":"primitive","primitive":"bits32"},"requiredEffects":[],"body":{"kind":"parameter","name":"value"}}""" ]
+            publishWithZigHost "open" path [ """{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"bits32"}}],"resultType":{"kind":"primitive","primitive":"bits32"},"requiredEffects":[],"body":{"kind":"optionGetOrDefault","option":{"kind":"resultOkValue","value":{"kind":"resultOk","errorType":{"kind":"primitive","primitive":"string"},"value":{"kind":"parameter","name":"value"}}},"default":{"kind":"parameter","name":"value"}}}""" ]
             let requests = [ runName "bits" [ "4294967295" ] None; runName "constant" [] (Some "7"); runName "query" [ "\"a\""; responses [ returns (found "ok") ] ] (Some(found "ok")) ]
-            let replies = strictPair path requests
+            // The F# host recorded Bits32 as the unsupported construct; Bits32 is emitted now, so the
+            // body uses an instruction the Zig emitter still lacks and only the code is compared. Its
+            // extra nodes take seeded IDs, so the snapshot ID differs from the recorded one and nothing else.
+            let replies, zig = pairExcept [ 0; 1; 2 ] path requests
             Assert.Equal("RunBackendUnsupported", code replies[0])
+            Assert.Equal("RunBackendUnsupported", code zig[0])
+            let snapshotId reply = (success reply).GetProperty("sourceSnapshotId").GetString()
+            for wanted, found in List.zip replies.Tail zig.Tail do
+                Assert.Equal(wanted.Replace(snapshotId wanted, snapshotId found), found)
             for reply in replies.Tail do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply))
 
     [<Fact; Trait("Suite", "Extended")>]
@@ -461,7 +472,11 @@ module ZigHostRunPureParityTests =
             let path = Path.Combine(directory, "unsupported.json")
             File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
             let request = runName "unsupported" [ "[[[[1]]]]" ] None
-            let reply = (strictPair path [ request ]).Head
+            // The F# host could not emit Bits32 and reported the nested type over several lines; the Zig
+            // backend emits Bits32, so it runs the entry (the layout stays covered by the emitter's own test).
+            let replies, zig = pairExcept [ 0 ] path [ request ]
+            let reply = replies.Head
             Assert.Equal("RunBackendUnsupported", code reply)
             use document = parseDocument reply
-            Assert.Contains("BuiltinGeneric\n", document.RootElement.GetProperty("error").GetProperty("message").GetString()))
+            Assert.Contains("BuiltinGeneric\n", document.RootElement.GetProperty("error").GetProperty("message").GetString())
+            Assert.Equal("list", (success zig.Head).GetProperty("actual").GetProperty("kind").GetString()))
