@@ -26,8 +26,18 @@ test("build publishes only a successful ReleaseSafe host with the required modul
   assert.deepEqual(await readdir(bin), ["nyrwvy-host"])
   assert.equal(run(0).status, 0)
   assert.equal(await readFile(join(bin, "nyrwvy-host"), "utf8"), "new")
+  const stamp = async () => JSON.parse(await readFile(join(bin, "nyrwvy-host.json"), "utf8"))
+  assert.equal((await stamp()).commit, head)
   const { cwd, args, info } = JSON.parse(await readFile(join(root, "calls"), "utf8"))
-  assert.equal(info, `pub const build = "nyrwvy-zig-host+${head}";\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`)
+  // The commit is in the stamp, not the binary, so a new commit with the same sources reuses the build.
+  const commitless = `pub const build = "nyrwvy-zig-host";\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`
+  assert.equal(info, commitless)
+  await rm(join(root, "calls"))
+  assert.equal(run(0, "f".repeat(40)).status, 0)
+  await assert.rejects(readFile(join(root, "calls")))
+  assert.equal((await stamp()).commit, "f".repeat(40))
+  await mkdir(join(root, "tools/zig/host"), { recursive: true })
+  await writeFile(join(root, "tools/zig/host/main.zig"), "changed")
   assert.equal(cwd, root)
   assert.equal(args[0], "build-exe")
   for (const name of ["model_reader", "snapshot_reader", "zig_emitter", "csharp_emitter", "viewer_asset", "build_info"]) {
@@ -38,8 +48,9 @@ test("build publishes only a successful ReleaseSafe host with the required modul
   assert.notEqual(run(0, head, join(root, "missing-zig")).status, 0)
   assert.equal(await readFile(join(bin, "nyrwvy-host"), "utf8"), "new")
   assert.equal(run(0, "invalid").status, 0)
-  assert.equal(JSON.parse(await readFile(join(root, "calls"), "utf8")).info, `pub const build = "nyrwvy-zig-host";\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`)
-  assert.deepEqual(await readdir(bin), ["nyrwvy-host"])
+  assert.equal(JSON.parse(await readFile(join(root, "calls"), "utf8")).info, commitless)
+  assert.equal((await stamp()).commit, undefined)
+  assert.deepEqual(await readdir(bin), ["nyrwvy-host", "nyrwvy-host.json"])
 })
 
 test("interrupting a compiler wrapper kills its child before removing temporary output", { timeout: 10000 }, async t => {

@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process"
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
+import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -21,17 +22,41 @@ if (process.argv.includes("--optional")) {
     process.exit(0)
   }
 }
+let commit
+try {
+  const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim()
+  if (/^[0-9a-f]{40}$/.test(head)) commit = head
+} catch {}
+// The commit stays out of the binary, so a commit that leaves the sources unchanged reuses the build;
+// the adapter reads it from the stamp beside the host (staleToolWarning).
+const info = `pub const build = "nyrwvy-zig-host";\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`
+const stamp = join(output, `${name}.json`)
+const writeStamp = async sources => {
+  await writeFile(`${stamp}.partial`, JSON.stringify({ sources, commit }))
+  await rename(`${stamp}.partial`, stamp)
+}
+// Every file in the host's and its modules' directories, as ZigTools keys the test host; mise.toml pins Zig.
+const hash = createHash("sha256").update(JSON.stringify([info, modules, process.env.NYRWVY_ZIG ?? "", process.platform, process.arch]))
+for (const directory of ["tools/zig/host", ...modules.map(([, path]) => dirname(path))]) {
+  const files = (await readdir(join(root, directory), { recursive: true, withFileTypes: true }).catch(() => []))
+    .filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name))
+    .filter(file => !file.slice(root.length).split(sep).some(part => part === "bin" || part === "obj" || part === ".zig-cache")).sort()
+  for (const file of files) hash.update(`\0${file.slice(root.length)}\0`).update(await readFile(file))
+}
+hash.update(await readFile(join(root, "mise.toml")).catch(() => ""))
+const sources = hash.digest("hex")
+const previous = await readFile(stamp, "utf8").then(JSON.parse).catch(() => undefined)
+if (previous?.sources === sources && await access(join(output, name)).then(() => true, () => false)) {
+  await writeStamp(sources)
+  console.log(`${join(output, name)} is current with its sources.`)
+  process.exit(0)
+}
 await mkdir(output, { recursive: true, mode: 0o700 })
 const temporary = await mkdtemp(join(output, ".build-"))
 try {
   const built = join(temporary, name)
-  let commit
-  try {
-    const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim()
-    if (/^[0-9a-f]{40}$/.test(head)) commit = head
-  } catch {}
   const buildInfo = join(temporary, "build_info.zig")
-  await writeFile(buildInfo, `pub const build = ${JSON.stringify(`nyrwvy-zig-host${commit ? `+${commit}` : ""}`)};\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`)
+  await writeFile(buildInfo, info)
   modules.push(["build_info", buildInfo])
   const args = ["build-exe", `-femit-bin=${built}`, ...(process.platform === "darwin" ? ["-lc"] : []), "-O", "ReleaseSafe",
     ...modules.flatMap(([name]) => ["--dep", name]), "-Mroot=tools/zig/host/main.zig",
@@ -71,6 +96,7 @@ try {
     })
   })
   await rename(built, join(output, name))
+  await writeStamp(sources)
   console.log(`Built ${join(output, name)}`)
 } finally {
   await rm(temporary, { recursive: true, force: true })
