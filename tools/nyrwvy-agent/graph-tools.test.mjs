@@ -135,7 +135,7 @@ const alive = setInterval(() => {}, 1_000)
 input.on("line", line => {
   const request = JSON.parse(line)
   console.log(JSON.stringify({ id: request.id, ok: true, result: {
-    build: "nyrwvy-zig-host+${"0".repeat(40)}", args,
+    build: process.env.FAKE_BUILD ?? "nyrwvy-zig-host+${"0".repeat(40)}", args,
   } }))
 }).on("close", () => clearInterval(alive))
 `)
@@ -146,12 +146,20 @@ input.on("line", line => {
     assert.deepEqual(opened.status.result.args, ["open", "--snapshot", join(dir, "snapshot.nyrec"), "--read-only"])
     assert.match(opened.warning, /runs build 000000000000/)
     await closeAuthoring(context)
+    // A host from `npm run build:host` names its commit in the stamp beside it, not in its build.
+    process.env.FAKE_BUILD = "nyrwvy-zig-host"
+    await writeFile(`${executable}.json`, JSON.stringify({ sources: "x", commit: "1".repeat(40) }))
+    const stampedOpen = JSON.parse(await openAuthoring("read", "snapshot.nyrec", context))
+    assert.equal(stampedOpen.status.result.build, `nyrwvy-zig-host+${"1".repeat(40)}`)
+    assert.match(stampedOpen.warning, /runs build 111111111111/)
+    await closeAuthoring(context)
     process.env.NYRWVY_HOST_EXECUTABLE = join(dir, "missing")
     await assert.rejects(openAuthoring("read", "snapshot.nyrec", context), /Host executable could not be started: .*missing/)
   } finally {
     try {
       await closeAuthoring(context)
     } finally {
+      delete process.env.FAKE_BUILD
       for (const [name, value] of [["NYRWVY_HOST", previous.host], ["NYRWVY_HOST_EXECUTABLE", previous.executable]]) {
         if (value === undefined) delete process.env[name]
         else process.env[name] = value

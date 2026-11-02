@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface } from "node:readline"
-import { stat } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -362,7 +362,12 @@ async function launchAuthoring(
   try {
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
-    const warning = staleToolWarning(toolCodeCommit, (status as { result?: { build?: unknown } }).result?.build)
+    const result = (status as { result?: { build?: unknown } }).result
+    // `npm run build:host` records its commit in a stamp beside the host instead of in the binary.
+    const stamped = result?.build === "nyrwvy-zig-host"
+      ? await readFile(`${host}.json`, "utf8").then(text => JSON.parse(text).commit).catch(() => undefined) : undefined
+    if (result && typeof stamped === "string") result.build = `${result.build}+${stamped}`
+    const warning = staleToolWarning(toolCodeCommit, result?.build)
     return JSON.stringify({ worktree, snapshot: workspace, status, hostSourcesAllowed: allowHostSources, toolCodeCommit,
       ...(warning === undefined ? {} : { warning }),
       guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; compact result views are bounded to 16 KiB UTF-8. If projection.requiresDetailedReview is true, read the omitted impact/graph paths with nyrwvy_request op readProposal (proposalId,path,offset,limit; pages at most 8 KiB). Small reviews keep signature, node count, impact facts and fingerprints; detail \"full\" adds the proposed graph without a byte bound. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })

@@ -14,7 +14,7 @@ The minimum does not mean every imaginable graph transformation. Unsupported sem
 
 ## Setup and direct tools
 
-Build the native host once from the repository root, and rebuild after changing its implementation or switching commits (the executable embeds its Git build identity):
+Build the native host once from the repository root, and rebuild after changing its implementation or switching commits (the build records its commit in `tools/zig/host/bin/nyrwvy-host.json`, and is skipped when the host's sources are unchanged):
 
 ```sh
 npm run build:host
