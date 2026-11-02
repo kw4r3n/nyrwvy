@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -28,12 +28,24 @@ const commands = [
     ...modules.flatMap(([name]) => ["--dep", name]), "-Mroot=tools/zig/host/main.zig",
     ...modules.flatMap(([name, path]) => ["-O", "ReleaseSafe", `-M${name}=${path}`])],
 ]
+// Zig only discovers tests in files it analyzes, so a host file that main.zig's test block does not
+// import has tests that never run; every declared host test must start (the runner exits non-zero on a failure).
+const hostDir = join(root, "tools/zig/host")
+const declared = existsSync(hostDir) ? readdirSync(hostDir).filter(name => name.endsWith(".zig"))
+  .flatMap(name => [...readFileSync(join(hostDir, name), "utf8").matchAll(/^test "((?:[^"\\]|\\.)*)"/gm)].map(match => `${name.slice(0, -4)}.test.${match[1]}...`)) : []
 for (const args of commands) {
   if (process.platform === "darwin") args.splice(1, 0, "-lc")
-  const result = spawnSync(zig, args, { cwd: root, stdio: "inherit", timeout: 300_000 })
+  const host = args === commands.at(-1)
+  const result = spawnSync(zig, args, { cwd: root, stdio: host ? ["inherit", "inherit", "pipe"] : "inherit", encoding: "utf8", timeout: 300_000 })
+  if (host) process.stderr.write(result.stderr ?? "")
   if (result.error) {
     console.error(`Zig host test failed: ${result.error.message}`)
     process.exit(1)
   }
   if (result.status !== 0) process.exit(result.status ?? 1)
+  const missing = host ? declared.filter(line => !result.stderr.includes(line)) : []
+  if (missing.length) {
+    console.error(`Host tests that did not run (import their file in tools/zig/host/main.zig's test block):\n${missing.join("\n")}`)
+    process.exit(1)
+  }
 }
