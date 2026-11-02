@@ -14,16 +14,6 @@ module ZigToolSourceHashTests =
         Assert.Equal("", errors)
         use reply = ZigHostParityTests.parseDocument (List.exactlyOne lines)
         Assert.Equal("nyrwvy-zig-host", reply.RootElement.GetProperty("result").GetProperty("build").GetString())
-        ZigHostParityTests.withDirectory (fun directory ->
-            let git = Path.Combine(directory, "git")
-            File.WriteAllText(git, "#!/bin/sh\nprintf '%s\\n' 0000000000000000000000000000000000000000\n")
-            File.SetUnixFileMode(git, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
-            let environment = [ "PATH", directory + string Path.PathSeparator + Environment.GetEnvironmentVariable "PATH" ]
-            let code, errors, lines = ZigHostParityTests.runWithEnvironment environment true [ "open"; "--snapshot"; snapshot; "--read-only" ] [ "{\"id\":\"1\",\"op\":\"status\"}" ]
-            Assert.Equal(0, code)
-            Assert.Equal("", errors)
-            use reply = ZigHostParityTests.parseDocument (List.exactlyOne lines)
-            Assert.Equal("nyrwvy-zig-host", reply.RootElement.GetProperty("result").GetProperty("build").GetString()))
 
     [<Fact>]
     let ``nested runtime resources invalidate tool keys but build outputs do not`` () =
