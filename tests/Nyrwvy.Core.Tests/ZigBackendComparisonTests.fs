@@ -9,8 +9,7 @@ open Xunit
 /// The C# and Zig backends agree: each case runs once per backend on the Zig host, on one snapshot
 /// (so one runner build per backend), and the replies are compared without `frames`, which name
 /// generated symbols (docs/decisions/backend-targets-and-parity.md). Ported from the comparisons the
-/// F# host ran (ab5d0db6:tests/Nyrwvy.Core.Tests/ZigBackendTests.fs); tasks, scopes, abort and
-/// exception boundaries are not here yet.
+/// F# host ran (ab5d0db6:tests/Nyrwvy.Core.Tests/ZigBackendTests.fs), plus an abort inside a resource.
 module ZigBackendComparisonTests =
     open ZigHostParityTests
 
@@ -83,6 +82,84 @@ module ZigBackendComparisonTests =
           "float", boolType, $"""{{"kind":"float64LessThan","left":{{"kind":"float64Literal","bits":"3ff8000000000000"}},"right":{{"kind":"int64ToFloat64","value":{{"kind":"listLength","value":{xs}}}}}}}"""
           "text", boolType, $"""{{"kind":"stringEqual","left":{{"kind":"int64ToString","value":{{"kind":"listLength","value":{xs}}}}},"right":{{"kind":"stringLiteral","value":"3"}}}}"""
           "empty", boolType, $"""{{"kind":"stringIsEmpty","value":{{"kind":"int64ToString","value":{lit 0}}}}}""" ]
+
+    let private effectful name parameters result body = (fn name parameters result body).Replace("\"requiredEffects\":[]", "\"requiredEffects\":[\"io\"]")
+    let private unitType = """{"kind":"primitive","primitive":"unit"}"""
+    let private resultOf ok = generic "result" [ ok; stringType ]
+    let private outcome = resultOf int64Type
+    let private waited = resultOf (listOf (generic "option" [ outcome ]))
+    let private bind value body = $"""{{"kind":"bind","value":{value},"body":{body}}}"""
+    let private value depth = $"""{{"kind":"patternReference","scopeDepth":{depth},"slot":"value"}}"""
+    let private ok x = $"""{{"kind":"resultOk","errorType":{stringType},"value":{x}}}"""
+
+    /// Exception boundaries, resources, abort, tasks and scopes (the old tests' last two groups, after
+    /// the `io` effect the Store group creates); every one is effectful, so none is batched.
+    let private effectfulDeclarations =
+        let filesType = """{"kind":"capability","name":"Files"}"""
+        let files operation (arguments: string) = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "files"},"capability":"Files","operation":"{operation}","arguments":[{arguments}]}}"""
+        let readHandle = files "read" $"""{{"parameter":"handle","value":{p "handle"}}}"""
+        let withResource body = $"""{{"kind":"useResource","acquire":{files "open" ""},"releaseCapability":{p "files"},"capability":"Files","releaseOperation":"close","body":"{body}","context":[{{"parameter":"files","value":{p "files"}}}]}}"""
+        let exceptionType = generic "exception" []
+        let svcType = """{"kind":"capability","name":"Svc"}"""
+        let scopeType = generic "taskScope" []
+        let svc operation (arguments: string) = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "svc"},"capability":"Svc","operation":"{operation}","arguments":[{arguments}]}}"""
+        let work n = svc "work" $"""{{"parameter":"n","value":{n}}}"""
+        let ctx = $"""[{{"parameter":"svc","value":{p "svc"}}}]"""
+        let scoped name result body = effectful name [ "svc", svcType ] result $"""{{"kind":"taskScope","body":"{body}","context":{ctx}}}"""
+        let inScope name result body = effectful name [ "svc", svcType; "scope", scopeType ] result body
+        let start worker item = $"""{{"kind":"taskStart","scope":{p "scope"},"worker":"{worker}","item":{lit item},"context":{ctx}}}"""
+        let tasks depths = $"""{{"kind":"listConstruct","itemType":{generic "task" [ outcome ]},"items":[{String.Join(",", depths |> List.map value)}]}}"""
+        let some x = $"""{{"kind":"optionSome","value":{x}}}"""
+        let handed = resultOf optionInt
+        let create = $"""{{"kind":"oneShotCreate","scope":{p "scope"},"valueType":{int64Type}}}"""
+        let waitCell limit = $"""{{"kind":"oneShotWait","cell":{value 0}{limit}}}"""
+        let added = ok $"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}"""
+        [ // Exception boundaries, resources and abort.
+          $"""{{"id":"k","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Files","operations":[{{"displayName":"open","parameters":[],"resultType":{resultOf int64Type},"effect":"io"}},{{"displayName":"read","parameters":[{declare [ "handle", int64Type ]}],"resultType":{resultOf stringType},"effect":"io"}},{{"displayName":"close","parameters":[{declare [ "handle", int64Type ]}],"resultType":{resultOf unitType},"effect":"io"}}]}}"""
+          effectful "readBody" [ "files", filesType; "handle", int64Type ] (resultOf stringType) readHandle
+          effectful "withFile" [ "files", filesType ] (resultOf stringType) (withResource "readBody")
+          // A read failure aborts the body, which still closes the file.
+          let got = ok $"""{{"kind":"stringConcat","left":{{"kind":"stringLiteral","value":"got "}},"right":{slot "value"}}}"""
+          effectful "abortBody" [ "files", filesType; "handle", int64Type ] (resultOf stringType)
+              $"""{{"kind":"matchResult","input":{readHandle},"okBody":{got},"errBody":{{"kind":"abort","error":{slot "error"}}}}}"""
+          effectful "abortFile" [ "files", filesType ] (resultOf stringType) (withResource "abortBody")
+          effectful "attempt" [ "files", filesType; "start", unitType ] (resultOf stringType) (call "withFile" [ "files", p "files" ])
+          fn "recover" [ "failure", exceptionType ] (resultOf stringType)
+              $"""{{"kind":"resultErr","okType":{stringType},"error":{{"kind":"stringConcat","left":{{"kind":"stringLiteral","value":"caught: "}},"right":{{"kind":"exceptionMessage","value":{p "failure"}}}}}}}"""
+          effectful "rethrowCancellation" [ "failure", exceptionType ] (resultOf stringType)
+              $"""{{"kind":"conditional","condition":{{"kind":"exceptionIsCancellation","value":{p "failure"}}},"whenTrue":{{"kind":"exceptionRethrow","value":{p "failure"},"resultType":{resultOf stringType}}},"whenFalse":{{"kind":"resultErr","okType":{stringType},"error":{{"kind":"exceptionMessage","value":{p "failure"}}}}}}}"""
+          effectful "rethrowAll" [ "failure", exceptionType ] (resultOf stringType) $"""{{"kind":"exceptionRethrow","value":{p "failure"},"resultType":{resultOf stringType}}}"""
+          for handler in [ "recover"; "rethrowCancellation"; "rethrowAll" ] do
+              effectful ("guarded_" + handler) [ "files", filesType ] (resultOf stringType)
+                  $"""{{"kind":"exceptionCatch","body":"attempt","bodyContext":[{{"parameter":"files","value":{p "files"}}}],"handler":"{handler}","handlerContext":[]}}"""
+          // Tasks under the virtual clock.
+          $"""{{"id":"k","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Svc","operations":[{{"displayName":"work","parameters":[{declare [ "n", int64Type ]}],"resultType":{int64Type},"effect":"io"}},{{"displayName":"hold","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}"""
+          effectful "job" [ "svc", svcType; "n", int64Type ] outcome (bind (work (p "n")) (ok (value 0)))
+          effectful "holder" [ "svc", svcType; "n", int64Type ] outcome (bind (svc "hold" "") (ok $"""{{"kind":"int64WrappingAdd","left":{value 0},"right":{p "n"}}}"""))
+          effectful "fanOut" [ "svc", svcType; "xs", ints ] (resultOf ints) $"""{{"kind":"parallelAll","source":{p "xs"},"worker":"job","context":{ctx}}}"""
+          inScope "raceBody" waited (bind (start "job" 1) (bind (start "job" 2) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 1; 0 ]},"mode":"any","limit":{some (lit 25)}}}""" (ok (value 0)))))
+          scoped "race" waited "raceBody"
+          inScope "cancelBody" waited (bind (start "holder" 7) (bind $"""{{"kind":"taskCancel","task":{value 0}}}""" (bind $"""{{"kind":"taskWait","tasks":{tasks [ 1 ]},"mode":"all"}}""" (ok (value 0)))))
+          scoped "cancelled" waited "cancelBody"
+          effectful "shieldBody" [ "svc", svcType; "start", unitType ] outcome
+              (bind (work (lit 5)) (ok $"""{{"kind":"conditional","condition":{{"kind":"cancellationRequested"}},"whenTrue":{lit -1},"whenFalse":{value 0}}}"""))
+          effectful "shielded" [ "svc", svcType ] outcome $"""{{"kind":"cancellationShield","body":"shieldBody","context":{ctx}}}"""
+          effectful "addWork" [ "svc", svcType; "acc", int64Type; "n", int64Type ] int64Type (bind (work (p "n")) $"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}""")
+          effectful "sumWork" [ "svc", svcType; "xs", ints ] int64Type $"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{lit 0},"function":"addWork","context":{ctx}}}"""
+          // One-shot hand-offs, failures surfacing from tasks, a Result-returning effectful fold, and a deadlock.
+          inScope "handoffBody" handed (bind create (bind $"""{{"kind":"oneShotComplete","cell":{value 0},"value":{lit 5}}}""" (bind $"""{{"kind":"oneShotWait","cell":{value 1}}}""" (ok (value 0)))))
+          scoped "handoff" handed "handoffBody"
+          inScope "timeoutBody" handed (bind create (bind (waitCell (",\"limit\":" + some (lit 10))) (ok (value 0))))
+          scoped "timeout" handed "timeoutBody"
+          inScope "stuckBody" handed (bind create (bind (waitCell "") (ok (value 0))))
+          scoped "stuck" handed "stuckBody"
+          inScope "failWaitBody" waited (bind (start "job" 1) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 0 ]},"mode":"all"}}""" (ok (value 0))))
+          scoped "failWait" waited "failWaitBody"
+          inScope "failCloseBody" outcome (bind (start "job" 1) (bind (start "job" 2) (ok (lit 0))))
+          scoped "failClose" outcome "failCloseBody"
+          effectful "addChecked" [ "svc", svcType; "acc", int64Type; "n", int64Type ] outcome
+              (bind (work (p "n")) $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{value 0},"right":{lit 0}}},"whenTrue":{{"kind":"resultErr","okType":{int64Type},"error":{{"kind":"stringLiteral","value":"negative"}}}},"whenFalse":{added}}}""")
+          effectful "sumChecked" [ "svc", svcType; "xs", ints ] outcome $"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{lit 0},"function":"addChecked","context":{ctx}}}""" ]
 
     /// Every declaration, callbacks before their callers; names are unique across the old tests' groups.
     let private declarations =
@@ -243,7 +320,56 @@ module ZigBackendComparisonTests =
           fn "isTwo" [ "x", int64Type ] boolType $"""{{"kind":"int64Equal","left":{p "x"},"right":{lit 2}}}"""
           for name, result, body in listCases do fn name [ "xs", ints ] result body
           fn "okOr" [ "n", int64Type ] int64Type $"""{{"kind":"resultGetOrDefault","result":{checkedOf},"default":{lit -1}}}"""
-          fn "isOk" [ "n", int64Type ] boolType $"""{{"kind":"resultIsOk","value":{checkedOf}}}""" ]
+          fn "isOk" [ "n", int64Type ] boolType $"""{{"kind":"resultIsOk","value":{checkedOf}}}"""
+          yield! effectfulDeclarations ]
+
+    /// The exception boundary, resource, abort and task calls, with scripted Files and Svc fakes.
+    let private effectfulCases =
+        let typed kind (value: string) = if kind = "unit" then """{"kind":"unit"}""" else $"""{{"kind":"{kind}","value":{value}}}"""
+        let primitive kind = $"""{{"kind":"primitive","primitive":"{kind}"}}"""
+        let okFile kind (value: string) = $"""{{"kind":"return","value":{{"kind":"result","okType":{primitive kind},"errorType":{stringType},"isOk":true,"value":{typed kind value}}}}}"""
+        let errFile kind = $"""{{"kind":"return","value":{{"kind":"result","okType":{primitive kind},"errorType":{stringType},"isOk":false,"value":{{"kind":"string","value":"no"}}}}}}"""
+        let throw message = $"""{{"kind":"throw","message":"{message}"}}"""
+        let files openResponse readResponses closeResponses =
+            $"""{{"kind":"fakeCapability","capability":"Files","operations":[{{"operation":"open","responses":[{openResponse}]}},{{"operation":"read","responses":[{readResponses}]}},{{"operation":"close","responses":[{closeResponses}]}}]}}"""
+        let opened = okFile "int64" "\"7\""
+        let closed = okFile "unit" "\"unit\""
+        let text = okFile "string" "\"text\""
+        // Each script with whether withFile, guarded_recover, guarded_rethrowCancellation, guarded_rethrowAll and abortFile succeed.
+        let scripts =
+            [ files opened text closed, [ true; true; true; true; true ]
+              files (errFile "int64") "" "", [ true; true; true; true; true ]
+              files opened (throw "disk ✗") closed, [ false; true; true; false; false ]
+              files opened (throw "disk ✗") (throw "disk ✗"), [ false; true; true; false; false ]
+              files opened text (errFile "unit"), [ true; true; true; true; true ]
+              files opened (errFile "string") (errFile "unit"), [ true; true; true; true; true ]
+              files (throw "disk ✗") "" "", [ false; true; true; false; false ] ]
+        let response (n: int) (delay: int option) =
+            let delayed = delay |> Option.map (fun d -> $""","delayMillis":"{d}" """) |> Option.defaultValue ""
+            $"""{{"kind":"return","value":{{"kind":"int64","value":"{n}"}}{delayed}}}"""
+        let fake (work: string list) (hold: string list) =
+            $"""{{"kind":"fakeCapability","capability":"Svc","operations":[{{"operation":"work","responses":[{String.Join(",", work)}]}},{{"operation":"hold","responses":[{String.Join(",", hold)}]}}]}}"""
+        let awaiting = $"""{{"kind":"awaitCancellation","value":{int64 100L}}}"""
+        let throws = throw "task ✗"
+        [ for script, succeeds in scripts do
+            for name, succeeds in List.zip [ "withFile"; "guarded_recover"; "guarded_rethrowCancellation"; "guarded_rethrowAll"; "abortFile" ] succeeds do
+                succeeds, name, [ script ]
+          true, "fanOut", [ fake [ response 10 (Some 30); response 20 (Some 10); response 30 None ] []; "[1,2,3]" ]
+          false, "fanOut", [ fake [ response 10 (Some 5) ] []; "[1,2]" ]
+          true, "race", [ fake [ response 10 (Some 40); response 20 (Some 20) ] [] ]
+          true, "race", [ fake [ response 10 (Some 40); response 20 (Some 30) ] [] ]
+          true, "cancelled", [ fake [] [ awaiting ] ]
+          false, "cancelled", [ fake [] [] ]
+          true, "shielded", [ fake [ response 4 (Some 3) ] [] ]
+          true, "sumWork", [ fake [ response 1 None; response 2 None; response 3 None ] []; "[1,2,3]" ]
+          true, "handoff", [ fake [] [] ]
+          true, "timeout", [ fake [] [] ]
+          false, "stuck", [ fake [] [] ]
+          false, "failWait", [ fake [ throws ] [] ]
+          false, "failClose", [ fake [ response 1 (Some 5); throws ] [] ]
+          false, "failClose", [ fake [ throws; response 2 None ] [] ]
+          true, "sumChecked", [ fake [ response 1 None; response -2 None; response 3 None ] []; "[1,2,3]" ]
+          true, "sumChecked", [ fake [ response 1 None; response 2 None ] []; "[1,2]" ] ]
 
     /// The calls, each `true` when both backends must succeed; a `false` call fails on both.
     let private cases =
@@ -360,14 +486,17 @@ module ZigBackendComparisonTests =
               for name, _, _ in listCases do true, name, [ value ]
           for n in [ "7"; "-2" ] do
               true, "okOr", [ n ]
-              true, "isOk", [ n ] ]
+              true, "isOk", [ n ]
+          yield! effectfulCases ]
 
     /// The calls made: successful cases that share a function and all but the last argument run as
     /// one call of `<name>Batch`, which maps the function over the last arguments, since every call
     /// starts a runner child; failing and single cases run alone.
     let private calls =
+        // `<name>Batch` is a pure listMap, which cannot call an effectful function.
+        let effectful = effectfulCases |> List.map (fun (_, name, _) -> name) |> set
         [ for (succeeds, name, leading), group in cases |> List.groupBy (fun (succeeds, name, arguments) -> succeeds, name, List.truncate (arguments.Length - 1) arguments) do
-            if succeeds && group.Length > 1 then
+            if succeeds && group.Length > 1 && not (effectful.Contains name) then
                 let lasts = group |> List.map (fun (_, _, arguments) -> List.last arguments)
                 true, name + "Batch", leading @ [ "[" + String.Join(",", lasts) + "]" ]
             else yield! group ]
