@@ -33,7 +33,7 @@ fn NyResult(comptime Ok: type, comptime Err: type) type {
 // Memory (docs/decisions/zig-backend-memory-ownership.md). Program values (String bytes, boxed
 // Products and Unions, List, Set and Map storage, Bytes) are reference counted: an 8-byte header
 // before the payload holds the count and the allocated length, so a prefix of a fresh allocation
-// frees exactly. A call consumes its arguments and returns an owned result; runtime helpers borrow
+// frees exactly; storage with spare room also records how many items it owns (`ny_spare`). A call consumes its arguments and returns an owned result; runtime helpers borrow
 // their arguments and return owned results. Values come from `ny_values` (a checked or freeing
 // allocator in the runner; the arena when null, as library mode resets it per call).
 // Task and hand-off cell handles are counted too (`ny_handle`): the record keeps its value until
@@ -57,17 +57,44 @@ fn nyRaw() std.mem.Allocator {
 }
 
 const NyHeader = extern struct { count: u32, cap: u32 };
+/// The top bit of `cap` marks storage with spare room whose last 4 bytes hold `used`, the number of
+/// items the storage owns; without it every allocated item is owned. A list sharing the storage may
+/// be shorter than `used`, and only one whose length is `used` may claim the next slot (`nyExtend`).
+const ny_spare: u32 = 1 << 31;
 const ny_static: u32 = std.math.maxInt(u32);
 
 fn nyHeader(ptr: anytype) *NyHeader {
     return @ptrFromInt(@intFromPtr(ptr) - @sizeOf(NyHeader));
 }
 
+fn nyCap(header: *const NyHeader) usize {
+    return header.cap & ~ny_spare;
+}
+
+fn nyUsedBytes(comptime T: type, ptr: [*]const T) *align(1) u32 {
+    return @ptrFromInt(@intFromPtr(ptr) + nyCap(nyHeader(ptr)) * @sizeOf(T) - 4);
+}
+
+fn nyUsed(comptime T: type, ptr: [*]const T) usize {
+    return if (nyHeader(ptr).cap & ny_spare == 0) nyCap(nyHeader(ptr)) else nyUsedBytes(T, ptr).*;
+}
+
+/// Records that the storage owns `used` items. Spare room under 4 bytes (only Strings and other
+/// uncounted items smaller than 4 bytes) counts as owned, so it is never claimed.
+fn nySetUsed(comptime T: type, ptr: [*]const T, used: usize) void {
+    comptime std.debug.assert(!nyCounted(T) or @sizeOf(T) >= 4);
+    const header = nyHeader(ptr);
+    header.cap &= ~ny_spare;
+    if ((header.cap - used) * @sizeOf(T) < 4) return;
+    header.cap |= ny_spare;
+    nyUsedBytes(T, ptr).* = @intCast(used);
+}
+
 /// Counted storage for `count` items with a count of one; no allocation for zero items.
 fn nyAlloc(comptime T: type, count: usize) []T {
     comptime std.debug.assert(@alignOf(T) <= 8);
     if (count == 0) return &.{};
-    if (count > std.math.maxInt(u32)) nyOom();
+    if (count > std.math.maxInt(u31)) nyOom();
     const bytes = (if (ny_static_values) nyAllocator() else nyRaw()).alignedAlloc(u8, .@"8", @sizeOf(NyHeader) + count * @sizeOf(T)) catch nyOom();
     const header: *NyHeader = @ptrCast(bytes.ptr);
     header.* = .{ .count = if (ny_static_values) ny_static else 1, .cap = @intCast(count) };
@@ -75,10 +102,17 @@ fn nyAlloc(comptime T: type, count: usize) []T {
     return items[0..count];
 }
 
+/// Counted storage for `count` items with room for `cap`, so a shared copy can grow in place.
+fn nyAllocCap(comptime T: type, count: usize, cap: usize) []T {
+    const items = nyAlloc(T, cap);
+    if (cap > count) nySetUsed(T, items.ptr, count);
+    return items[0..count];
+}
+
 fn nyFree(comptime T: type, ptr: anytype) void {
     const header = nyHeader(ptr);
     const bytes: [*]align(8) u8 = @ptrCast(@alignCast(header));
-    nyRaw().free(bytes[0 .. @sizeOf(NyHeader) + @as(usize, header.cap) * @sizeOf(T)]);
+    nyRaw().free(bytes[0 .. @sizeOf(NyHeader) + nyCap(header) * @sizeOf(T)]);
 }
 
 fn nyBox(comptime T: type, value: T) *const T {
@@ -162,7 +196,7 @@ fn nyRelease(value: anytype) void {
             if (comptime nyHandle(T)) return value.drop();
             if (info.size != .slice) return nyReleaseBox(value);
             if (value.len == 0 or !nyDrop(value.ptr)) return;
-            if (comptime nyCounted(info.child)) for (value) |item| nyRelease(item);
+            if (comptime nyCounted(info.child)) for (value.ptr[0..nyUsed(info.child, value.ptr)]) |item| nyRelease(item);
             nyFree(info.child, value.ptr);
         },
         .optional => if (value) |item| nyRelease(item),
@@ -234,7 +268,10 @@ fn nyListMove(comptime T: type, items: []const T) []const T {
 
 /// A fresh allocation cut to its first `count` items (which it owns); freed when none remain.
 fn nyShrink(comptime T: type, items: []T, count: usize) []const T {
-    if (count > 0) return items[0..count];
+    if (count > 0) {
+        nySetUsed(T, items.ptr, count);
+        return items[0..count];
+    }
     if (items.len > 0) nyFree(T, items.ptr);
     return &.{};
 }
@@ -770,7 +807,8 @@ fn nyParallelAll(comptime T: type, comptime U: type, comptime E: type, items: []
     return .{ .ok = values };
 }
 
-// Lists are immutable slices. shortcut: every update copies (O(n)); a persistent vector, as the C#
+// Lists are immutable slices. Unique lists update in place and a shared list appends in place
+// (`nyExtend`). shortcut: other updates of a shared list copy (O(n)); a persistent vector, as the C#
 // backend uses, replaces this when a consumer needs the documented O(log n) updates.
 
 fn nyIndex(index: i64, length: usize) ?usize {
@@ -798,23 +836,38 @@ fn nyCopyItems(comptime T: type, into: []T, items: []const T) void {
 }
 
 /// Storage for an owned `list` plus `extra` trailing items the caller fills. A unique list (count
-/// one) is reused, grown by doubling when its spare capacity is short; a shared or static one is
-/// copied (its items retained) and the caller's reference dropped. So reuse is never observable.
+/// one) is reused, grown by doubling when its spare capacity is short. A shared list whose length is
+/// the storage's `used` claims its spare slots in place: every other list sharing the storage is no
+/// longer and never reads past its own length. Otherwise the list is copied (its items retained,
+/// with doubled room when extended) and the caller's reference dropped. So reuse is never observable.
 fn nyExtend(comptime T: type, list: []const T, extra: usize) []T {
     const len = list.len + extra;
     if (list.len > 0 and nyHeader(list.ptr).count == 1) {
         const header = nyHeader(list.ptr);
-        if (header.cap >= len) return @constCast(list.ptr)[0..len];
-        const cap = @min(@max(len, @as(usize, header.cap) * 2), std.math.maxInt(u32));
+        // Items a longer, now dead, list left past this one are owned by the storage alone.
+        if (comptime nyCounted(T)) for (list.ptr[list.len..nyUsed(T, list.ptr)]) |item| nyRelease(item);
+        if (nyCap(header) >= len) {
+            nySetUsed(T, list.ptr, len);
+            return @constCast(list.ptr)[0..len];
+        }
+        const cap = @min(@max(len, nyCap(header) * 2), std.math.maxInt(u31));
         if (len > cap) nyOom();
         const old: [*]align(8) u8 = @ptrCast(@alignCast(header));
-        const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + @as(usize, header.cap) * @sizeOf(T)], @sizeOf(NyHeader) + cap * @sizeOf(T)) catch nyOom();
+        const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + nyCap(header) * @sizeOf(T)], @sizeOf(NyHeader) + cap * @sizeOf(T)) catch nyOom();
         const moved: *NyHeader = @ptrCast(bytes.ptr);
         moved.cap = @intCast(cap);
         const items: [*]T = @ptrCast(@alignCast(bytes.ptr + @sizeOf(NyHeader)));
+        nySetUsed(T, items, len);
         return items[0..len];
     }
-    const items = nyAlloc(T, len);
+    if (list.len > 0 and extra > 0) {
+        const header = nyHeader(list.ptr);
+        if (header.count != ny_static and nyUsed(T, list.ptr) == list.len and nyCap(header) >= len) {
+            nySetUsed(T, list.ptr, len);
+            return @constCast(list.ptr)[0..len];
+        }
+    }
+    const items = nyAllocCap(T, len, if (extra > 0 and list.len > 0) @max(len, list.len * 2) else len);
     nyCopyItems(T, items[0..list.len], list);
     nyRelease(list);
     return items;
@@ -850,10 +903,13 @@ fn nyListSliceOwned(comptime T: type, list: []const T, start: i64, end: i64) []c
     const to = @max(from, nyClamp(end, list.len));
     if (from == 0 and to == list.len) return list;
     if (list.len == 0 or nyHeader(list.ptr).count != 1) {
+        // A shared prefix keeping at least half the storage's items shares it; the reference moves.
+        if (from == 0 and to > 0 and to * 2 >= nyUsed(T, list.ptr)) return list[0..to];
         defer nyRelease(list);
         return nyListSlice(T, list, start, end);
     }
-    const items = @constCast(list);
+    const header = nyHeader(list.ptr);
+    const items = @constCast(list.ptr)[0..nyUsed(T, list.ptr)];
     for (items[0..from]) |item| nyRelease(item);
     for (items[to..]) |item| nyRelease(item);
     if (to == from) {
@@ -862,11 +918,13 @@ fn nyListSliceOwned(comptime T: type, list: []const T, start: i64, end: i64) []c
     }
     const kept = to - from;
     std.mem.copyForwards(T, items[0..kept], items[from..to]);
-    const header = nyHeader(list.ptr);
-    if (kept * 2 >= header.cap) return items[0..kept];
+    if (kept * 2 >= nyCap(header)) {
+        nySetUsed(T, list.ptr, kept);
+        return items[0..kept];
+    }
     // Storage more than twice the kept length shrinks to it, so a small slice never pins a large list.
     const old: [*]align(8) u8 = @ptrCast(@alignCast(header));
-    const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + @as(usize, header.cap) * @sizeOf(T)], @sizeOf(NyHeader) + kept * @sizeOf(T)) catch nyOom();
+    const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + nyCap(header) * @sizeOf(T)], @sizeOf(NyHeader) + kept * @sizeOf(T)) catch nyOom();
     const moved: *NyHeader = @ptrCast(bytes.ptr);
     moved.cap = @intCast(kept);
     const shrunk: [*]T = @ptrCast(@alignCast(bytes.ptr + @sizeOf(NyHeader)));
