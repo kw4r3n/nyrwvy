@@ -26,8 +26,14 @@ module ZigLoweringTests =
         let kinds = File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
         Assert.Equal<Set<string>>(kinds - handwritten, rows)
 
+/// The lowering comparison builds and reads a large corpus; it runs alone so it does not compete
+/// with the host parity tests for memory and CPU.
+[<CollectionDefinition("Zig lowering comparison", DisableParallelization = true)>]
+type ZigLoweringComparisonCollection() = class end
+
 /// Compares `model-reader --typed-ir` with `TypedSemanticIr.project` of `SnapshotCodec.readUnvalidated`
 /// (after `ExecutionCallGraph.forSnapshotEntry` for an entry), serialized by `TypedSemanticIrSerializer`.
+[<Collection("Zig lowering comparison")>]
 type ZigLoweringComparison(output: ITestOutputHelper) =
     let project (snapshot: Snapshot) (entry: FunctionId option) =
         let selected = match entry with Some id -> ExecutionCallGraph.forSnapshotEntry snapshot id | None -> snapshot
