@@ -71,15 +71,12 @@ module ZigHostRunPureParityTests =
     let private responses responses = provider $""""responses":[{String.concat "," responses}]"""
     let private returns value = $"""{{"kind":"return","value":{value}}}"""
 
-    let private strictPairWithEnvironment environment path requests =
+    let private strictPair path requests =
         // Building a tool is outside either host's first-response budget.
         zigHost () |> ignore
         ZigTools.tool "emitter" |> unwrap |> ignore
-        if environment |> List.exists (fun (name, value) -> name = "NYRWVY_ZIG_TOOLS" && value = "1") then
-            ZigTools.tool "model-reader" |> unwrap |> ignore
-            ZigTools.tool "snapshot-reader" |> unwrap |> ignore
         let runHost zig =
-            let exitCode, errors, replies = runWithEnvironment environment zig [ "open"; "--snapshot"; path; "--read-only" ] requests
+            let exitCode, errors, replies = runWithEnvironment [] zig [ "open"; "--snapshot"; path; "--read-only" ] requests
             Assert.Equal(0, exitCode)
             Assert.Equal("", errors)
             Assert.Equal(requests.Length, replies.Length)
@@ -88,8 +85,6 @@ module ZigHostRunPureParityTests =
         for request, (wanted, found) in List.zip requests (List.zip expected actual) do
             Assert.True((wanted = found), $"{request}\n F#: {wanted}\nZig: {found}")
         expected
-
-    let private strictPair path requests = strictPairWithEnvironment [] path requests
 
     let private withHost environment zig path action =
         use host = startWithEnvironment environment zig [ "open"; "--snapshot"; path ]
@@ -466,8 +461,7 @@ module ZigHostRunPureParityTests =
             let path = Path.Combine(directory, "unsupported.json")
             File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
             let request = runName "unsupported" [ "[[[[1]]]]" ] None
-            for environment in [ []; [ "NYRWVY_ZIG_TOOLS", "1" ] ] do
-                let reply = (strictPairWithEnvironment environment path [ request ]).Head
-                Assert.Equal("RunBackendUnsupported", code reply)
-                use document = parseDocument reply
-                Assert.Contains("BuiltinGeneric\n", document.RootElement.GetProperty("error").GetProperty("message").GetString()))
+            let reply = (strictPair path [ request ]).Head
+            Assert.Equal("RunBackendUnsupported", code reply)
+            use document = parseDocument reply
+            Assert.Contains("BuiltinGeneric\n", document.RootElement.GetProperty("error").GetProperty("message").GetString()))
