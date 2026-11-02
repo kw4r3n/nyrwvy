@@ -171,9 +171,13 @@ fn nyRetain(value: anytype) void {
             value.refs += 1;
         } else if (info.size != .slice) nyIncrement(value) else if (value.len > 0) nyIncrement(value.ptr),
         .optional => if (value) |item| nyRetain(item),
-        .@"struct" => if (comptime @hasDecl(T, "ny_set")) nyRetain(value.items) else if (comptime @hasDecl(T, "ny_map")) {
+        .@"struct" => if (comptime @hasDecl(T, "ny_set")) {
+            nyRetain(value.items);
+            nyRetain(value.index);
+        } else if (comptime @hasDecl(T, "ny_map")) {
             nyRetain(value.keys);
             nyRetain(value.values);
+            nyRetain(value.index);
         } else nyRetain(value.data),
         .@"union" => switch (value) {
             inline else => |item| nyRetain(item),
@@ -200,9 +204,13 @@ fn nyRelease(value: anytype) void {
             nyFree(info.child, value.ptr);
         },
         .optional => if (value) |item| nyRelease(item),
-        .@"struct" => if (comptime @hasDecl(T, "ny_set")) nyRelease(value.items) else if (comptime @hasDecl(T, "ny_map")) {
+        .@"struct" => if (comptime @hasDecl(T, "ny_set")) {
+            nyRelease(value.items);
+            nyRelease(value.index);
+        } else if (comptime @hasDecl(T, "ny_map")) {
             nyRelease(value.keys);
             nyRelease(value.values);
+            nyRelease(value.index);
         } else nyRelease(value.data),
         .@"union" => switch (value) {
             inline else => |item| nyRelease(item),
@@ -1043,11 +1051,16 @@ fn nyFloat64ToInt64(integral: f64) ?i64 {
     return if (integral >= -9223372036854775808.0 and integral < 9223372036854775808.0) @intFromFloat(integral) else null;
 }
 
-// Sets and Maps are insertion-ordered immutable values. shortcut: lookups are linear and updates
-// copy; a hashed persistent structure replaces this when a consumer needs the documented O(log n).
+// Sets and Maps are insertion-ordered immutable values (decision D): the items (a Map's keys) in a
+// dense array plus, past `nyIndexMin` items, a hash index of their positions. The index is counted
+// storage of power-of-two slots, each 0 (empty) or a position + 1, at most half full (linear
+// probing), and covers exactly the items of the value holding it. It is updated in place only when
+// its count is one, and otherwise rebuilt, so a shared update is O(n). Empty means no index: lookups
+// scan, which is faster for a few items. Removal compacts and rebuilds (O(n)).
 fn NySet(comptime T: type) type {
     return struct {
         items: []const T,
+        index: []const u32 = &.{},
         pub const ny_set = true;
     };
 }
@@ -1056,7 +1069,17 @@ fn NyMap(comptime K: type, comptime V: type) type {
     return struct {
         keys: []const K,
         values: []const V,
+        index: []const u32 = &.{},
         pub const ny_map = true;
+    };
+}
+
+/// Sets and Maps of up to this many items have no index, as a scan is faster (measured in
+/// docs/verification/zig-reference-counting-e-20261102.md): 32 scalars, 8 of anything compared through memory.
+fn nyIndexMin(comptime T: type) usize {
+    return switch (@typeInfo(T)) {
+        .int, .bool, .float => 32,
+        else => 8,
     };
 }
 
@@ -1065,90 +1088,135 @@ fn nyFind(comptime T: type, items: []const T, item: T) ?usize {
     return null;
 }
 
-fn nySetInsert(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    if (nyFind(T, set.items, item) != null) return nyShare(set);
-    return .{ .items = nyListAppend(T, set.items, item) };
+/// The position of `item` in `items`, through `index` when there is one.
+fn nyLookup(comptime T: type, items: []const T, index: []const u32, item: T) ?usize {
+    return if (index.len == 0) nyFind(T, items, item) else nyProbe(T, items, index, item);
+}
+
+// Out of line, as is all index upkeep, so the scan of a small Set or Map stays inlined.
+noinline fn nyProbe(comptime T: type, items: []const T, index: []const u32, item: T) ?usize {
+    var at: usize = @truncate(nyHash(item));
+    while (true) : (at +%= 1) {
+        const slot = index[at & (index.len - 1)];
+        if (slot == 0) return null;
+        if (nyEqual(items[slot - 1], item)) return slot - 1;
+    }
+}
+
+fn nySlotPut(slots: []u32, hash: u64, position: usize) void {
+    var at: usize = @truncate(hash);
+    while (slots[at & (slots.len - 1)] != 0) at +%= 1;
+    slots[at & (slots.len - 1)] = @intCast(position + 1);
+}
+
+/// A fresh index of distinct `items`, none for `nyIndexMin(T)` items or fewer.
+noinline fn nyIndexBuild(comptime T: type, items: []const T) []const u32 {
+    if (items.len <= nyIndexMin(T)) return &.{};
+    const slots = nyAlloc(u32, std.math.ceilPowerOfTwoAssert(usize, items.len * 2 + 1));
+    @memset(slots, 0);
+    for (items, 0..) |item, position| nySlotPut(slots, nyHash(item), position);
+    return slots;
+}
+
+/// Consumes the index of `items` without its last item and returns the index of `items`.
+fn nyIndexAdd(comptime T: type, index: []const u32, items: []const T) []const u32 {
+    if (index.len == 0 and items.len <= nyIndexMin(T)) return index;
+    return nyIndexGrow(T, index, items);
+}
+
+noinline fn nyIndexGrow(comptime T: type, index: []const u32, items: []const T) []const u32 {
+    if (index.len == 0 or nyHeader(index.ptr).count != 1 or items.len * 2 > index.len) {
+        nyRelease(index);
+        return nyIndexBuild(T, items);
+    }
+    nySlotPut(@constCast(index), nyHash(items[items.len - 1]), items.len - 1);
+    return index;
+}
+
+fn nySetFind(comptime T: type, set: NySet(T), item: T) ?usize {
+    return nyLookup(T, set.items, set.index, item);
+}
+
+fn nyMapFind(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) ?usize {
+    return nyLookup(K, map.keys, map.index, key);
+}
+
+/// A set of owned, distinct items.
+fn nySetOf(comptime T: type, items: []const T) NySet(T) {
+    return .{ .items = items, .index = nyIndexBuild(T, items) };
 }
 
 /// Inserts into a set this call owns (reused when unique), borrowing the item.
-fn nySetInsertInto(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    if (nyFind(T, set.items, item) != null) return set;
-    return .{ .items = nyListAppendOwned(T, set.items, item) };
+inline fn nySetInsertInto(comptime T: type, set: NySet(T), item: T) NySet(T) {
+    if (nySetFind(T, set, item) != null) return set;
+    const items = nyListAppendOwned(T, set.items, item);
+    return .{ .items = items, .index = nyIndexAdd(T, set.index, items) };
 }
 
 /// Inserts into a set this call owns, consuming both the set and the item.
-fn nySetInsertOwned(comptime T: type, set: NySet(T), item: T) NySet(T) {
+inline fn nySetInsertOwned(comptime T: type, set: NySet(T), item: T) NySet(T) {
     defer nyRelease(item);
     return nySetInsertInto(T, set, item);
 }
 
 fn nySetRemove(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    const at = nyFind(T, set.items, item) orelse return nyShare(set);
-    return .{ .items = nyListRemoveAt(T, set.items, @intCast(at)) };
+    const at = nySetFind(T, set, item) orelse return nyShare(set);
+    return nySetOf(T, nyListRemoveAt(T, set.items, @intCast(at)));
 }
 
 /// The distinct items in first-seen order.
-fn nyDistinct(comptime T: type, first: []const T, second: []const T) []const T {
-    var kept: std.ArrayList(T) = .empty;
-    for ([_][]const T{ first, second }) |items| for (items) |item| {
-        if (nyFind(T, kept.items, item) == null) kept.append(nyRaw(), item) catch nyOom();
-    };
-    for (kept.items) |item| nyRetain(item);
-    return nyAdoptList(T, &kept);
-}
-
 fn nySetFromList(comptime T: type, items: []const T) NySet(T) {
-    return .{ .items = nyDistinct(T, items, &.{}) };
+    var set: NySet(T) = .{ .items = &.{} };
+    for (items) |item| set = nySetInsertInto(T, set, item);
+    return set;
 }
 
 fn nySetUnion(comptime T: type, left: NySet(T), right: NySet(T)) NySet(T) {
-    if (right.items.len == 0) return nyShare(left);
-    return .{ .items = nyDistinct(T, left.items, right.items) };
+    var set = nyShare(left);
+    for (right.items) |item| set = nySetInsertInto(T, set, item);
+    return set;
 }
 
 fn nySetKeep(comptime T: type, left: NySet(T), right: NySet(T), present: bool) NySet(T) {
     const out = nyAlloc(T, left.items.len);
     var count: usize = 0;
     for (left.items) |item| {
-        if ((nyFind(T, right.items, item) != null) == present) {
+        if ((nySetFind(T, right, item) != null) == present) {
             out[count] = nyShare(item);
             count += 1;
         }
     }
-    return .{ .items = nyShrink(T, out, count) };
+    return nySetOf(T, nyShrink(T, out, count));
 }
 
 fn nySetIsSubset(comptime T: type, left: NySet(T), right: NySet(T)) bool {
     if (left.items.len > right.items.len) return false;
-    for (left.items) |item| if (nyFind(T, right.items, item) == null) return false;
+    for (left.items) |item| if (nySetFind(T, right, item) == null) return false;
     return true;
 }
 
-fn nyMapInsert(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
-    if (nyFind(K, map.keys, key)) |at| return .{ .keys = nyShare(map.keys), .values = nyListSetAt(V, map.values, @intCast(at), value) };
-    return .{ .keys = nyListAppend(K, map.keys, key), .values = nyListAppend(V, map.values, value) };
-}
-
 /// Inserts into a map this call owns (keys and values each reused when unique), borrowing the key and value.
-fn nyMapInsertInto(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
-    if (nyFind(K, map.keys, key)) |at| return .{ .keys = map.keys, .values = nyListSetAtOwned(V, map.values, @intCast(at), value) };
-    return .{ .keys = nyListAppendOwned(K, map.keys, key), .values = nyListAppendOwned(V, map.values, value) };
+inline fn nyMapInsertInto(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
+    if (nyMapFind(K, V, map, key)) |at| return .{ .keys = map.keys, .index = map.index, .values = nyListSetAtOwned(V, map.values, @intCast(at), value) };
+    const keys = nyListAppendOwned(K, map.keys, key);
+    return .{ .keys = keys, .index = nyIndexAdd(K, map.index, keys), .values = nyListAppendOwned(V, map.values, value) };
 }
 
 /// Inserts into a map this call owns, consuming the map, the key and the value.
-fn nyMapInsertOwned(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
+inline fn nyMapInsertOwned(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
     defer nyRelease(key);
     defer nyRelease(value);
     return nyMapInsertInto(K, V, map, key, value);
 }
 
 fn nyMapRemove(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) NyMap(K, V) {
-    const at: i64 = @intCast(nyFind(K, map.keys, key) orelse return nyShare(map));
-    return .{ .keys = nyListRemoveAt(K, map.keys, at), .values = nyListRemoveAt(V, map.values, at) };
+    const at: i64 = @intCast(nyMapFind(K, V, map, key) orelse return nyShare(map));
+    const keys = nyListRemoveAt(K, map.keys, at);
+    return .{ .keys = keys, .index = nyIndexBuild(K, keys), .values = nyListRemoveAt(V, map.values, at) };
 }
 
 fn nyMapGet(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) ?V {
-    return if (nyFind(K, map.keys, key)) |at| nyShare(map.values[at]) else null;
+    return if (nyMapFind(K, V, map, key)) |at| nyShare(map.values[at]) else null;
 }
 
 fn nyMapUnion(comptime K: type, comptime V: type, left: NyMap(K, V), right: NyMap(K, V)) NyMap(K, V) {
@@ -1577,13 +1645,13 @@ fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
             // Sets and Maps compare by content regardless of insertion order.
             if (comptime @hasDecl(T, "ny_set")) {
                 if (left.items.len != right.items.len) return false;
-                for (left.items) |item| if (nyFind(@TypeOf(item), right.items, item) == null) return false;
+                for (left.items) |item| if (nySetFind(@TypeOf(item), right, item) == null) return false;
                 return true;
             }
             if (comptime @hasDecl(T, "ny_map")) {
                 if (left.keys.len != right.keys.len) return false;
                 for (left.keys, left.values) |key, value| {
-                    const at = nyFind(@TypeOf(key), right.keys, key) orelse return false;
+                    const at = nyMapFind(@TypeOf(key), @TypeOf(value), right, key) orelse return false;
                     if (!nyEqual(value, right.values[at])) return false;
                 }
                 return true;
@@ -1603,4 +1671,59 @@ fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
         },
         else => @compileError("nyEqual does not support " ++ @typeName(T)),
     }
+}
+
+/// A structural hash consistent with `nyEqual`: equal values hash equally. Floats hash as equality
+/// compares them (every NaN alike, 0.0 as -0.0), and Sets and Maps independently of insertion order.
+fn nyHash(value: anytype) u64 {
+    const T = @TypeOf(value);
+    switch (@typeInfo(T)) {
+        .int => return nyMix(@truncate(@as(u128, @bitCast(@as(i128, value))))),
+        .bool => return if (value) 0x2545f4914f6cdd1d else 0x9e3779b97f4a7c15,
+        .float => return nyMix(if (std.math.isNan(value)) 0x7ff8000000000000 else if (value == 0) 0 else @as(u64, @bitCast(@as(f64, value)))),
+        .optional => return if (value) |item| nyCombine(1, nyHash(item)) else 0x6a09e667f3bcc909,
+        .pointer => |pointer| {
+            if (pointer.size == .slice and pointer.child == u8) return std.hash.Wyhash.hash(0, value);
+            if (pointer.size == .slice) {
+                var hash = nyMix(value.len);
+                for (value) |item| hash = nyCombine(hash, nyHash(item));
+                return hash;
+            }
+            return nyHash(value.*);
+        },
+        .@"struct" => |info| {
+            if (comptime @hasDecl(T, "ny_bytes")) return std.hash.Wyhash.hash(0, value.data);
+            if (comptime @hasDecl(T, "ny_set")) {
+                var hash = nyMix(value.items.len);
+                for (value.items) |item| hash +%= nyHash(item);
+                return hash;
+            }
+            if (comptime @hasDecl(T, "ny_map")) {
+                var hash = nyMix(value.keys.len);
+                for (value.keys, value.values) |key, item| hash +%= nyCombine(nyHash(key), nyHash(item));
+                return hash;
+            }
+            var hash: u64 = 0xbb67ae8584caa73b;
+            inline for (info.field_names) |name| hash = nyCombine(hash, nyHash(@field(value, name)));
+            return hash;
+        },
+        .@"union" => return switch (value) {
+            inline else => |item, tag| nyCombine(@intFromEnum(tag), nyHash(item)),
+        },
+        else => @compileError("nyHash does not support " ++ @typeName(T)),
+    }
+}
+
+/// MurmurHash3's 64-bit finaliser: every input bit reaches the low bits the index masks.
+fn nyMix(input: u64) u64 {
+    var hash = input;
+    hash ^= hash >> 33;
+    hash *%= 0xff51afd7ed558ccd;
+    hash ^= hash >> 33;
+    hash *%= 0xc4ceb9fe1a85ec53;
+    return hash ^ (hash >> 33);
+}
+
+fn nyCombine(seed: u64, hash: u64) u64 {
+    return nyMix(seed *% 0x9e3779b97f4a7c15 +% hash);
 }

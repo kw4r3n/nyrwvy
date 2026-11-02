@@ -366,3 +366,131 @@ test "a shared list grows in place past its own length and copies otherwise" {
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+const Weighed = struct { name: []const u8, weight: f64, tags: []const i64, extra: ?i64 };
+
+fn weighed(i: usize, weight: f64) *const Weighed {
+    return nyBox(Weighed, .{ .name = nyInt64ToString(@intCast(i)), .weight = weight, .tags = nyListOf(i64, &.{ @intCast(i), 7 }), .extra = if (i % 2 == 0) null else @intCast(i) });
+}
+
+fn expectSetOf(set: NySet(i64), expected: []const i64) !void {
+    try std.testing.expectEqualSlices(i64, expected, set.items);
+    for (expected) |item| try std.testing.expectEqual(item, set.items[nySetFind(i64, set, item).?]);
+}
+
+test "sets and maps look up through a hash index that agrees with equality" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        // Values equal under nyEqual hash equally: -0.0 and 0.0, every NaN, separately built
+        // Strings, and Sets and Maps whatever their insertion order.
+        try std.testing.expectEqual(nyHash(@as(f64, 0.0)), nyHash(@as(f64, -0.0)));
+        try std.testing.expectEqual(nyHash(std.math.nan(f64)), nyHash(@as(f64, @bitCast(@as(u64, 0xfff0000000000001)))));
+        const text = nyInt64ToString(42);
+        const built = nyConcat(nyStatic("4"), nyStatic("2"));
+        try std.testing.expectEqual(nyHash(text), nyHash(built));
+        nyRelease(text);
+        nyRelease(built);
+        var up = NySet(i64){ .items = &.{} };
+        var down = NySet(i64){ .items = &.{} };
+        var up_map = NyMap(i64, i64){ .keys = &.{}, .values = &.{} };
+        var down_map = NyMap(i64, i64){ .keys = &.{}, .values = &.{} };
+        for (0..20) |i| {
+            up = nySetInsertInto(i64, up, @intCast(i));
+            down = nySetInsertInto(i64, down, @intCast(19 - i));
+            up_map = nyMapInsertInto(i64, i64, up_map, @intCast(i), @intCast(i * 3));
+            down_map = nyMapInsertInto(i64, i64, down_map, @intCast(19 - i), @intCast((19 - i) * 3));
+        }
+        try std.testing.expect(nyEqual(up, down) and nyHash(up) == nyHash(down));
+        try std.testing.expect(nyEqual(up_map, down_map) and nyHash(up_map) == nyHash(down_map));
+        try std.testing.expect(nyHash(NyResult(i64, i64){ .ok = 1 }) != nyHash(NyResult(i64, i64){ .err = 1 }));
+        // Insertion order is kept, so Sets equal by content still iterate differently.
+        try std.testing.expectEqual(@as(i64, 19), down.items[0]);
+        nyRelease(down);
+        nyRelease(down_map);
+        // Up to nyIndexMin items scan; one more builds the index, at most half full as it grows.
+        var set = NySet(i64){ .items = &.{} };
+        for (0..nyIndexMin(i64)) |i| set = nySetInsertInto(i64, set, @intCast(i));
+        try std.testing.expectEqual(@as(usize, 0), set.index.len);
+        for (nyIndexMin(i64)..1000) |i| {
+            set = nySetInsertInto(i64, set, @intCast(i));
+            try std.testing.expect(set.index.len >= 2 * set.items.len);
+        }
+        // A Set of records found through the index by equal, separately built records.
+        var records = NySet(*const Weighed){ .items = &.{} };
+        for (0..40) |i| records = nySetInsertOwned(*const Weighed, records, weighed(i, if (i % 3 == 0) std.math.nan(f64) else 0.0));
+        try std.testing.expect(records.index.len > 0);
+        for (0..40) |i| {
+            const probe = weighed(i, if (i % 3 == 0) -std.math.nan(f64) else -0.0);
+            try std.testing.expectEqual(@as(?usize, i), nySetFind(*const Weighed, records, probe));
+            nyRelease(probe);
+        }
+        const absent = weighed(40, 0.0);
+        try std.testing.expectEqual(@as(?usize, null), nySetFind(*const Weighed, records, absent));
+        nyRelease(absent);
+        nyRelease(records);
+        // A unique set updates its index in place; a shared one keeps its own and the update copies.
+        const index_before = set.index.ptr;
+        set = nySetInsertInto(i64, set, 999);
+        set = nySetInsertInto(i64, set, 1000);
+        try std.testing.expectEqual(index_before, set.index.ptr);
+        const old = nyShare(set);
+        set = nySetInsertInto(i64, set, 1001);
+        try std.testing.expect(set.index.ptr != old.index.ptr);
+        try std.testing.expectEqual(@as(?usize, null), nySetFind(i64, old, 1001));
+        try std.testing.expectEqual(@as(?usize, 1001), nySetFind(i64, set, 1001));
+        for (0..1001) |i| try std.testing.expectEqual(@as(?usize, i), nySetFind(i64, old, @intCast(i)));
+        nyRelease(old);
+        // Removal compacts the items and rebuilds the index over the new positions.
+        const removed = nySetRemove(i64, set, 3);
+        try std.testing.expectEqual(@as(?usize, null), nySetFind(i64, removed, 3));
+        for (4..1002) |i| try std.testing.expectEqual(@as(?usize, i - 1), nySetFind(i64, removed, @intCast(i)));
+        try std.testing.expectEqual(@as(?usize, 3), nySetFind(i64, set, 3));
+        // Union, intersection, difference, subset and equality use the index of their right set.
+        const evens = nySetFromList(i64, &.{ 10, 2, 2, 4, 6, 8, 12, 14, 16, 18, 20, 2000 });
+        try expectSetOf(evens, &.{ 10, 2, 4, 6, 8, 12, 14, 16, 18, 20, 2000 });
+        const both = nySetKeep(i64, evens, removed, true);
+        try expectSetOf(both, &.{ 10, 2, 4, 6, 8, 12, 14, 16, 18, 20 });
+        const rest = nySetKeep(i64, removed, evens, false);
+        try std.testing.expect(rest.index.len > 0 and nySetFind(i64, rest, 10) == null);
+        try std.testing.expectEqual(@as(?usize, rest.items.len - 1), nySetFind(i64, rest, 1001));
+        nyRelease(rest);
+        const only = nySetKeep(i64, evens, removed, false);
+        try expectSetOf(only, &.{2000});
+        try std.testing.expect(nySetIsSubset(i64, both, removed) and !nySetIsSubset(i64, evens, removed));
+        const joined = nySetUnion(i64, removed, evens);
+        try std.testing.expectEqual(@as(i64, 2000), joined.items[joined.items.len - 1]);
+        try std.testing.expectEqual(removed.items.len + 1, joined.items.len);
+        const unjoined = nySetRemove(i64, joined, 2000);
+        try std.testing.expect(!nyEqual(joined, removed) and nyEqual(unjoined, removed));
+        nyRelease(unjoined);
+        for ([_]NySet(i64){ evens, both, only, joined, removed, set, up }) |each| nyRelease(each);
+        // 20,000 String keys: every get and the insertion order, a replaced value keeps its key's
+        // place and a removed key inserted again goes last.
+        var map = NyMap([]const u8, i64){ .keys = &.{}, .values = &.{} };
+        for (0..20_000) |i| map = nyMapInsertOwned([]const u8, i64, map, nyInt64ToString(@intCast(i)), @intCast(i));
+        const key = nyInt64ToString(5);
+        map = nyMapInsertInto([]const u8, i64, map, key, -5);
+        try std.testing.expectEqualStrings("5", map.keys[5]);
+        const without = nyMapRemove([]const u8, i64, map, key);
+        nyRelease(map);
+        map = nyMapInsertInto([]const u8, i64, without, key, 5);
+        nyRelease(key);
+        try std.testing.expectEqualStrings("5", map.keys[map.keys.len - 1]);
+        for (0..20_000) |i| {
+            const probe = nyInt64ToString(@intCast(i));
+            try std.testing.expectEqual(@as(?i64, @intCast(i)), nyMapGet([]const u8, i64, map, probe));
+            nyRelease(probe);
+        }
+        // MapMapValues shares the keys and their index (main.zig `mapMapValues`).
+        const values = nyAlloc(i64, map.keys.len);
+        for (values, map.values) |*out, value| out.* = value * 2;
+        const doubled = NyMap([]const u8, i64){ .keys = nyShare(map.keys), .index = nyShare(map.index), .values = values };
+        nyRelease(map);
+        try std.testing.expectEqual(@as(?i64, 14), nyMapGet([]const u8, i64, doubled, nyStatic("7")));
+        try std.testing.expect(nyMapFind([]const u8, i64, doubled, nyStatic("20000")) == null);
+        nyRelease(doubled);
+        nyRelease(up_map);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
