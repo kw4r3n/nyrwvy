@@ -64,3 +64,25 @@ module ZigHostCreateValidationParityTests =
                 Assert.Equal(1, (result actual[5]).GetProperty("pendingProposalCount").GetInt32())
                 Assert.Equal(1, (result actual[6]).GetProperty("count").GetInt32())
                 Assert.Equal(0, (result actual[7]).GetProperty("functions").GetArrayLength()))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig host refuses a simulate once 64 proposals are pending until one is rejected`` () =
+        withDirectory (fun dir ->
+            let path = Path.Combine(dir, "empty.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty (StableId.createForTesting<SnapshotTag> "pending-limit-base")) |> unwrap)
+            let create index = $"""{{"id":"c{index}","op":"simulateCreateFunctionByName","displayName":"f{index}","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"requiredEffects":[],"body":{{"kind":"unitLiteral"}}}}"""
+            let creates = [ for index in 1..65 -> create index ]
+            let proposalId (reply: string) =
+                use document = parseDocument reply
+                document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            // Seeded IDs repeat across sessions, so the second session can name the first session's proposal.
+            let session requests = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "pending-limit" ] true [ "open"; "--snapshot"; path ] requests
+            let code, errors, replies = session creates
+            Assert.True((code = 0), errors)
+            for reply in List.take 64 replies do Assert.Contains("\"ok\":true", reply)
+            use refused = parseDocument replies[64]
+            Assert.Equal("SessionError", refused.RootElement.GetProperty("error").GetProperty("code").GetString())
+            let rejectFirst = $"""{{"id":"r","op":"reject","proposalId":"{proposalId replies[0]}"}}"""
+            let _, _, after = session (List.take 64 creates @ [ rejectFirst; create 65 ])
+            Assert.Contains("\"ok\":true", after[64])
+            Assert.Contains("\"ok\":true", after[65]))
