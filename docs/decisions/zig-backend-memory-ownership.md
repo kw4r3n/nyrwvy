@@ -1,7 +1,7 @@
 # Memory ownership in the Zig backend
 
 - **Status:** Accepted (owner decisions A–D, 2026-11-01)
-- **Progress:** First milestone, Nyrwvy half landed: library mode (see [Library mode as built](#library-mode-as-built)). Remaining for the milestone, on the Rhifill side: the extra `layoutFrame` saved cases (acceptance 1), the C# P/Invoke wiring behind a switch (2) and the p50/p99 and one-hour RSS bench (3).
+- **Progress:** First milestone, Nyrwvy half landed: library mode (see [Library mode as built](#library-mode-as-built)). Remaining for the milestone, on the Rhifill side: the extra `layoutFrame` saved cases (acceptance 1), the C# P/Invoke wiring behind a switch (2) and the p50/p99 and one-hour RSS bench (3). Second milestone, stage (a) of reference counting landed 2026-11-02: counted values, Perceus retain and release in emitted code and a checked runner allocator ([verification](../verification/zig-reference-counting-a-20261102.md)). Its header holds the allocated length beside the `u32` count (8 bytes, so a prefix of a fresh allocation frees exactly). Remaining stages: (b) `errdefer` on effectful `try` and task ownership (until then the leak check skips runs that catch a failure or keep a counted value in a task or cell), (c) count-of-one reuse, (d) the persistent List, (e) the Set and Map hash index.
 - **Date:** 2026-11-01
 - **Plan:** [backend-neutral semantics and generated library bindings](../plans/multi-backend-and-bindings.md#backend-notes), Backend notes (Zig) and Order step 5
 
