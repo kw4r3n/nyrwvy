@@ -299,7 +299,7 @@ fn nyConcat(left: []const u8, right: []const u8) []const u8 {
 // Concurrency follows the C# runtime under its deterministic virtual clock: one thread runs at a time;
 // when it blocks or finishes, the next resumes: an elapsed delay by (deadline, start order), else a
 // thread that can continue (new, ready, or timed out) by start order, else time jumps to the earliest
-// deadline. With nothing able to resume, every waiter fails as the C# clock's waiters do.
+// deadline. With nothing able to resume, every waiter fails as the C# clock's waiters do, one at a time.
 var ny_io: std.Io = undefined;
 var ny_gate: std.Io.Mutex = .init;
 var ny_turn: std.Io.Condition = .init;
@@ -354,9 +354,17 @@ fn nyHasDue(waiter: *NyWaiter) bool {
     return waiter.due != null;
 }
 
+fn nyFirstFailed() ?*NyWaiter {
+    var first: ?*NyWaiter = null;
+    for (ny_waiters.items) |waiter| {
+        if (waiter.failed and (first == null or waiter.order < first.?.order)) first = waiter;
+    }
+    return first;
+}
+
 fn nySchedule() void {
     if (ny_running > 0 or ny_waiters.items.len == 0) return;
-    var next = nyEarliest(nyElapsedDelay);
+    var next = nyFirstFailed() orelse nyEarliest(nyElapsedDelay);
     if (next == null) {
         for (ny_waiters.items) |waiter| {
             if ((waiter.ready(waiter.context) or (waiter.due != null and waiter.due.? <= ny_now)) and (next == null or waiter.order < next.?.order)) next = waiter;
@@ -365,17 +373,11 @@ fn nySchedule() void {
     if (next == null) {
         next = nyEarliest(nyHasDue);
         if (next == null) {
-            // Nothing can ever resume: fail every waiter instead of hanging.
-            for (ny_waiters.items) |waiter| {
-                waiter.failed = true;
-                waiter.released = true;
-                ny_running += 1;
-            }
-            ny_waiters.clearRetainingCapacity();
-            ny_turn.broadcast(ny_io);
-            return;
-        }
-        ny_now = next.?.due.?;
+            // Nothing can ever resume: every waiter fails, released one at a time by start order so
+            // their unwinding releases never run on two threads at once (decision A's plain counts).
+            for (ny_waiters.items) |waiter| waiter.failed = true;
+            next = nyFirstFailed();
+        } else ny_now = next.?.due.?;
     }
     for (ny_waiters.items, 0..) |waiter, index| {
         if (waiter == next.?) {

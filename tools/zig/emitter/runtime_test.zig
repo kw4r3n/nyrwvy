@@ -134,3 +134,44 @@ test "failures, tasks and hand-off cells release their values" {
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+/// A task that holds a value while it waits on a cell nobody completes; its unwinding records
+/// whether another thread was unwinding at the same time.
+var stuck_unwinding = std.atomic.Value(u32).init(0);
+var stuck_overlapped = std.atomic.Value(bool).init(false);
+const Stuck = struct {
+    fn call(c: anytype) NyError![]const u8 {
+        const held = nyInt64ToString(9);
+        errdefer {
+            if (stuck_unwinding.fetchAdd(1, .seq_cst) != 0) stuck_overlapped.store(true, .seq_cst);
+            for (0..2_000_000) |_| std.atomic.spinLoopHint();
+            _ = stuck_unwinding.fetchSub(1, .seq_cst);
+            nyRelease(held);
+        }
+        _ = try nyOneShotWait([]const u8, c.cell, null);
+        return held;
+    }
+    fn drop(_: anytype) void {}
+};
+const StuckJob = NyJob(struct { cell: *NyOneShot([]const u8) }, NyError![]const u8, Stuck);
+
+test "a deadlock fails every waiter and each unwinds alone" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    ny_io = std.testing.io;
+    {
+        const scope = nyScopeOpen();
+        const cell = nyOneShotCreate([]const u8, scope);
+        const first = nyStartTask([]const u8, scope, StuckJob{ .c = .{ .cell = cell } });
+        const second = nyStartTask([]const u8, scope, StuckJob{ .c = .{ .cell = cell } });
+        try std.testing.expectError(error.NyFailure, nyTaskWait([]const u8, &.{ first, second }, true, null));
+        // The close waits for both tasks, which the clock releases one at a time.
+        nyScopeClose(scope, false) catch {};
+        try std.testing.expect(first.base.failed and second.base.failed);
+        try std.testing.expect(!stuck_overlapped.load(.seq_cst));
+        nyRelease(first);
+        nyRelease(second);
+        nyRelease(cell);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
