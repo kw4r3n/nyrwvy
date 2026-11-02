@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,readFile,cp,rm} from 'node:fs/promises'
+import {mkdtemp,readFile,readdir,writeFile,cp,rm} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {execFileSync} from 'node:child_process'
@@ -22,5 +22,11 @@ test('worker-local cancellation adapter settles Result; wait-only catch retains 
   run('test-runtime',moved)
   assert.deepEqual(await json(join(moved,'runtime-evidence.json')),real)
   for(const name of ['task-outcomes.nyrec','Generated.cs','symbols.json','Runtime.dll'])assert.deepEqual(await readFile(join(bundle,name)),await readFile(join(moved,name)))
+  // The same saved cases replay on the Zig backend once the sidecar names it.
+  for(const name of (await readdir(moved)).filter(n=>n.endsWith('.backends.json')))await writeFile(join(moved,name),'{"targets": ["zig"]}\n')
+  run('run','--replay',moved)
+  // Failure frames name generated symbols and differ by backend (backend-targets-and-parity.md).
+  const noFrames=v=>JSON.parse(JSON.stringify(v,(k,x)=>k==='frames'?undefined:x))
+  assert.deepEqual(noFrames(await json(join(moved,'replay-evidence.json'))),noFrames(first))
  }finally{await rm(root,{recursive:true,force:true})}
 })

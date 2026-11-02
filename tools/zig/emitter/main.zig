@@ -1344,7 +1344,8 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const handler_call = b.callback("handlerFunctionId", "handlerContext", &.{role("failure", &exception_type)}, b.result);
             break :blk cat(&.{ body_call, " catch blk: { const failure = ny_failure; break :blk ", attempt(str(b.o, "handlerFunctionId"), handler_call), "; }" });
         },
-        .exceptionRethrow => cat(&.{ "try nyRethrow(", zig(parseType(b.o.get("resultType").?)), ", ", b.f("valueId"), ")" }),
+        // The instruction's own types are the generic declaration's; the result type is the instance's.
+        .exceptionRethrow => cat(&.{ "try nyRethrow(", zig(b.result), ", ", b.f("valueId"), ")" }),
         .exceptionMessage => cat(&.{ "nyListMove(u8, ", b.f("valueId"), ".message)" }),
         .exceptionIsCancellation => cat(&.{ b.f("valueId"), ".cancelled" }),
         // Release runs once acquisition succeeded: on Ok and Err exits, and before a failure of the
@@ -1416,7 +1417,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             break :blk cat(&.{ "try nyTaskWait(", zig(work), ", ", b.f("tasksValueId"), ", ", all, ", ", limit, ")" });
         },
         .taskCancel => labeled(cat(&.{ b.f("taskValueId"), ".base.cancel.cancel(); break :blk NyUnit{};" })),
-        .oneShotCreate => cat(&.{ "nyOneShotCreate(", zig(parseType(b.o.get("valueType").?)), ", ", b.f("scopeValueId"), ")" }),
+        .oneShotCreate => cat(&.{ "nyOneShotCreate(", zig(argumentOf(b.result, 0)), ", ", b.f("scopeValueId"), ")" }),
         .oneShotComplete => cat(&.{ "nyOneShotComplete(", zig(argumentOf(b.typeAt("cellValueId"), 0)), ", ", b.f("cellValueId"), ", ", b.f("valueValueId"), ")" }),
         .oneShotWait => blk: {
             const limit = if (b.o.get("limitValueId")) |id| v(id.string) else "null";
@@ -2043,20 +2044,47 @@ fn fakeCapabilities() ?[]const u8 {
 }
 
 /// Function values, exceptions and task handles are not run values, so an entry taking or
-/// returning one is not dispatched.
+/// returning one is not dispatched. A named type mentions one when any of its fields does.
 fn mentionsFunction(t: *const Type) bool {
+    var seen: List([]const u8) = .empty;
+    return mentionsFunctionIn(t, &seen);
+}
+
+fn mentionsFunctionIn(t: *const Type, seen: *List([]const u8)) bool {
     return switch (t.*) {
         .function => true,
         .builtin => |builtin| for ([_][]const u8{ "task", "oneShot", "taskScope", "exception" }) |kind| {
             if (eql(builtin.kind, kind)) break true;
         } else for (builtin.args) |arg| {
-            if (mentionsFunction(arg)) break true;
+            if (mentionsFunctionIn(arg, seen)) break true;
         } else false,
-        .named => |named| for (named.args) |arg| {
-            if (mentionsFunction(arg)) break true;
-        } else false,
+        .named => |named| {
+            for (named.args) |arg| if (mentionsFunctionIn(arg, seen)) return true;
+            // A recursive type is checked once.
+            for (seen.items) |id| if (eql(id, named.id)) return false;
+            push([]const u8, seen, named.id);
+            const declaration = declarations.get(named.id) orelse return false;
+            if (declaration.product) |fields| for (fields) |field| if (mentionsFunctionIn(field.type, seen)) return true;
+            for (declaration.variants) |variant| for (variant.fields) |field| if (mentionsFunctionIn(field.type, seen)) return true;
+            return false;
+        },
         else => false,
     };
+}
+
+test "runner dispatch skips records whose fields hold task handles, including recursive ones" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    declarations = .init(a);
+    const int = newType(.{ .primitive = "primitiveInt64" });
+    const handle = newType(.{ .builtin = .{ .kind = "oneShot", .args = try a.dupe(*const Type, &.{int}) } });
+    const node = newType(.{ .named = .{ .id = "Node", .args = &.{} } });
+    const holder = newType(.{ .named = .{ .id = "Holder", .args = &.{} } });
+    try declarations.put("Node", .{ .id = "Node", .type_parameters = &.{}, .product = try a.dupe(Field, &.{ .{ .id = "value", .type = int }, .{ .id = "next", .type = newType(.{ .builtin = .{ .kind = "option", .args = try a.dupe(*const Type, &.{node}) } }) } }), .variants = &.{} });
+    try declarations.put("Holder", .{ .id = "Holder", .type_parameters = &.{}, .product = null, .variants = try a.dupe(Variant, &.{.{ .id = "held", .fields = try a.dupe(Field, &.{ .{ .id = "list", .type = node }, .{ .id = "reply", .type = handle } }) }}) });
+    try std.testing.expect(!mentionsFunction(node));
+    try std.testing.expect(mentionsFunction(holder));
 }
 
 fn runnable(fn_: Function) bool {

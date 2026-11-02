@@ -1162,5 +1162,19 @@ comptime {
         _ = @import("ids.zig");
         _ = @import("run_csharp_build.zig");
         _ = @import("recipe_file.zig");
+        _ = @import("bind_c.zig");
+        _ = @import("change_verification.zig");
+        _ = @import("csharp_facade.zig");
+        _ = @import("csharp_mapping.zig");
+        _ = @import("declarations.zig");
+        _ = @import("managed_text.zig");
+        _ = @import("migration.zig");
+        _ = @import("operation_decode.zig");
+        _ = @import("process_lifetime.zig");
+        _ = @import("run_csharp_runner.zig");
+        _ = @import("run_process.zig");
+        _ = @import("startup.zig");
+        _ = @import("union_evolution.zig");
+        _ = @import("verification_identity.zig");
     }
 }

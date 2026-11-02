@@ -146,13 +146,9 @@ module internal ZigTools =
                     let below parts = Path.Combine(Array.ofList (directory.Value :: parts))
                     let sources = below [ "tools"; "zig"; name ]
                     let imported = match imports.TryGetValue name with | true, modules -> modules | _ -> []
-                    // Record the checkout at compile time, not when the cached executable is launched.
-                    let build =
-                        if name <> "host" then ""
-                        else
-                            match launch "git" "build identity" directory.Value [ "rev-parse"; "--verify"; "HEAD" ] 2000 with
-                            | Ok (0, output, _) when Text.RegularExpressions.Regex.IsMatch(output.Trim(), "^[0-9a-f]{40}$") -> "nyrwvy-zig-host+" + output.Trim()
-                            | _ -> "nyrwvy-zig-host"
+                    // No commit in the identity: the key is the sources alone, so a commit that leaves
+                    // them unchanged reuses the cached host.
+                    let build = "nyrwvy-zig-host"
                     let text =
                         sources :: (imported |> List.map (fun (_, parts, _) -> below parts))
                         |> List.map sourceText
@@ -169,7 +165,7 @@ module internal ZigTools =
                     let roots = if OperatingSystem.IsMacOS() then "-lc" :: moduleRoots else moduleRoots
                     // The build options are part of the key, so a build made with other options is not reused.
                     let options = String.Join(" ", roots |> List.map (fun arg -> if arg.EndsWith ".zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
-                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options + "\u0000" + build)).Substring(0, 32))
+                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options)).Substring(0, 32))
                     let built = Path.Combine(target, name + (if OperatingSystem.IsWindows() then ".exe" else ""))
                     let result =
                         if File.Exists built then Ok()
