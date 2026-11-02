@@ -1,4 +1,4 @@
-//! The standalone Roslyn driver and bounded per-session PE/PDB cache.
+//! The standalone Roslyn driver, a bounded per-session PE/PDB cache and its per-user disk copy.
 const std = @import("std");
 const p = @import("run_process.zig");
 const windows = @import("builtin").os.tag == .windows;
@@ -163,15 +163,9 @@ fn install(a: A, io: std.Io, directory: []const u8, pe: []const u8, pdb: []const
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ directory, "Generated.runtimeconfig.json" }), .data = config });
     return path;
 }
-pub fn build(a: A, io: std.Io, directory: []const u8, sources: []const Source) !Built {
-    return compile(a, io, directory, sources, true);
-}
-pub fn uncached(a: A, io: std.Io, directory: []const u8, sources: []const Source) !Built {
-    return compile(a, io, directory, sources, false);
-}
-fn compile(a: A, io: std.Io, directory: []const u8, sources: []const Source, cached: bool) !Built {
-    if (try ensureDriver(a, io)) |d| return .{ .failed = d };
-    serial += 1;
+/// The identity hashes the driver, Roslyn, every reference assembly, the runtime and the options;
+/// the sources carry the generated program and the embedded runner support, so they decide the output.
+fn keyOf(sources: []const Source) [32]u8 {
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
     hash.update(identity);
     for (sources) |source| {
@@ -184,9 +178,66 @@ fn compile(a: A, io: std.Io, directory: []const u8, sources: []const Source, cac
     }
     var key: [32]u8 = undefined;
     hash.final(&key);
+    return key;
+}
+fn remember(key: [32]u8, pe: []const u8, pdb: []const u8) !void {
+    const size = pe.len + pdb.len;
+    if (size > 64 * 1048576) return;
+    while (entries.items.len >= 32 or bytes + size > 64 * 1048576) {
+        var oldest: usize = 0;
+        for (entries.items, 0..) |entry, i| if (entry.last < entries.items[oldest].last) {
+            oldest = i;
+        };
+        evict(oldest);
+    }
+    const owned_pe = try std.heap.page_allocator.dupe(u8, pe);
+    errdefer std.heap.page_allocator.free(owned_pe);
+    const owned_pdb = try std.heap.page_allocator.dupe(u8, pdb);
+    errdefer std.heap.page_allocator.free(owned_pdb);
+    try entries.append(std.heap.page_allocator, .{ .key = key, .pe = owned_pe, .pdb = owned_pdb, .last = serial });
+    bytes += size;
+}
+/// Assemblies persist per user across host sessions, like the Zig runners, and are never pruned.
+fn storedPath(a: A, key: [32]u8) ![]const u8 {
+    return std.fs.path.join(a, &.{ p.cache_root, "csharp-runners", &std.fmt.bytesToHex(key, .lower) });
+}
+fn load(a: A, io: std.Io, key: [32]u8) !?struct { pe: []u8, pdb: []u8 } {
+    const entry = try storedPath(a, key);
+    const pe = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.dll" }), a, .unlimited) catch return null;
+    const pdb = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.pdb" }), a, .unlimited) catch return null;
+    return .{ .pe = pe, .pdb = pdb };
+}
+fn store(a: A, io: std.Io, key: [32]u8, pe: []const u8, pdb: []const u8) !void {
+    const entry = try storedPath(a, key);
+    _ = try std.Io.Dir.cwd().createDirPathStatus(io, std.fs.path.dirname(entry).?, if (windows) .default_dir else .fromMode(0o700));
+    var random: [16]u8 = undefined;
+    io.random(&random);
+    // Written under a fresh name and renamed, so a concurrent host never reads a partial entry.
+    const partial = try std.fmt.allocPrint(a, "{s}.{x}", .{ entry, random });
+    defer std.Io.Dir.cwd().deleteTree(io, partial) catch {};
+    try std.Io.Dir.cwd().createDir(io, partial, if (windows) .default_dir else .fromMode(0o700));
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ partial, "Generated.dll" }), .data = pe });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ partial, "Generated.pdb" }), .data = pdb });
+    // A concurrent host may have renamed the same entry into place first; either copy is identical.
+    try std.Io.Dir.renameAbsolute(partial, entry, io);
+}
+pub fn build(a: A, io: std.Io, directory: []const u8, sources: []const Source) !Built {
+    return compile(a, io, directory, sources, true);
+}
+pub fn uncached(a: A, io: std.Io, directory: []const u8, sources: []const Source) !Built {
+    return compile(a, io, directory, sources, false);
+}
+fn compile(a: A, io: std.Io, directory: []const u8, sources: []const Source, cached: bool) !Built {
+    if (try ensureDriver(a, io)) |d| return .{ .failed = d };
+    serial += 1;
+    const key = keyOf(sources);
     for (entries.items) |*entry| if (cached and std.mem.eql(u8, &key, &entry.key)) {
         entry.last = serial;
         return .{ .assembly = try install(a, io, directory, entry.pe, entry.pdb) };
+    };
+    if (cached) if (try load(a, io, key)) |stored| {
+        try remember(key, stored.pe, stored.pdb);
+        return .{ .assembly = try install(a, io, directory, stored.pe, stored.pdb) };
     };
     var manifest: std.Io.Writer.Allocating = .init(a);
     try manifest.writer.writeByte('[');
@@ -218,21 +269,9 @@ fn compile(a: A, io: std.Io, directory: []const u8, sources: []const Source, cac
     const pdb_path = try std.fs.path.join(a, &.{ directory, "Generated.pdb" });
     const pe = try std.Io.Dir.cwd().readFileAlloc(io, pe_path, a, .unlimited);
     const pdb = try std.Io.Dir.cwd().readFileAlloc(io, pdb_path, a, .unlimited);
-    const size = pe.len + pdb.len;
-    if (cached and size <= 64 * 1048576) {
-        while (entries.items.len >= 32 or bytes + size > 64 * 1048576) {
-            var oldest: usize = 0;
-            for (entries.items, 0..) |entry, i| if (entry.last < entries.items[oldest].last) {
-                oldest = i;
-            };
-            evict(oldest);
-        }
-        const owned_pe = try std.heap.page_allocator.dupe(u8, pe);
-        errdefer std.heap.page_allocator.free(owned_pe);
-        const owned_pdb = try std.heap.page_allocator.dupe(u8, pdb);
-        errdefer std.heap.page_allocator.free(owned_pdb);
-        try entries.append(std.heap.page_allocator, .{ .key = key, .pe = owned_pe, .pdb = owned_pdb, .last = serial });
-        bytes += size;
+    if (cached) {
+        try remember(key, pe, pdb);
+        store(a, io, key, pe, pdb) catch {};
     }
     return .{ .assembly = pe_path };
 }
@@ -278,4 +317,33 @@ test "sweep removes session directories whose host is gone" {
     try parent.dir.access(io, live, .{});
     try parent.dir.access(io, "nyrwvy-other-1-c", .{});
     try std.testing.expectError(error.FileNotFound, parent.dir.access(io, gone, .{}));
+}
+
+test "stored assemblies outlive the session and a changed source misses them" {
+    const io = std.testing.io;
+    var dir = std.testing.tmpDir(.{});
+    defer dir.cleanup();
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const previous = p.cache_root;
+    p.cache_root = try dir.dir.realPathFileAlloc(io, ".", a);
+    defer p.cache_root = previous;
+    const first = keyOf(&.{.{ .name = "Program.cs", .text = "class A {}" }});
+    const changed = keyOf(&.{.{ .name = "Program.cs", .text = "class B {}" }});
+    try std.testing.expect(!std.mem.eql(u8, &first, &changed));
+    try std.testing.expect(try load(a, io, first) == null);
+    try store(a, io, first, "pe", "pdb");
+    // A second host storing the same entry loses the rename and keeps the first copy.
+    store(a, io, first, "pe", "pdb") catch {};
+    const hit = (try load(a, io, first)).?;
+    try std.testing.expectEqualStrings("pe", hit.pe);
+    try std.testing.expectEqualStrings("pdb", hit.pdb);
+    try std.testing.expect(try load(a, io, changed) == null);
+    var stored = try dir.dir.openDir(io, "csharp-runners", .{ .iterate = true });
+    defer stored.close(io);
+    var names = stored.iterate();
+    var count: usize = 0;
+    while (try names.next(io)) |_| count += 1;
+    try std.testing.expectEqual(@as(usize, 1), count);
 }
