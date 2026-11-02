@@ -1266,7 +1266,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .setSize => cat(&.{ "@as(i64, @intCast(", b.f("setValueId"), ".items.len))" }),
         .setInsert => b.listCall("nySetInsertInto", "setValueId", &.{b.f("itemValueId")}),
         .setRemove => b.listCall("nySetRemove", "setValueId", &.{b.f("itemValueId")}),
-        .setContains => cat(&.{ "nyFind(", b.elementOf("setValueId"), ", ", b.f("setValueId"), ".items, ", b.f("itemValueId"), ") != null" }),
+        .setContains => cat(&.{ "nySetFind(", b.elementOf("setValueId"), ", ", b.f("setValueId"), ", ", b.f("itemValueId"), ") != null" }),
         .setUnion => b.listCall("nySetUnion", "leftSetValueId", &.{b.f("rightSetValueId")}),
         .setIntersection => b.listCall("nySetKeep", "leftSetValueId", &.{ b.f("rightSetValueId"), "true" }),
         .setDifference => b.listCall("nySetKeep", "leftSetValueId", &.{ b.f("rightSetValueId"), "false" }),
@@ -1274,7 +1274,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .setFilter => blk: {
             const text = b.callback("predicateFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceSetValueId")))}, &bool_type);
             const source = b.f("sourceSetValueId");
-            break :blk labeled(cat(&.{ "const out = nyAlloc(", b.elementOf("sourceSetValueId"), ", ", source, ".items.len); var count: usize = 0; for (", source, ".items) |item| { if (", text, ") { out[count] = nyShare(item); count += 1; } } break :blk .{ .items = nyShrink(", b.elementOf("sourceSetValueId"), ", out, count) };" }));
+            break :blk labeled(cat(&.{ "const out = nyAlloc(", b.elementOf("sourceSetValueId"), ", ", source, ".items.len); var count: usize = 0; for (", source, ".items) |item| { if (", text, ") { out[count] = nyShare(item); count += 1; } } break :blk nySetOf(", b.elementOf("sourceSetValueId"), ", nyShrink(", b.elementOf("sourceSetValueId"), ", out, count));" }));
         },
         .setMap => blk: {
             const text = b.callback("mapperFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceSetValueId")))}, itemType(b.result));
@@ -1290,7 +1290,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const types = b.mapTypes("mapValueId");
             break :blk cat(&.{ "nyMapGet(", zig(types[0]), ", ", zig(types[1]), ", ", b.f("mapValueId"), ", ", b.f("keyValueId"), ") orelse nyShare(", b.f("defaultValueId"), ")" });
         },
-        .mapContainsKey => cat(&.{ "nyFind(", zig(b.mapTypes("mapValueId")[0]), ", ", b.f("mapValueId"), ".keys, ", b.f("keyValueId"), ") != null" }),
+        .mapContainsKey => cat(&.{ "nyMapFind(", zig(b.mapTypes("mapValueId")[0]), ", ", zig(b.mapTypes("mapValueId")[1]), ", ", b.f("mapValueId"), ", ", b.f("keyValueId"), ") != null" }),
         .mapUnion => b.mapCall("nyMapUnion", "leftMapValueId", &.{b.f("rightMapValueId")}),
         .mapFold => blk: {
             const types = b.mapTypes("sourceMapValueId");
@@ -1310,7 +1310,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const result_value = if (b.result.* == .builtin and b.result.builtin.args.len == 2) b.result.builtin.args[1] else b.result;
             const text = b.callback("mapperFunctionId", "context", &.{ role("key", types[0]), role("value", types[1]) }, result_value);
             const source = b.f("sourceMapValueId");
-            break :blk labeled(cat(&.{ "const out = nyAlloc(", zig(result_value), ", ", source, ".keys.len); for (", source, ".keys, ", source, ".values, 0..) |key, value, at| out[at] = ", text, "; break :blk .{ .keys = nyShare(", source, ".keys), .values = out };" }));
+            break :blk labeled(cat(&.{ "const out = nyAlloc(", zig(result_value), ", ", source, ".keys.len); for (", source, ".keys, ", source, ".values, 0..) |key, value, at| out[at] = ", text, "; break :blk .{ .keys = nyShare(", source, ".keys), .index = nyShare(", source, ".index), .values = out };" }));
         },
         .mapFromList => blk: {
             const key_type = if (b.result.* == .builtin and b.result.builtin.args.len == 2) b.result.builtin.args[0] else b.result;
