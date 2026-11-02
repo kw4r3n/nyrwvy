@@ -7028,7 +7028,9 @@ pub fn main(init: std.process.Init) !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         a = arena.allocator();
+        const validated = validated_input;
         resetState();
+        validated_input = validated; // a flag from the arguments, not per-input state
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);
         emit_text = !(validating or typing);
         const read = canonicalJson(input);
