@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn } from "node:child_process"
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -33,10 +33,26 @@ const commands = [
 const hostDir = join(root, "tools/zig/host")
 const declared = existsSync(hostDir) ? readdirSync(hostDir).filter(name => name.endsWith(".zig"))
   .flatMap(name => [...readFileSync(join(hostDir, name), "utf8").matchAll(/^test "((?:[^"\\]|\\.)*)"/gm)].map(match => `${name.slice(0, -4)}.test.${match[1]}...`)) : []
+// zig test starts the compiled test program as its own child, so killing zig alone leaves that program
+// running (once for hours at full CPU); run each command in its own process group and kill the group.
+const groups = new Set()
+const killGroup = pid => { try { process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL") } catch {} }
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { groups.forEach(killGroup); process.exit(1) })
+function run(args, host) {
+  return new Promise(done => {
+    const child = spawn(zig, args, { cwd: root, stdio: ["ignore", "inherit", host ? "pipe" : "inherit"], detached: process.platform !== "win32" })
+    groups.add(child.pid)
+    let stderr = "", error
+    child.stderr?.setEncoding("utf8").on("data", text => { stderr += text })
+    const timer = setTimeout(() => { error = new Error("timed out after 300 s"); killGroup(child.pid) }, 300_000)
+    child.on("error", failure => { clearTimeout(timer); done({ status: null, stderr, error: failure }) })
+    child.on("close", status => { clearTimeout(timer); groups.delete(child.pid); done({ status, stderr, error }) })
+  })
+}
 for (const args of commands) {
   if (process.platform === "darwin") args.splice(1, 0, "-lc")
   const host = args === commands.at(-1)
-  const result = spawnSync(zig, args, { cwd: root, stdio: host ? ["inherit", "inherit", "pipe"] : "inherit", encoding: "utf8", timeout: 300_000 })
+  const result = await run(args, host)
   if (host) process.stderr.write(result.stderr ?? "")
   if (result.error) {
     console.error(`Zig host test failed: ${result.error.message}`)
