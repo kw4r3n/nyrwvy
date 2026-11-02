@@ -175,3 +175,105 @@ test "a deadlock fails every waiter and each unwinds alone" {
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+/// A list of `count` owned strings ("0", "1", ...) in storage with room for `room` items.
+fn numbered(count: usize, room: usize) []const []const u8 {
+    const items = nyAlloc([]const u8, room);
+    for (items[0..count], 0..) |*item, i| item.* = nyInt64ToString(@intCast(i));
+    return nyShrink([]const u8, items, count);
+}
+
+fn expectNumbered(list: []const []const u8, count: usize) !void {
+    try std.testing.expectEqual(count, list.len);
+    for (list, 0..) |item, i| try std.testing.expectEqual(@as(i64, @intCast(i)), nyStringParseInt64(item).?);
+}
+
+test "count-of-one updates reuse unique storage and copy shared storage" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        const x = nyStatic("x");
+        // Each update consumes its input: a unique input keeps its storage, a shared one is copied
+        // and left as it was.
+        inline for (.{ "append", "setAt", "slice", "concat" }) |op| {
+            const unique = numbered(3, 4);
+            const shared = numbered(3, 4);
+            const other = nyShare(shared);
+            const update = struct {
+                fn on(list: []const []const u8, item: []const u8) []const []const u8 {
+                    if (comptime std.mem.eql(u8, op, "append")) return nyListAppendOwned([]const u8, list, item);
+                    if (comptime std.mem.eql(u8, op, "setAt")) return nyListSetAtOwned([]const u8, list, 1, item);
+                    if (comptime std.mem.eql(u8, op, "slice")) return nyListSliceOwned([]const u8, list, 0, 2);
+                    return nyListConcatOwned([]const u8, list, &.{item});
+                }
+            }.on;
+            const reused = update(unique, x);
+            try std.testing.expectEqual(unique.ptr, reused.ptr);
+            const copied = update(shared, x);
+            try std.testing.expect(copied.ptr != shared.ptr);
+            try expectNumbered(other, 3);
+            try std.testing.expectEqualDeep(reused, copied);
+            nyRelease(reused);
+            nyRelease(copied);
+            nyRelease(other);
+        }
+        // A small slice of a unique list does not keep its large storage.
+        const cut = nyListSliceOwned([]const u8, numbered(8, 64), 6, 7);
+        try std.testing.expectEqual(@as(u32, 1), nyHeader(cut.ptr).cap);
+        try std.testing.expectEqualStrings("6", cut[0]);
+        nyRelease(cut);
+        // Growing a unique list past its storage moves it and keeps every item.
+        var grown = numbered(0, 0);
+        for (0..100) |i| {
+            const item = nyInt64ToString(@intCast(i));
+            grown = nyListAppendOwned([]const u8, grown, item);
+            nyRelease(item);
+        }
+        try expectNumbered(grown, 100);
+        nyRelease(grown);
+        // A static string is never written in place.
+        const literal = nyStatic("ab");
+        const joined = nyConcatOwned(literal, x);
+        try std.testing.expectEqualStrings("ab", literal);
+        try std.testing.expectEqualStrings("abx", joined);
+        nyRelease(joined);
+        const room = nyAlloc(u8, 8);
+        @memcpy(room[0..2], "ab");
+        const text = nyShrink(u8, room, 2);
+        const longer = nyConcatOwned(text, x);
+        try std.testing.expectEqual(text.ptr, longer.ptr);
+        try std.testing.expectEqualStrings("abx", longer);
+        nyRelease(longer);
+        // Sets and Maps: a shared container is copied, a unique one extended in place.
+        var set = NySet([]const u8){ .items = numbered(2, 4) };
+        const set_before = set.items.ptr;
+        set = nySetInsertInto([]const u8, set, x);
+        try std.testing.expectEqual(set_before, set.items.ptr);
+        const set_other = nyShare(set);
+        set = nySetInsertInto([]const u8, set, nyStatic("y"));
+        try std.testing.expect(set.items.ptr != set_other.items.ptr);
+        try std.testing.expectEqual(@as(usize, 3), set_other.items.len);
+        try std.testing.expectEqual(@as(usize, 4), set.items.len);
+        nyRelease(set_other);
+        nyRelease(set);
+        var map = NyMap(i64, []const u8){ .keys = nyListOf(i64, &.{ 1, 2 }), .values = numbered(2, 2) };
+        const map_other = nyShare(map);
+        map = nyMapInsertInto(i64, []const u8, map, 1, x);
+        try std.testing.expect(map.values.ptr != map_other.values.ptr);
+        try expectNumbered(map_other.values, 2);
+        nyRelease(map_other);
+        const values_before = map.values.ptr;
+        map = nyMapInsertInto(i64, []const u8, map, 2, x);
+        try std.testing.expectEqual(values_before, map.values.ptr);
+        try std.testing.expectEqualStrings("x", map.values[1]);
+        nyRelease(map);
+        // A Product update writes a unique box in place and only then (main.zig `productUpdate`).
+        const box = nyBox(Pair, .{ .text = nyInt64ToString(1), .items = &.{} });
+        try std.testing.expect(nyUnique(box));
+        const box_other = nyShare(box);
+        try std.testing.expect(!nyUnique(box));
+        nyRelease(box_other);
+        nyRelease(box);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}

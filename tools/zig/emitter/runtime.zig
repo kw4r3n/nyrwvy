@@ -287,6 +287,10 @@ fn nyStringLength(text: []const u8) i64 {
     return @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable);
 }
 
+fn nyConcatOwned(left: []const u8, right: []const u8) []const u8 {
+    return nyListConcatOwned(u8, left, right);
+}
+
 fn nyConcat(left: []const u8, right: []const u8) []const u8 {
     if (left.len == 0) return nyShare(right);
     if (right.len == 0) return nyShare(left);
@@ -793,6 +797,87 @@ fn nyCopyItems(comptime T: type, into: []T, items: []const T) void {
     for (items) |item| nyRetain(item);
 }
 
+/// Storage for an owned `list` plus `extra` trailing items the caller fills. A unique list (count
+/// one) is reused, grown by doubling when its spare capacity is short; a shared or static one is
+/// copied (its items retained) and the caller's reference dropped. So reuse is never observable.
+fn nyExtend(comptime T: type, list: []const T, extra: usize) []T {
+    const len = list.len + extra;
+    if (list.len > 0 and nyHeader(list.ptr).count == 1) {
+        const header = nyHeader(list.ptr);
+        if (header.cap >= len) return @constCast(list.ptr)[0..len];
+        const cap = @min(@max(len, @as(usize, header.cap) * 2), std.math.maxInt(u32));
+        if (len > cap) nyOom();
+        const old: [*]align(8) u8 = @ptrCast(@alignCast(header));
+        const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + @as(usize, header.cap) * @sizeOf(T)], @sizeOf(NyHeader) + cap * @sizeOf(T)) catch nyOom();
+        const moved: *NyHeader = @ptrCast(bytes.ptr);
+        moved.cap = @intCast(cap);
+        const items: [*]T = @ptrCast(@alignCast(bytes.ptr + @sizeOf(NyHeader)));
+        return items[0..len];
+    }
+    const items = nyAlloc(T, len);
+    nyCopyItems(T, items[0..list.len], list);
+    nyRelease(list);
+    return items;
+}
+
+/// Concatenation that consumes `left` (reused in place when unique) and borrows `right`.
+fn nyListConcatOwned(comptime T: type, left: []const T, right: []const T) []const T {
+    if (right.len == 0) return left;
+    if (left.len == 0) return nyShare(right);
+    const items = nyExtend(T, left, right.len);
+    nyCopyItems(T, items[items.len - right.len ..], right);
+    return items;
+}
+
+fn nyListAppendOwned(comptime T: type, list: []const T, item: T) []const T {
+    const items = nyExtend(T, list, 1);
+    items[list.len] = nyShare(item);
+    return items;
+}
+
+fn nyListSetAtOwned(comptime T: type, list: []const T, index: i64, item: T) []const T {
+    const at = nyIndex(index, list.len) orelse return list;
+    const items = nyExtend(T, list, 0);
+    nyRelease(items[at]);
+    items[at] = nyShare(item);
+    return items;
+}
+
+/// A slice that consumes `list`: a unique list drops the items outside the range and keeps its
+/// storage, shrunk when it is more than twice the kept length.
+fn nyListSliceOwned(comptime T: type, list: []const T, start: i64, end: i64) []const T {
+    const from = nyClamp(start, list.len);
+    const to = @max(from, nyClamp(end, list.len));
+    if (from == 0 and to == list.len) return list;
+    if (list.len == 0 or nyHeader(list.ptr).count != 1) {
+        defer nyRelease(list);
+        return nyListSlice(T, list, start, end);
+    }
+    const items = @constCast(list);
+    for (items[0..from]) |item| nyRelease(item);
+    for (items[to..]) |item| nyRelease(item);
+    if (to == from) {
+        nyFree(T, list.ptr);
+        return &.{};
+    }
+    const kept = to - from;
+    std.mem.copyForwards(T, items[0..kept], items[from..to]);
+    const header = nyHeader(list.ptr);
+    if (kept * 2 >= header.cap) return items[0..kept];
+    // Storage more than twice the kept length shrinks to it, so a small slice never pins a large list.
+    const old: [*]align(8) u8 = @ptrCast(@alignCast(header));
+    const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + @as(usize, header.cap) * @sizeOf(T)], @sizeOf(NyHeader) + kept * @sizeOf(T)) catch nyOom();
+    const moved: *NyHeader = @ptrCast(bytes.ptr);
+    moved.cap = @intCast(kept);
+    const shrunk: [*]T = @ptrCast(@alignCast(bytes.ptr + @sizeOf(NyHeader)));
+    return shrunk[0..kept];
+}
+
+/// Whether an owned box is its only reference, so an update may write it in place.
+fn nyUnique(box: anytype) bool {
+    return nyHeader(box).count == 1;
+}
+
 fn nyListAppend(comptime T: type, list: []const T, item: T) []const T {
     const items = nyAlloc(T, list.len + 1);
     nyCopyItems(T, items[0..list.len], list);
@@ -927,12 +1012,16 @@ fn nySetInsert(comptime T: type, set: NySet(T), item: T) NySet(T) {
     return .{ .items = nyListAppend(T, set.items, item) };
 }
 
+/// Inserts into a set this call owns (reused when unique), borrowing the item.
+fn nySetInsertInto(comptime T: type, set: NySet(T), item: T) NySet(T) {
+    if (nyFind(T, set.items, item) != null) return set;
+    return .{ .items = nyListAppendOwned(T, set.items, item) };
+}
+
 /// Inserts into a set this call owns, consuming both the set and the item.
 fn nySetInsertOwned(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    const out = nySetInsert(T, set, item);
-    nyRelease(set);
-    nyRelease(item);
-    return out;
+    defer nyRelease(item);
+    return nySetInsertInto(T, set, item);
 }
 
 fn nySetRemove(comptime T: type, set: NySet(T), item: T) NySet(T) {
@@ -982,13 +1071,17 @@ fn nyMapInsert(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, val
     return .{ .keys = nyListAppend(K, map.keys, key), .values = nyListAppend(V, map.values, value) };
 }
 
+/// Inserts into a map this call owns (keys and values each reused when unique), borrowing the key and value.
+fn nyMapInsertInto(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
+    if (nyFind(K, map.keys, key)) |at| return .{ .keys = map.keys, .values = nyListSetAtOwned(V, map.values, @intCast(at), value) };
+    return .{ .keys = nyListAppendOwned(K, map.keys, key), .values = nyListAppendOwned(V, map.values, value) };
+}
+
 /// Inserts into a map this call owns, consuming the map, the key and the value.
 fn nyMapInsertOwned(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
-    const out = nyMapInsert(K, V, map, key, value);
-    nyRelease(map);
-    nyRelease(key);
-    nyRelease(value);
-    return out;
+    defer nyRelease(key);
+    defer nyRelease(value);
+    return nyMapInsertInto(K, V, map, key, value);
 }
 
 fn nyMapRemove(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) NyMap(K, V) {

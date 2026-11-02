@@ -1146,7 +1146,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .stringIsEmpty => cat(&.{ b.f("valueId"), ".len == 0" }),
         .stringLength => unary(b, "nyStringLength"),
         .stringEqual => cat(&.{ "std.mem.eql(u8, ", b.f("leftValueId"), ", ", b.f("rightValueId"), ")" }),
-        .stringConcat => pair(b, "nyConcat"),
+        .stringConcat => pair(b, "nyConcatOwned"),
         .valueEqual => pair(b, "nyEqual"),
         .productConstruct => cat(&.{ "nyBox(", b.resultTypeName(), ", ", fieldList(arr(b.o, "fields")), ")" }),
         .fieldAccess => cat(&.{ "nyShare(", b.f("sourceValueId"), ".", fieldName(str(b.o, "fieldId")), ")" }),
@@ -1154,12 +1154,15 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const fields = a.dupe(json.Value, arr(b.o, "fields")) catch oom();
             byId(json.Value, fields, targetFieldKey);
             var updates: List([]const u8) = .empty;
-            // The copy shares the source's fields; an updated field drops the shared one and takes the new value.
+            // The update consumes the source: a unique box is written in place; otherwise the copy
+            // shares the source's fields and the source reference is dropped. An updated field drops
+            // the old value and takes the new one.
             for (fields) |field| {
                 const name = fieldName(str(field.object, "targetFieldId"));
                 push([]const u8, &updates, cat(&.{ " nyRelease(copy.", name, "); copy.", name, " = ", v(str(field.object, "valueId")), ";" }));
             }
-            break :blk labeled(cat(&.{ "var copy = ", b.f("sourceValueId"), ".*; nyRetainFields(copy);", cat(updates.items), " break :blk nyBox(", b.resultTypeName(), ", copy);" }));
+            const source = b.f("sourceValueId");
+            break :blk labeled(cat(&.{ "if (nyUnique(", source, ")) { const copy = @constCast(", source, ");", cat(updates.items), " break :blk ", source, "; } var copy = ", source, ".*; nyRetainFields(copy); nyRelease(", source, ");", cat(updates.items), " break :blk nyBox(", b.resultTypeName(), ", copy);" }));
         },
         .unionConstruct => cat(&.{ "nyBox(", b.resultTypeName(), ", .{ .", variantName(str(b.o, "variantId")), " = ", fieldList(arr(b.o, "fields")), " })" }),
         .optionNone => "null",
@@ -1183,14 +1186,14 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         },
         .listRange => wrap(b, "nyListRange", &.{ "startValueId", "endValueId" }),
         .listLength => cat(&.{ "@as(i64, @intCast(", b.f("listValueId"), ".len))" }),
-        .listAppendItem => b.listCall("nyListAppend", "listValueId", &.{b.f("itemValueId")}),
-        .listConcat => b.listCall("nyListConcat", "leftListValueId", &.{b.f("rightListValueId")}),
+        .listAppendItem => b.listCall("nyListAppendOwned", "listValueId", &.{b.f("itemValueId")}),
+        .listConcat => b.listCall("nyListConcatOwned", "leftListValueId", &.{b.f("rightListValueId")}),
         .listReverse => b.listCall("nyListReverse", "listValueId", &.{}),
         .listItemAt => b.listCall("nyListItemAt", "listValueId", &.{b.f("indexValueId")}),
         .listLast => b.listCall("nyListLast", "listValueId", &.{}),
         .listDropLast => b.listCall("nyListDropLast", "listValueId", &.{}),
-        .listSlice => b.listCall("nyListSlice", "listValueId", &.{ b.f("startId"), b.f("endId") }),
-        .listSetAt => b.listCall("nyListSetAt", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
+        .listSlice => b.listCall("nyListSliceOwned", "listValueId", &.{ b.f("startId"), b.f("endId") }),
+        .listSetAt => b.listCall("nyListSetAtOwned", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
         .listInsertAt => b.listCall("nyListInsertAt", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
         .listRemoveAt => b.listCall("nyListRemoveAt", "listValueId", &.{b.f("indexValueId")}),
         .listIndexOf => b.listCall("nyListIndexOf", "listValueId", &.{b.f("itemValueId")}),
@@ -1261,7 +1264,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .setFromList => b.listCall("nySetFromList", "listValueId", &.{}),
         .setToList => cat(&.{ "nyShare(", b.f("setValueId"), ".items)" }),
         .setSize => cat(&.{ "@as(i64, @intCast(", b.f("setValueId"), ".items.len))" }),
-        .setInsert => b.listCall("nySetInsert", "setValueId", &.{b.f("itemValueId")}),
+        .setInsert => b.listCall("nySetInsertInto", "setValueId", &.{b.f("itemValueId")}),
         .setRemove => b.listCall("nySetRemove", "setValueId", &.{b.f("itemValueId")}),
         .setContains => cat(&.{ "nyFind(", b.elementOf("setValueId"), ", ", b.f("setValueId"), ".items, ", b.f("itemValueId"), ") != null" }),
         .setUnion => b.listCall("nySetUnion", "leftSetValueId", &.{b.f("rightSetValueId")}),
@@ -1280,7 +1283,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .mapSize => cat(&.{ "@as(i64, @intCast(", b.f("mapValueId"), ".keys.len))" }),
         .mapKeys => cat(&.{ "nyShare(", b.f("mapValueId"), ".keys)" }),
         .mapValues => cat(&.{ "nyShare(", b.f("mapValueId"), ".values)" }),
-        .mapInsert => b.mapCall("nyMapInsert", "mapValueId", &.{ b.f("keyValueId"), b.f("valueValueId") }),
+        .mapInsert => b.mapCall("nyMapInsertInto", "mapValueId", &.{ b.f("keyValueId"), b.f("valueValueId") }),
         .mapRemove => b.mapCall("nyMapRemove", "mapValueId", &.{b.f("keyValueId")}),
         .mapGet => b.mapCall("nyMapGet", "mapValueId", &.{b.f("keyValueId")}),
         .mapGetOrDefault => blk: {
@@ -1536,14 +1539,17 @@ fn counted(t: *const Type) bool {
 /// is borrowed for the instruction.
 fn consumedKey(kind: []const u8, key: []const u8) bool {
     const table = [_][2][]const u8{
-        .{ "readParameter", "sourceValueId" },   .{ "readPatternBinding", "sourceValueId" }, .{ "optionSome", "valueId" },
-        .{ "resultOk", "valueId" },              .{ "resultErr", "errorValueId" },           .{ "productConstruct", "fields" },
-        .{ "unionConstruct", "fields" },         .{ "productUpdate", "fields" },             .{ "listConstruct", "itemValueIds" },
-        .{ "directCall", "arguments" },          .{ "functionInvoke", "arguments" },         .{ "listFold", "seedValueId" },
-        .{ "listScan", "seedValueId" },          .{ "setFold", "seedValueId" },              .{ "mapFold", "seedValueId" },
-        .{ "listEffectFold", "seedValueId" },    .{ "taskStart", "itemValueId" },            .{ "taskStart", "context" },
-        .{ "oneShotComplete", "valueValueId" },  .{ "return", "valueId" },                   .{ "abort", "errorValueId" },
-        .{ "jump", "arguments" },                .{ "tailCall", "arguments" },
+        .{ "readParameter", "sourceValueId" }, .{ "readPatternBinding", "sourceValueId" }, .{ "optionSome", "valueId" },
+        .{ "resultOk", "valueId" },            .{ "resultErr", "errorValueId" },           .{ "productConstruct", "fields" },
+        .{ "unionConstruct", "fields" },       .{ "productUpdate", "fields" },             .{ "productUpdate", "sourceValueId" },
+        .{ "stringConcat", "leftValueId" },    .{ "listAppendItem", "listValueId" },       .{ "listConcat", "leftListValueId" },
+        .{ "listSlice", "listValueId" },       .{ "listSetAt", "listValueId" },            .{ "setInsert", "setValueId" },
+        .{ "mapInsert", "mapValueId" },        .{ "listConstruct", "itemValueIds" },       .{ "directCall", "arguments" },
+        .{ "functionInvoke", "arguments" },    .{ "listFold", "seedValueId" },             .{ "listScan", "seedValueId" },
+        .{ "setFold", "seedValueId" },         .{ "mapFold", "seedValueId" },              .{ "listEffectFold", "seedValueId" },
+        .{ "taskStart", "itemValueId" },       .{ "taskStart", "context" },                .{ "oneShotComplete", "valueValueId" },
+        .{ "return", "valueId" },              .{ "abort", "errorValueId" },               .{ "jump", "arguments" },
+        .{ "tailCall", "arguments" },
     };
     for (table) |row| if (eql(row[0], kind) and eql(row[1], key)) return true;
     return false;
