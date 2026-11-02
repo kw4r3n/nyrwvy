@@ -1785,6 +1785,9 @@ pub fn crash(r: *q.Request, input: *Input, exit_code: i32, stderr: []const u8) F
     while (lines.next()) |line| if (std.mem.startsWith(u8, line, "panic: ")) {
         panic = line[7..];
         break;
+    } else if (exit_code == 86 and std.mem.startsWith(u8, line, "leak: ")) {
+        // The conformance runner's leak check (emitter runner_support.zig, `nyLeakCheck`).
+        return runtimeFailure(r, input, "fatal", "ZigLeak", line[6..], .{ .array = &.{} }, false);
     };
     return runtimeFailure(r, input, "fatal", if (panic != null) "ZigPanic" else "ZigCrash", panic orelse try std.fmt.allocPrint(r.a, "The Zig program stopped with exit code {d} (for example a stack overflow).", .{exit_code}), .{ .array = &.{} }, false);
 }

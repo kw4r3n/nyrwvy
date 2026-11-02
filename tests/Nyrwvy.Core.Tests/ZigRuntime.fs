@@ -84,8 +84,8 @@ fn nyMapCase(text: []const u8, runs: []const [4]i32) []const u8 {
         }
         var buffer: [4]u8 = undefined;
         const size = std.unicode.utf8Encode(@intCast(mapped), &buffer) catch unreachable;
-        out.appendSlice(nyAllocator(), buffer[0..size]) catch nyOom();
+        out.appendSlice(nyRaw(), buffer[0..size]) catch nyOom();
     }
-    return out.items;
+    return nyAdoptList(u8, &out);
 }
 """)
