@@ -634,6 +634,7 @@ fn zigType(t: *const Type, record: bool) ?[]const u8 {
             const table = .{
                 .{ "primitiveInt64", "i64" },         .{ "primitiveBool", "bool" },   .{ "primitiveUnit", "NyUnit" },
                 .{ "primitiveString", "[]const u8" }, .{ "primitiveFloat64", "f64" }, .{ "primitiveBytes", "NyBytes" },
+                .{ "primitiveBits32", "u32" },
             };
             inline for (table) |row| if (eql(kind, row[0])) return row[1];
             return null;
@@ -840,6 +841,16 @@ const Kind = enum {
     float64RoundToInt64,
     float64FloorToInt64,
     int64ToFloat64,
+    bits32FromInt64,
+    bits32ToInt64,
+    bits32Xor,
+    bits32And,
+    bits32Or,
+    bits32Not,
+    bits32Add,
+    bits32RotateRight,
+    bits32ShiftRight,
+    bits32ShiftLeft,
     setEmpty,
     mapEmpty,
     setFromList,
@@ -1259,6 +1270,17 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .float64RoundToInt64 => cat(&.{ "nyFloat64ToInt64(@round(", b.f("valueId"), "))" }),
         .float64FloorToInt64 => cat(&.{ "nyFloat64ToInt64(@floor(", b.f("valueId"), "))" }),
         .int64ToFloat64 => cat(&.{ "@as(f64, @floatFromInt(", b.f("valueId"), "))" }),
+        // Bits32 is a u32 and every operation is total, as in the C# backend's uint.
+        .bits32FromInt64 => unary(b, "nyBits32FromInt64"),
+        .bits32ToInt64 => cat(&.{ "@as(i64, ", b.f("valueId"), ")" }),
+        .bits32Xor => binary(b, "^"),
+        .bits32And => binary(b, "&"),
+        .bits32Or => binary(b, "|"),
+        .bits32Not => cat(&.{ "~", b.f("valueId") }),
+        .bits32Add => binary(b, "+%"),
+        .bits32RotateRight => wrap(b, "nyBits32RotateRight", &.{ "valueId", "amountValueId" }),
+        .bits32ShiftRight => wrap(b, "nyBits32ShiftRight", &.{ "valueId", "amountValueId" }),
+        .bits32ShiftLeft => wrap(b, "nyBits32ShiftLeft", &.{ "valueId", "amountValueId" }),
         .setEmpty => ".{ .items = &.{} }",
         .mapEmpty => ".{ .keys = &.{}, .values = &.{} }",
         .setFromList => b.listCall("nySetFromList", "listValueId", &.{}),

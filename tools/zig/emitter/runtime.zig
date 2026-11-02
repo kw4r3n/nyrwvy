@@ -322,6 +322,29 @@ fn nyShiftRight(value: i64, count: i64) i64 {
     return value >> @as(u6, @intCast(count));
 }
 
+/// The low 32 bits of the two's complement form, that is `value` mod 2^32.
+fn nyBits32FromInt64(value: i64) u32 {
+    return @truncate(@as(u64, @bitCast(value)));
+}
+
+/// The amount is taken floor-modulo 32 (its low five bits), so a negative amount rotates left.
+fn nyBits32RotateRight(value: u32, amount: i64) u32 {
+    return std.math.rotr(u32, value, @as(u5, @truncate(@as(u64, @bitCast(amount)))));
+}
+
+/// Unlike Int64 shifts the amount is not masked: <= 0 keeps the value and >= 32 gives zero.
+fn nyBits32ShiftRight(value: u32, amount: i64) u32 {
+    if (amount <= 0) return value;
+    if (amount >= 32) return 0;
+    return value >> @as(u5, @intCast(amount));
+}
+
+fn nyBits32ShiftLeft(value: u32, amount: i64) u32 {
+    if (amount <= 0) return value;
+    if (amount >= 32) return 0;
+    return value << @as(u5, @intCast(amount));
+}
+
 fn nyInt64ToString(value: i64) []const u8 {
     var buffer: [24]u8 = undefined;
     return nyListMove(u8, std.fmt.bufPrint(&buffer, "{d}", .{value}) catch unreachable);

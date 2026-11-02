@@ -29,7 +29,7 @@ fn nyEncodeText(out: *std.Io.Writer, text: []const u8) !void {
 
 fn nyDecode(comptime T: type, tokens: *NyTokens) T {
     switch (@typeInfo(T)) {
-        .int => return std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad Int64 token"),
+        .int => return std.fmt.parseInt(T, tokens.next(), 10) catch @panic("bad integer token"),
         // A Float64 token is its 16 hexadecimal bit digits.
         .float => return @bitCast(std.fmt.parseInt(u64, tokens.next(), 16) catch @panic("bad Float64 token")),
         .bool => return std.mem.eql(u8, tokens.next(), "1"),

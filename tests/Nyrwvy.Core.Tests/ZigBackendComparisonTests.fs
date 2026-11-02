@@ -18,6 +18,7 @@ module ZigBackendComparisonTests =
     let private stringType = """{"kind":"primitive","primitive":"string"}"""
     let private float = """{"kind":"primitive","primitive":"float64"}"""
     let private bytesType = """{"kind":"primitive","primitive":"bytes"}"""
+    let private bits32Type = """{"kind":"primitive","primitive":"bits32"}"""
     let private generic name (arguments: string list) = $"""{{"kind":"builtinGeneric","generic":"{name}","arguments":[{String.Join(",", arguments)}]}}"""
     let private listOf item = generic "list" [ item ]
     let private ints = listOf int64Type
@@ -49,6 +50,8 @@ module ZigBackendComparisonTests =
     let private stringUnary = [ "stringToLower"; "stringToUpper"; "stringTrim"; "stringTrimStart"; "stringTrimEnd"; "stringEncodeUtf8"; "stringDecodeUtf8Lossy" ]
     let private checkedOperations = [ "int64CheckedAdd"; "int64CheckedSubtract"; "int64CheckedMultiply" ]
     let private setOperations = [ "setUnion"; "setIntersection"; "setDifference" ]
+    let private bits32Binary = [ "bits32Xor"; "bits32And"; "bits32Or"; "bits32Add" ]
+    let private bits32Shifts = [ "bits32RotateRight"; "bits32ShiftRight"; "bits32ShiftLeft" ]
 
     // The `xs: List<Int64>` functions of the old "remaining list, map and set operations" test.
     let private listCases =
@@ -260,6 +263,14 @@ module ZigBackendComparisonTests =
           fn "bytesJoin" st bytesType $"""{{"kind":"bytesConcat","left":{from "s"},"right":{from "t"}}}"""
           fn "bytesSize" [ "s", stringType ] int64Type $"""{{"kind":"bytesLength","value":{from "s"}}}"""
           fn "sameBytes" st boolType $"""{{"kind":"valueEqual","left":{from "s"},"right":{from "t"}}}"""
+          // Bits32.
+          fn "toBits" [ "n", int64Type ] bits32Type (unary "bits32FromInt64" "n")
+          fn "fromBits" [ "a", bits32Type ] int64Type (unary "bits32ToInt64" "a")
+          fn "bits32Not" [ "a", bits32Type ] bits32Type (unary "bits32Not" "a")
+          for kind in bits32Binary do fn kind [ "a", bits32Type; "b", bits32Type ] bits32Type (binary kind)
+          for kind in bits32Shifts do fn kind [ "a", bits32Type; "b", int64Type ] bits32Type $"""{{"kind":"{kind}","value":{p "a"},"amount":{p "b"}}}"""
+          fn "sameBits" [ "a", bits32Type; "b", bits32Type ] boolType (binary "valueEqual")
+          fn "uniqueBits" [ "xs", listOf bits32Type ] (listOf bits32Type) $"""{{"kind":"setToList","value":{{"kind":"setFromList","value":{p "xs"}}}}}"""
           // Scripted fake capabilities.
           """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}"""
           $"""{{"id":"k","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Store","operations":[{{"displayName":"get","parameters":[{declare [ "key", stringType; "slot", int64Type ]}],"resultType":{generic "option" [ stringType ]},"effect":"io"}},{{"displayName":"count","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}"""
@@ -424,6 +435,17 @@ module ZigBackendComparisonTests =
               for b in [ "-2.5"; "\"-0\""; "\"NaN\""; "\"Infinity\""; "3" ] do
                   for kind in floatBinary @ [ "float64Equal"; "float64LessThan" ] do true, kind, [ a; b ]
           for n in [ "-9007199254740993"; "0"; "9223372036854775807" ] do true, "toFloat", [ n ]
+          let bits = [ "0"; "1"; "2147483647"; "2147483648"; "4294967295" ]
+          for n in edges @ [ 2147483648L; 4294967295L; 4294967296L; 4294967301L ] do true, "toBits", [ int64 n ]
+          for a in bits do
+              true, "fromBits", [ a ]
+              true, "bits32Not", [ a ]
+              for b in bits do
+                  for kind in bits32Binary @ [ "sameBits" ] do true, kind, [ a; b ]
+              for n in [ Int64.MinValue; -33L; -1L; 0L; 1L; 31L; 32L; 33L; 64L; Int64.MaxValue ] do
+                  for kind in bits32Shifts do true, kind, [ a; int64 n ]
+          // More items than the Zig runtime scans without an index, so the Set hashes its Bits32 items.
+          true, "uniqueBits", [ "[" + String.Join(",", [ for i in 0L .. 79L -> string ((i % 40L) * 2147483647L % 4294967296L) ]) + "]" ]
           true, "count", [ """["a","b","a","c","b","a"]""" ]
           let m1 = """[["a",1],["b",2]]"""
           let m2 = """[["b",20],["c",3]]"""

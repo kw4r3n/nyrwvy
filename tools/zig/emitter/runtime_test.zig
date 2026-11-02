@@ -494,3 +494,40 @@ test "sets and maps look up through a hash index that agrees with equality" {
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+test "Bits32 operations match the C# uint semantics" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    const max: u32 = 0xffffffff;
+    try std.testing.expectEqual(max, nyBits32FromInt64(-1));
+    try std.testing.expectEqual(@as(u32, 0), nyBits32FromInt64(1 << 32));
+    try std.testing.expectEqual(@as(u32, 5), nyBits32FromInt64((1 << 32) + 5));
+    try std.testing.expectEqual(@as(u32, 0), nyBits32FromInt64(std.math.minInt(i64)));
+    try std.testing.expectEqual(max, nyBits32FromInt64(std.math.maxInt(i64)));
+    try std.testing.expectEqual(@as(u32, 0x80000000), nyBits32FromInt64(0x80000000));
+    try std.testing.expectEqual(@as(u32, 0x7fffffff), nyBits32FromInt64(0x7fffffff));
+    try std.testing.expectEqual(@as(u32, 0x80000000), nyBits32RotateRight(1, 1));
+    try std.testing.expectEqual(@as(u32, 2), nyBits32RotateRight(1, -1));
+    for ([_]i64{ 0, 32, 64, std.math.minInt(i64) }) |amount| try std.testing.expectEqual(@as(u32, 0x80000001), nyBits32RotateRight(0x80000001, amount));
+    try std.testing.expectEqual(@as(u32, 4), nyBits32RotateRight(1, std.math.maxInt(i64) - 1));
+    for ([_]i64{ std.math.minInt(i64), -1, 0 }) |amount| {
+        try std.testing.expectEqual(max, nyBits32ShiftLeft(max, amount));
+        try std.testing.expectEqual(max, nyBits32ShiftRight(max, amount));
+    }
+    for ([_]i64{ 32, 33, 64, std.math.maxInt(i64) }) |amount| {
+        try std.testing.expectEqual(@as(u32, 0), nyBits32ShiftLeft(max, amount));
+        try std.testing.expectEqual(@as(u32, 0), nyBits32ShiftRight(max, amount));
+    }
+    try std.testing.expectEqual(@as(u32, 0x80000000), nyBits32ShiftLeft(1, 31));
+    try std.testing.expectEqual(@as(u32, 1), nyBits32ShiftRight(0x80000000, 31));
+    try std.testing.expectEqual(@as(u32, 1), max +% 2);
+    // More items than nyIndexMin, so lookups go through nyHash, which must agree with nyEqual.
+    var items: [80]u32 = undefined;
+    for (&items, 0..) |*item, i| item.* = nyBits32FromInt64(@as(i64, @intCast(i % 40)) * 0x7fffffff);
+    const set = nySetFromList(u32, &items);
+    try std.testing.expectEqual(@as(usize, 40), set.items.len);
+    for (items) |item| try std.testing.expect(nySetFind(u32, set, item) != null);
+    try std.testing.expect(nySetFind(u32, set, 3) == null);
+    nyRelease(set);
+    try std.testing.expect(gpa.deinit() == .ok);
+}
