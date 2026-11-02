@@ -105,9 +105,10 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
         io.random(&random);
         // Built under a fresh name and renamed, so no session runs a partial driver.
         const partial = try std.fmt.allocPrint(a, "{s}.{x}", .{ output, random });
+        // No lingering MSBuild node or compiler server may inherit the output pipes, or reading them never ends.
         defer std.Io.Dir.cwd().deleteTree(io, partial) catch {};
         const project = try std.fs.path.join(a, &.{ source_root, "Compiler.csproj" });
-        const result = try p.launch(a, io, &.{ dotnet, "build", project, "--configuration", "Release", "--output", partial, "--nologo", "--verbosity", "quiet" }, source_root, "C# compiler driver build", 300);
+        const result = try p.launch(a, io, &.{ dotnet, "build", project, "--configuration", "Release", "--output", partial, "--nologo", "--verbosity", "quiet", "-nodeReuse:false", "-p:UseSharedCompilation=false" }, source_root, "C# compiler driver build", 300);
         switch (result) {
             .failed => |d| return d,
             .completed => |done| if (!done.term.success()) return try p.processFailure(a, done),
@@ -304,6 +305,8 @@ test "temporary directories use the configured root and are distinct" {
 }
 
 test "sweep removes session directories whose host is gone" {
+    // The host sweeps only on POSIX (no signal-0 liveness probe on Windows).
+    if (windows) return error.SkipZigTest;
     const io = std.testing.io;
     var parent = std.testing.tmpDir(.{});
     defer parent.cleanup();
