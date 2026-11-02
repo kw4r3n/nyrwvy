@@ -197,13 +197,14 @@ test "count-of-one updates reuse unique storage and copy shared storage" {
         // and left as it was.
         inline for (.{ "append", "setAt", "slice", "concat" }) |op| {
             const unique = numbered(3, 4);
-            const shared = numbered(3, 4);
+            // Full storage, so a shared append cannot claim a spare slot (stage (d)) and copies.
+            const shared = numbered(3, 3);
             const other = nyShare(shared);
             const update = struct {
                 fn on(list: []const []const u8, item: []const u8) []const []const u8 {
                     if (comptime std.mem.eql(u8, op, "append")) return nyListAppendOwned([]const u8, list, item);
                     if (comptime std.mem.eql(u8, op, "setAt")) return nyListSetAtOwned([]const u8, list, 1, item);
-                    if (comptime std.mem.eql(u8, op, "slice")) return nyListSliceOwned([]const u8, list, 0, 2);
+                    if (comptime std.mem.eql(u8, op, "slice")) return nyListSliceOwned([]const u8, list, 1, 3);
                     return nyListConcatOwned([]const u8, list, &.{item});
                 }
             }.on;
@@ -213,6 +214,7 @@ test "count-of-one updates reuse unique storage and copy shared storage" {
             try std.testing.expect(copied.ptr != shared.ptr);
             try expectNumbered(other, 3);
             try std.testing.expectEqualDeep(reused, copied);
+            if (comptime std.mem.eql(u8, op, "slice")) try std.testing.expectEqualStrings("2", reused[1]);
             nyRelease(reused);
             nyRelease(copied);
             nyRelease(other);
@@ -245,7 +247,7 @@ test "count-of-one updates reuse unique storage and copy shared storage" {
         try std.testing.expectEqualStrings("abx", longer);
         nyRelease(longer);
         // Sets and Maps: a shared container is copied, a unique one extended in place.
-        var set = NySet([]const u8){ .items = numbered(2, 4) };
+        var set = NySet([]const u8){ .items = numbered(2, 3) };
         const set_before = set.items.ptr;
         set = nySetInsertInto([]const u8, set, x);
         try std.testing.expectEqual(set_before, set.items.ptr);
@@ -274,6 +276,93 @@ test "count-of-one updates reuse unique storage and copy shared storage" {
         try std.testing.expect(!nyUnique(box));
         nyRelease(box_other);
         nyRelease(box);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
+
+test "a shared list grows in place past its own length and copies otherwise" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        const x = nyInt64ToString(100);
+        const y = nyInt64ToString(101);
+        // Appending to the longest list on the storage claims the next slot; the old list is unchanged.
+        const old = numbered(3, 4);
+        const first = nyListAppendOwned([]const u8, nyShare(old), x);
+        try std.testing.expectEqual(old.ptr, first.ptr);
+        try expectNumbered(old, 3);
+        try std.testing.expectEqualStrings("100", first[3]);
+        // The slot is taken, so a second append to the old list copies and leaves `first` as it was.
+        const second = nyListAppendOwned([]const u8, nyShare(old), y);
+        try std.testing.expect(second.ptr != old.ptr);
+        try std.testing.expectEqualStrings("100", first[3]);
+        try std.testing.expectEqualStrings("101", second[3]);
+        nyRelease(second);
+        // Once `first` dies the old list is unique again: it drops the item `first` left and reuses.
+        nyRelease(first);
+        const third = nyListAppendOwned([]const u8, old, y);
+        try std.testing.expectEqual(old.ptr, third.ptr);
+        try std.testing.expectEqualStrings("101", third[3]);
+        nyRelease(third);
+        // The storage's last reference releases every item it owns, past the releasing list's length.
+        const short = numbered(3, 4);
+        const long = nyListAppendOwned([]const u8, nyShare(short), x);
+        nyRelease(long);
+        nyRelease(short);
+        // A shared prefix shares the storage; appending to it copies, since a longer list owns the slot.
+        const whole = numbered(3, 4);
+        const prefix = nyListSliceOwned([]const u8, nyShare(whole), 0, 2);
+        try std.testing.expectEqual(whole.ptr, prefix.ptr);
+        const extended = nyListAppendOwned([]const u8, prefix, x);
+        try std.testing.expect(extended.ptr != whole.ptr);
+        try expectNumbered(whole, 3);
+        try std.testing.expectEqualStrings("100", extended[2]);
+        nyRelease(extended);
+        nyRelease(whole);
+        // A shared Set or Map gains a new key in place; the old one keeps its size.
+        const set = NySet([]const u8){ .items = numbered(2, 4) };
+        const grown = nySetInsertInto([]const u8, nyShare(set), x);
+        try std.testing.expectEqual(set.items.ptr, grown.items.ptr);
+        try std.testing.expectEqual(@as(usize, 2), set.items.len);
+        try std.testing.expectEqual(@as(usize, 3), grown.items.len);
+        nyRelease(grown);
+        nyRelease(set);
+        // Strings too; spare room under 4 bytes cannot record its count and is never claimed.
+        const wide = nyAlloc(u8, 16);
+        @memcpy(wide[0..2], "ab");
+        const text = nyShrink(u8, wide, 2);
+        const text_more = nyConcatOwned(nyShare(text), nyStatic("cd"));
+        try std.testing.expectEqual(text.ptr, text_more.ptr);
+        try std.testing.expectEqualStrings("ab", text);
+        try std.testing.expectEqualStrings("abcd", text_more);
+        nyRelease(text_more);
+        nyRelease(text);
+        const narrow = nyAlloc(u8, 4);
+        @memcpy(narrow[0..2], "ab");
+        const tight = nyShrink(u8, narrow, 2);
+        const tight_more = nyConcatOwned(nyShare(tight), nyStatic("c"));
+        try std.testing.expect(tight_more.ptr != tight.ptr);
+        try std.testing.expectEqualStrings("ab", tight);
+        try std.testing.expectEqualStrings("abc", tight_more);
+        nyRelease(tight_more);
+        nyRelease(tight);
+        // Keeping every version alive while appending: storage doubles, so 10,000 versions share
+        // a handful of allocations instead of one copy each.
+        const versions = try std.heap.page_allocator.alloc([]const []const u8, 10_001);
+        defer std.heap.page_allocator.free(versions);
+        versions[0] = numbered(1, 1);
+        var storages: usize = 1;
+        for (1..versions.len) |i| {
+            const item = nyInt64ToString(@intCast(i));
+            versions[i] = nyListAppendOwned([]const u8, nyShare(versions[i - 1]), item);
+            nyRelease(item);
+            if (versions[i].ptr != versions[i - 1].ptr) storages += 1;
+        }
+        try std.testing.expect(storages <= 16);
+        for (versions, 0..) |version, i| try expectNumbered(version, i + 1);
+        for (versions) |version| nyRelease(version);
+        nyRelease(x);
+        nyRelease(y);
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
