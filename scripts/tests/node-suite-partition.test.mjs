@@ -147,16 +147,19 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
   try {
     const success = run(0)
     assert.equal(success.status, 0, success.stderr)
-    assert.equal(success.calls.length, 3)
+    assert.equal(success.calls.length, 5)
     assert.ok(success.calls.every(call => call.cwd === repo))
     const linkerArgs = process.platform === "darwin" ? ["-lc"] : []
     // The emitter runtime test runs first, from a temporary file that joins the runtime sources.
     assert.deepEqual(success.calls[0].args.slice(0, -1), ["test", ...linkerArgs, "-O", "ReleaseSafe"])
     assert.ok(success.calls[0].args.at(-1).endsWith("runtime.zig"))
     assert.deepEqual(success.calls[1].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
-    const args = success.calls[2].args
-    assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "C# runner keeps recursive codecs finite and argument values out of source"])
-    assert.ok(args.includes("--test-runner") && args.includes("tools/zig/host/test_runner.zig") && args.includes("runner dispatch name preserves arbitrary UTF-8 stable IDs"))
+    assert.deepEqual(success.calls[2].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/emitter/main.zig"])
+    assert.deepEqual(success.calls[3].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/csharp-emitter/native.zig"])
+    const args = success.calls[4].args
+    // Every host test runs: no filter narrows the run.
+    assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-runner", "tools/zig/host/test_runner.zig"])
+    assert.ok(!args.includes("--test-filter"))
     for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
     const failure = run(1)
     assert.equal(failure.status, 23)
