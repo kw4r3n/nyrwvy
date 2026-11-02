@@ -1339,7 +1339,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const body_call = b.callback("bodyFunctionId", "bodyContext", &.{role("NyUnit{}", &unit_type)}, b.result);
             if (!failing(str(b.o, "bodyFunctionId"))) break :blk body_call;
             const handler_call = b.callback("handlerFunctionId", "handlerContext", &.{role("failure", &exception_type)}, b.result);
-            break :blk cat(&.{ body_call, " catch blk: { ny_leak_exempt = true; const failure = ny_failure; break :blk ", attempt(str(b.o, "handlerFunctionId"), handler_call), "; }" });
+            break :blk cat(&.{ body_call, " catch blk: { const failure = ny_failure; break :blk ", attempt(str(b.o, "handlerFunctionId"), handler_call), "; }" });
         },
         .exceptionRethrow => cat(&.{ "try nyRethrow(", zig(parseType(b.o.get("resultType").?)), ", ", b.f("valueId"), ")" }),
         .exceptionMessage => cat(&.{ "nyListMove(u8, ", b.f("valueId"), ".message)" }),
@@ -1360,7 +1360,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
                 cat(&.{ "const released = try ", release, "; if (outcome == .ok and released == .err) { nyRelease(outcome); break :blk .{ .err = released.err }; } nyRelease(released); break :blk outcome;" })
             else
                 cat(&.{ "nyRelease(try ", release, "); break :blk outcome;" });
-            break :blk labeled(cat(&.{ "const acquired = ", b.f("acquireValueId"), "; if (acquired == .err) break :blk .{ .err = nyShare(acquired.err) }; const resource = acquired.ok; const outcome = ", guarded, "; ", finish }));
+            break :blk labeled(cat(&.{ "const acquired = ", b.f("acquireValueId"), "; if (acquired == .err) break :blk .{ .err = nyShare(acquired.err) }; const resource = acquired.ok; const outcome = ", guarded, "; errdefer nyRelease(outcome); ", finish }));
         },
         .listSortBy, .listMinBy, .listMaxBy => blk: {
             // The best is replaced when lessThan(best, item): the same comparator with the items swapped.
@@ -1391,7 +1391,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
                 cat(&.{ text, " catch { const saved = ny_failure; nyScopeClose(scope, true) catch {}; ny_failure = saved; return error.NyFailure; }" })
             else
                 text;
-            break :blk labeled(cat(&.{ "const scope = nyScopeOpen(); const outcome = ", guarded, "; try nyScopeClose(scope, false); break :blk outcome;" }));
+            break :blk labeled(cat(&.{ "const scope = nyScopeOpen(); const outcome = ", guarded, "; errdefer nyRelease(outcome); try nyScopeClose(scope, false); break :blk outcome;" }));
         },
         .taskStart => blk: {
             const work = argumentOf(b.result, 0);
@@ -1694,7 +1694,19 @@ const Ownership = struct {
             self.around(self.uses(instruction.o), &live, &before, &after);
             const result = instruction.result.id;
             if (counted(instruction.result.type) and !live.contains(result)) push([]const u8, &after, cat(&.{ "nyRelease(", v(result), ");" }));
-            out[at] = cat(&.{ cat(before.items), lines[at], cat(after.items) });
+            // A failure leaves the frame holding what is live after the instruction and what it
+            // borrows; what it consumes belongs to the callee, which releases it on its own failure.
+            var held: List([]const u8) = .empty;
+            if (instructionFails(instruction.o)) {
+                var seen = Set.empty;
+                for (live.keys()) |id| if (!eql(id, result)) seen.put(a, id, {}) catch oom();
+                for (self.uses(instruction.o)) |use| if (!use.consumed) seen.put(a, use.id, {}) catch oom();
+                for (seen.keys()) |id| push([]const u8, &held, cat(&.{ "nyRelease(", v(id), ");" }));
+            }
+            out[at] = if (held.items.len > 0)
+                cat(&.{ "{ errdefer { ", cat(held.items), " } ", cat(before.items), lines[at], " }", cat(after.items) })
+            else
+                cat(&.{ cat(before.items), lines[at], cat(after.items) });
             _ = live.swapRemove(result);
             for (self.uses(instruction.o)) |use| live.put(a, use.id, {}) catch oom();
         }
@@ -1867,26 +1879,28 @@ fn fieldTypes(map: *const Bindings, fields: []const Field) []const u8 {
     return join(", ", parts.items);
 }
 
+/// Whether an instruction can raise a failure: an effectful kind, or a call of a function that may fail.
+fn instructionFails(o: json.ObjectMap) bool {
+    const kind = str(o, "kind");
+    for ([_][]const u8{ "capabilityInvoke", "exceptionRethrow", "useResource", "taskScope", "taskWait", "oneShotWait", "parallelAll" }) |direct| {
+        if (eql(kind, direct)) return true;
+    }
+    for ([_][2][]const u8{ .{ "directCall", "functionId" }, .{ "exceptionCatch", "handlerFunctionId" }, .{ "cancellationShield", "bodyFunctionId" }, .{ "listEffectFold", "folderFunctionId" } }) |callee| {
+        if (eql(kind, callee[0]) and may_fail.contains(str(o, callee[1]))) return true;
+    }
+    return false;
+}
+
 fn computeMayFail() void {
     may_fail = .init(a);
-    var it = functions.valueIterator();
-    while (it.next()) |fn_| {
-        for (fn_.blocks) |b| for (b.instructions) |instruction| {
-            const kind = str(instruction.o, "kind");
-            for ([_][]const u8{ "capabilityInvoke", "exceptionRethrow", "useResource", "taskScope", "taskWait", "oneShotWait", "parallelAll" }) |direct| {
-                if (eql(kind, direct)) may_fail.put(fn_.id, {}) catch oom();
-            }
-        };
-    }
-    const callees = [_][2][]const u8{ .{ "directCall", "functionId" }, .{ "exceptionCatch", "handlerFunctionId" }, .{ "cancellationShield", "bodyFunctionId" }, .{ "listEffectFold", "folderFunctionId" } };
     var changed = true;
     while (changed) {
         changed = false;
         var each = functions.valueIterator();
         while (each.next()) |fn_| {
             if (may_fail.contains(fn_.id)) continue;
-            for (fn_.blocks) |b| for (b.instructions) |instruction| for (callees) |callee| {
-                if (eql(str(instruction.o, "kind"), callee[0]) and may_fail.contains(str(instruction.o, callee[1]))) {
+            for (fn_.blocks) |b| for (b.instructions) |instruction| {
+                if (!may_fail.contains(fn_.id) and instructionFails(instruction.o)) {
                     may_fail.put(fn_.id, {}) catch oom();
                     changed = true;
                 }

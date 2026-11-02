@@ -552,7 +552,6 @@ fn nyRunJob(comptime W: type, task: *NyTask(W), job: anytype) void {
     const outcome = job.run();
     if (@typeInfo(@TypeOf(outcome)) == .error_union) {
         if (outcome) |value| task.value = value else |_| {
-            ny_leak_exempt = true;
             task.base.failed = true;
             task.base.failure = ny_failure;
         }
