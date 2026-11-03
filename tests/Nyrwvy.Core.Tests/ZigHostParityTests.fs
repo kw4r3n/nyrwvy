@@ -2122,8 +2122,9 @@ module ZigHostCreateInferenceTests =
             zigHost () |> ignore
             let clock = Stopwatch.StartNew()
             let expected, answers = seededPair "create-inference" path lines
-            // Both subprocesses run here; deep generic constructors still must remain linear.
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds 40.0, $"The seeded pair took {clock.Elapsed} to answer the inference corpus.")
+            // Both subprocesses run here; deep generic constructors still must remain linear. About 1 s
+            // locally, but a loaded CI runner once took 58 s, so only a non-linear blowup should fail this.
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds 180.0, $"The seeded pair took {clock.Elapsed} to answer the inference corpus.")
             let mismatches = ResizeArray<string>()
             let answered = Text.StringBuilder()
             let mutable located = 0
