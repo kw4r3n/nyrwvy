@@ -27,7 +27,8 @@ jobs:
     if: ${{ !inputs.native_platforms }}
     name: F# foundation build and fast tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The extended suites alone take about 15 minutes locally.
+    timeout-minutes: ${{ inputs.extended && 90 || 20 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
