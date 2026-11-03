@@ -145,9 +145,14 @@ module ZigHostParityTests =
         let node = JsonNode.Parse(json, documentOptions = JsonDocumentOptions(MaxDepth = SnapshotCodec.maxJsonDepth))
         rewrite false node |> fun root -> SnapshotCodec.deserialize (root.ToJsonString()) |> unwrap
 
+    /// The example records in the order the goldens were recorded in (shallower first, then by path), not
+    /// in the file system's directory order, which differs between machines.
+    let internal exampleRecords () =
+        Directory.GetFiles(Path.Combine(ZigModelReaderSupport.root (), "examples"), "*.nyrec", SearchOption.AllDirectories)
+        |> Array.sortBy (fun path -> path.Split(Path.DirectorySeparatorChar).Length, path) |> Array.toList
+
     let internal snapshots (dir: string) =
-        let root = ZigModelReaderSupport.root ()
-        let records = Directory.GetFiles(Path.Combine(root, "examples"), "*.nyrec", SearchOption.AllDirectories) |> Array.toList
+        let records = exampleRecords ()
         let json = Path.Combine(dir, "task-outcomes.json")
         File.WriteAllText(json, File.ReadAllText records.Head |> RecordCodec.deserialize |> unwrap |> SnapshotCodec.serialize |> unwrap)
         records @ [ json ]
@@ -168,7 +173,7 @@ module ZigHostParityTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host answers every transcript as the F# host does`` () =
         withDirectory (fun dir ->
-            let transcripts = Directory.GetFiles(Path.Combine(ZigModelReaderSupport.root (), "tests", "host-parity"), "*.jsonl")
+            let transcripts = Directory.GetFiles(Path.Combine(ZigModelReaderSupport.root (), "tests", "host-parity"), "*.jsonl") |> Array.sort
             Assert.NotEmpty transcripts
             for snapshot in snapshots dir do
                 for transcript in transcripts do
@@ -1026,8 +1031,7 @@ module ZigHostResolvedParityTests =
                     id
             let asDependency name (snapshot: Snapshot) = { snapshot with Id = dependencyId name; ParentId = None; Obligations = [] }
             let originals =
-                Directory.GetFiles(Path.Combine(ZigModelReaderSupport.root (), "examples"), "*.nyrec", SearchOption.AllDirectories)
-                |> Array.toList |> List.map (File.ReadAllText >> RecordCodec.deserialize >> unwrap)
+                exampleRecords () |> List.map (File.ReadAllText >> RecordCodec.deserialize >> unwrap)
             let mutable cases = 0
             let outcomes = Collections.Generic.HashSet<string>()
             let check (name: string) (write: string -> unit) =

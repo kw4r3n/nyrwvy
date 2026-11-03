@@ -13,7 +13,7 @@ open System.Threading.Tasks
 open Nyrwvy.Core
 open Xunit
 
-/// Only the four genuinely different module identities are excluded from behavioral evidence parity.
+/// Only the four genuinely different module identities and the build environment are excluded from behavioral evidence parity.
 module ZigHostChangeVerificationParityTests =
     open ZigHostParityTests
 
@@ -102,6 +102,8 @@ module ZigHostChangeVerificationParityTests =
                     Assert.True(valid, id)
                     Assert.NotEqual(Guid.Empty, value)
             for key in keys do identity[key] <- JsonValue.Create("<actual-module-identity>")
+            // The compiler fingerprint hashes the absolute .NET reference paths, so it names the machine, not the behavior.
+            for key in [ "runtimeVersion"; "buildContextFingerprint" ] do identity[key] <- JsonValue.Create("<build-environment>")
         node.ToJsonString()
 
     type private During = (Process -> Task<string> -> unit) -> string -> string
