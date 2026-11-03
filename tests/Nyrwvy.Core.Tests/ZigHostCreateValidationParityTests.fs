@@ -75,8 +75,9 @@ module ZigHostCreateValidationParityTests =
             let proposalId (reply: string) =
                 use document = parseDocument reply
                 document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
-            // Seeded IDs repeat across sessions, so the second session can name the first session's proposal.
-            let session requests = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "pending-limit" ] true [ "open"; "--snapshot"; path ] requests
+            // Seeded IDs repeat across sessions, so the second session can name the first session's proposal;
+            // an unparsable NYRWVY_TEST_PENDING_LIMIT keeps the production cap of 64.
+            let session requests = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "pending-limit"; "NYRWVY_TEST_PENDING_LIMIT", "default" ] true [ "open"; "--snapshot"; path ] requests
             let code, errors, replies = session creates
             Assert.True((code = 0), errors)
             for reply in List.take 64 replies do Assert.Contains("\"ok\":true", reply)
