@@ -175,6 +175,15 @@ module ZigHostStartupCliParityTests =
           """{"id":"dependency","op":"dependency"}"""
           """{"id":"create","op":"simulateCreateType","displayName":"Next","typeKind":{"kind":"product","fields":[]}}""" ]
 
+    /// `path` relative to the working directory, padded to the 11 leading ".." the goldens were recorded
+    /// with (the recording checkout's depth); ".." above the root stays at the root, so it names the same file.
+    /// shortcut: assumes `path` shares only the root with a working directory at most 11 deep; record the depth if that changes.
+    let private relativeFromCwd (path: string) =
+        let relative = Path.GetRelativePath(Environment.CurrentDirectory, path)
+        let up = ".." + string Path.DirectorySeparatorChar
+        let depth = Seq.length (Seq.unfold (fun (rest: string) -> if rest.StartsWith up then Some((), rest.Substring up.Length) else None) relative)
+        String.replicate (max 0 (11 - depth)) up + relative
+
     let private compareStartup directory setup arguments =
         let capture zig =
             setup ()
@@ -202,7 +211,7 @@ module ZigHostStartupCliParityTests =
                     let dependency = { library "018bcfe5-6801-7000-8000-000000000001" with ParentId = Some(StableId.createForTesting<SnapshotTag> "018bcfe5-6801-7000-8000-000000000000") }
                     File.WriteAllText(first, encoded record dependency)
                     File.WriteAllText(second, encoded record (library "018bcfe5-6801-7000-8000-000000000002"))
-                let relative = Path.GetRelativePath(Environment.CurrentDirectory, first)
+                let relative = relativeFromCwd first
                 for dependencies in [ []; [ "--dependency"; first ]; [ "--dependency"; relative ]; [ "--dependency"; first; "--dependency"; second ]; [ "--dependency"; first; "--dependency"; relative ] ] do
                     let code, _, replies, _ = compareStartup dir reset ([ "create"; "--snapshot"; path ] @ dependencies)
                     Assert.Equal((if dependencies.Length = 4 && Path.GetFullPath(dependencies[1]) = Path.GetFullPath(dependencies[3]) then 2 else 0), code)
@@ -229,7 +238,7 @@ module ZigHostStartupCliParityTests =
                     File.WriteAllText(path + ".dependency.json", (memberOf imported None original).ToJsonString())
                     File.WriteAllText(path + ".backends.json", "sentinel")
                     File.WriteAllText(relocated, encoded record imported)
-                for selectedSource in [ relocated; Path.GetRelativePath(Environment.CurrentDirectory, relocated) ] do
+                for selectedSource in [ relocated; relativeFromCwd relocated ] do
                     let code, _, replies, _ = compareStartup dir reset [ "pin"; "--snapshot"; path; "--dependency"; selectedSource ]
                     Assert.Equal(0, code)
                     Assert.Equal(requests.Length, replies.Length)
