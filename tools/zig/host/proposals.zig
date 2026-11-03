@@ -109,7 +109,8 @@ pub fn deinit() void {
 }
 /// Each pending proposal keeps its own arena and is rebuilt on every commit or reject, so a session
 /// that never resolves them would grow without bound; simulate is refused at this many.
-pub const pending_limit = 64;
+/// NYRWVY_TEST_PENDING_LIMIT overrides it, so tests replaying F# goldens (recorded without a cap) can lift it.
+pub var pending_limit: usize = 64;
 pub fn count() usize {
     return pending.items.len;
 }

@@ -988,6 +988,7 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
 
 pub fn main(init: std.process.Init) !void {
     test_fail_operation = init.environ_map.get("NYRWVY_TEST_HOST_FAIL_OPERATION");
+    if (init.environ_map.get("NYRWVY_TEST_PENDING_LIMIT")) |text| proposals.pending_limit = std.fmt.parseInt(usize, text, 10) catch proposals.pending_limit;
     const process_arena = init.arena.allocator();
     host_io = init.io;
     ids.init(init.io, init.environ_map.get("NYRWVY_TEST_ID_SEED"));

@@ -62,6 +62,8 @@ module ZigHostParityTests =
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
+        // The F# host had no pending-proposal cap and its recorded transcripts keep over a thousand pending.
+        if zig then info.Environment["NYRWVY_TEST_PENDING_LIMIT"] <- "1000000"
         for name, value in environment do info.Environment[name] <- value
         Process.Start info
 
