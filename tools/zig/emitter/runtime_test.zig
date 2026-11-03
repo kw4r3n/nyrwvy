@@ -531,3 +531,23 @@ test "Bits32 operations match the C# uint semantics" {
     nyRelease(set);
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+test "three waiters deadlocked at once, waited out of start order, each unwind alone" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    ny_io = std.testing.io;
+    stuck_overlapped.store(false, .seq_cst);
+    {
+        const scope = nyScopeOpen();
+        const cell = nyOneShotCreate([]const u8, scope);
+        var stuck: [3]*NyTask([]const u8) = undefined;
+        for (&stuck) |*task| task.* = nyStartTask([]const u8, scope, StuckJob{ .c = .{ .cell = cell } });
+        try std.testing.expectError(error.NyFailure, nyTaskWait([]const u8, &.{ stuck[2], stuck[0], stuck[1] }, true, null));
+        nyScopeClose(scope, false) catch {};
+        for (stuck) |task| try std.testing.expect(task.base.failed);
+        try std.testing.expect(!stuck_overlapped.load(.seq_cst));
+        for (stuck) |task| nyRelease(task);
+        nyRelease(cell);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}

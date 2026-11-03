@@ -156,6 +156,20 @@ module ZigBackendComparisonTests =
           scoped "timeout" handed "timeoutBody"
           inScope "stuckBody" handed (bind create (bind (waitCell "") (ok (value 0))))
           scoped "stuck" handed "stuckBody"
+          // Several tasks deadlocked at once: three park on a shared cell, one on a cell in its own nested scope,
+          // and the body waits on them out of start order (one cancelled first in the second variant).
+          let cellType = generic "oneShot" [ int64Type ]
+          let startOn worker item depth =
+              $"""{{"kind":"taskStart","scope":{p "scope"},"worker":"{worker}","item":{lit item},"context":[{{"parameter":"svc","value":{p "svc"}}},{{"parameter":"cell","value":{value depth}}}]}}"""
+          effectful "parked" [ "svc", svcType; "cell", cellType; "n", int64Type ] outcome (bind $"""{{"kind":"oneShotWait","cell":{p "cell"}}}""" (ok (p "n")))
+          inScope "nestedParkedBody" outcome (bind create (bind (waitCell "") (ok (lit 0))))
+          effectful "nestedParked" [ "svc", svcType; "n", int64Type ] outcome $"""{{"kind":"taskScope","body":"nestedParkedBody","context":{ctx}}}"""
+          let parkAll rest = bind create (bind (startOn "parked" 1 0) (bind (start "nestedParked" 2) (bind (startOn "parked" 3 2) (bind (startOn "parked" 4 3) rest))))
+          inScope "manyStuckBody" waited (parkAll (bind $"""{{"kind":"taskWait","tasks":{tasks [ 1; 3; 0; 2 ]},"mode":"all"}}""" (ok (value 0))))
+          scoped "manyStuck" waited "manyStuckBody"
+          inScope "manyStuckCancelBody" waited
+              (parkAll (bind $"""{{"kind":"taskCancel","task":{value 1}}}""" (bind $"""{{"kind":"taskWait","tasks":{tasks [ 1; 4; 3; 2 ]},"mode":"all"}}""" (ok (value 0)))))
+          scoped "manyStuckCancel" waited "manyStuckCancelBody"
           inScope "failWaitBody" waited (bind (start "job" 1) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 0 ]},"mode":"all"}}""" (ok (value 0))))
           scoped "failWait" waited "failWaitBody"
           inScope "failCloseBody" outcome (bind (start "job" 1) (bind (start "job" 2) (ok (lit 0))))
@@ -376,6 +390,8 @@ module ZigBackendComparisonTests =
           true, "handoff", [ fake [] [] ]
           true, "timeout", [ fake [] [] ]
           false, "stuck", [ fake [] [] ]
+          false, "manyStuck", [ fake [] [] ]
+          false, "manyStuckCancel", [ fake [] [] ]
           false, "failWait", [ fake [ throws ] [] ]
           false, "failClose", [ fake [ response 1 (Some 5); throws ] [] ]
           false, "failClose", [ fake [ throws; response 2 None ] [] ]
