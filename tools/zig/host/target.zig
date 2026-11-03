@@ -22,6 +22,11 @@ fn has(nodes: []const Model, id: []const u8) bool {
     for (nodes) |node| if (sameId(node, id)) return true;
     return false;
 }
+// Compares UTF-16 ids in place; idOf allocates a UTF-8 copy per call, which made these scans quadratic in memory.
+fn hasId(nodes: []const Model, id: model.Str) bool {
+    for (nodes) |node| if (std.mem.eql(u16, node.id(), id)) return true;
+    return false;
+}
 fn writeOptional(out: *Writer, units: ?model.Str) !void {
     if (units) |value| try model.writeString(out, value) else try out.writeAll("null");
 }
@@ -184,14 +189,20 @@ fn sorted(a: Allocator, nodes: []const Model) anyerror![]Model {
     return copy;
 }
 pub fn summaries(r: *query.Request, out: *Writer, f: Model, nodes: []const Model) anyerror!void {
+    // One focus per function: recomputing it per node made large diffs quadratic in memory.
+    // An empty list skips it, as before, so typedFocusOf's shared context is left untouched.
+    const types = if (nodes.len == 0) &.{} else model.typedFocusOf(r.a, r.typedModel(), f).node_types;
     try out.writeByte('[');
     for (nodes, 0..) |n, i| {
         if (i > 0) try out.writeByte(',');
-        try summary(r, out, f, n);
+        try summaryTyped(r, out, f, n, types);
     }
     try out.writeByte(']');
 }
 fn summary(r: *query.Request, out: *Writer, f: Model, n: Model) anyerror!void {
+    try summaryTyped(r, out, f, n, model.typedFocusOf(r.a, r.typedModel(), f).node_types);
+}
+fn summaryTyped(r: *query.Request, out: *Writer, f: Model, n: Model, node_types: []const model.TypedNodeTypeOf) anyerror!void {
     const a = r.a;
     const kind = model.utf8(n.kind());
     const role = try a.dupe(u8, kind);
@@ -202,8 +213,7 @@ fn summary(r: *query.Request, out: *Writer, f: Model, n: Model) anyerror!void {
     try out.writeAll(try query.stringOf(a, role));
     try out.writeAll(",\"type\":");
     var node_type: ?model.SemanticType = null;
-    const focus = model.typedFocusOf(a, r.typedModel(), f);
-    for (focus.node_types) |t| if (m.same(model.utf8(t.id), query.idOf(n))) {
+    for (node_types) |t| if (std.mem.eql(u16, t.id, n.id())) {
         node_type = t.type;
         break;
     };
@@ -285,7 +295,7 @@ fn patternReferences(r: *query.Request, out: *Writer, f: Model, base_nodes: []co
     try out.writeByte('[');
     var first = true;
     for (model.typedBodyNodes(r.a, f)) |node| {
-        if (!m.same(model.utf8(node.kind()), "patternReference") or (has(base_nodes, query.idOf(node)) and !sameId(node, target))) continue;
+        if (!m.same(model.utf8(node.kind()), "patternReference") or (hasId(base_nodes, node.id()) and !sameId(node, target))) continue;
         const frames = (try query.typedFramesAt(r.a, f.body(), &.{}, node.id())).?;
         for (frames, 0..) |frame, depth| for (frame.bindings) |binding| if (std.mem.eql(u16, binding.pattern.id(), node.reference("patternBindingId"))) {
             if (!first) try out.writeByte(',');
@@ -349,14 +359,14 @@ pub fn diff(r: *query.Request, out: *Writer, old: Model, proposed: Model, change
         if (change.removed.contains(query.idOf(n))) try removed.append(a, n);
         if (change.retained.contains(query.idOf(n))) try retained.append(a, n);
     }
-    for (new_nodes) |n| if (!has(base_nodes, query.idOf(n))) try added.append(a, n);
+    for (new_nodes) |n| if (!hasId(base_nodes, n.id())) try added.append(a, n);
     try out.writeAll(",\"removedNodes\":");
     try summaries(r, out, old, try sorted(a, removed.items));
     try out.writeAll(",\"addedNodes\":");
     try summaries(&candidate, out, proposed, added.items);
     const base_bindings = try bindings(a, old);
     var added_bindings: std.ArrayList(Model) = .empty;
-    for (try bindings(a, proposed)) |b| if (!has(base_bindings, query.idOf(b))) try added_bindings.append(a, b);
+    for (try bindings(a, proposed)) |b| if (!hasId(base_bindings, b.id())) try added_bindings.append(a, b);
     try out.writeAll(",\"addedPatternBindingIds\":[");
     for (try sorted(a, added_bindings.items), 0..) |b, i| {
         if (i > 0) try out.writeByte(',');
