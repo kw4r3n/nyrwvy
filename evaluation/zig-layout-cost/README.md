@@ -77,3 +77,32 @@ Review flagged that 100 calls do not settle .NET tier promotion. `csharp.py` now
 Thus the cautious headline is that Zig was ~1.6×/~2.1× faster than warmed tiered-on C# **in this workload and timing method**, not the much larger ratio from short tiered-on warm-up. C# GC still uses workstation defaults. The mismatch between deterministic Zig release and C# GC accounting remains explicitly bounded as above.
 
 Provenance: current snapshot bytes SHA-256 `a52fb69da2a8cfa9f5cc9662ba0cd68576b666832e026112ca6a190b38eb5310`; freshly emitted C# source `ef056238fc51a5caf674771d9cbc530df99e7a82b7795f9fe8739259c16bcfc1`. The current host's newly cached Zig runners were checked and have the same source hash `e30c95a4…` as the benchmark input. The width-table constructor and Zig decoder both use stable field-ID order. The standalone scripts print C# provenance but do not enforce cross-run snapshot pinning: reruns must verify provenance again.
+
+
+## Shared-library experiment artifacts
+
+`library-findings.md` records the dated table-path investigation and accepted
+constructor-storage reuse, with raw results in `library-probe-results.txt` and
+`optimization-{comparison,profile,tests}.txt`. These are historical measurements,
+not generated golden tests or portable performance thresholds. Timing and counter
+runs are separate; instrumentation is confined to scratch generated source.
+
+Use `library_probe.py layout.zig liblayout.so workspace.json` for pattern/counter
+measurements and `compare_libraries.py original.so candidate.so [...]` for parity
+and native ABI timings. Build all compared libraries with the same Zig compiler
+and ReleaseSafe settings, and run serially with no concurrent build.
+
+`state_update_experiment.py` and `segment_width_experiment.py` are experimental
+authoring scripts, not migrations to run against current projects. They require
+the original Rhifill layout snapshot `01a181cb-b5af-74ea-99e0-6f65dfcb99f7` and its
+dependency sidecars (before cached widths removed `mergeTargets`/`alignRow`), plus
+a current `npm run build:host`. Both take the snapshot path and a new output
+directory **outside** the input snapshot directory, copy inputs first, and mutate
+only copies through simulate/commit. The width script is not idempotent on an
+already-rewritten graph. Example: `python evaluation/zig-layout-cost/segment_width_experiment.py /path/to/original/workspace.json /tmp/nyrwvy-width-trial`.
+
+The constructor optimization is in the current emitter. Recreating the original
+versus optimized compiler comparison requires separate checkouts of the parent
+emitter and this change; merely running both graph variants with the current host
+does not recreate a no-constructor-reuse baseline. The rejected later unchanged-field
+optimization is not part of this directory or the accepted emitter.

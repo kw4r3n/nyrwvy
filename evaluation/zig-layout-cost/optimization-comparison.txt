@@ -1,0 +1,25 @@
+parity comparisons 3000
+original 80 24 narrow p50_us 11.95 p99_us 14.6
+optimized-emitter 80 24 narrow p50_us 11.02 p99_us 13.21
+cached 80 24 narrow p50_us 11.81 p99_us 14.62
+combined 80 24 narrow p50_us 11.17 p99_us 13.28
+original 80 24 wide p50_us 12.1 p99_us 14.68
+optimized-emitter 80 24 wide p50_us 11.09 p99_us 13.57
+cached 80 24 wide p50_us 11.91 p99_us 14.52
+combined 80 24 wide p50_us 10.97 p99_us 13.61
+original 80 24 mixed p50_us 163.62 p99_us 241.32
+optimized-emitter 80 24 mixed p50_us 103.28 p99_us 111.89
+cached 80 24 mixed p50_us 103.39 p99_us 107.56
+combined 80 24 mixed p50_us 62.61 p99_us 66.83
+original 300 100 narrow p50_us 123.54 p99_us 199.69
+optimized-emitter 300 100 narrow p50_us 113.94 p99_us 139.68
+cached 300 100 narrow p50_us 123.39 p99_us 128.48
+combined 300 100 narrow p50_us 121.64 p99_us 147.12
+original 300 100 wide p50_us 153.27 p99_us 195.39
+optimized-emitter 300 100 wide p50_us 113.86 p99_us 149.19
+cached 300 100 wide p50_us 123.32 p99_us 128.38
+combined 300 100 wide p50_us 120.67 p99_us 126.62
+original 300 100 mixed p50_us 1977.51 p99_us 2138.81
+optimized-emitter 300 100 mixed p50_us 1259.73 p99_us 1293.19
+cached 300 100 mixed p50_us 1086.68 p99_us 1155.3
+combined 300 100 mixed p50_us 639.18 p99_us 707.21

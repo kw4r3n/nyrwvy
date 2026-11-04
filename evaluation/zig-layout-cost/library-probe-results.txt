@@ -1,0 +1,69 @@
+source 38b81ca1bad4b27c2d1fd25d4a33f30bacb39798f477040e54cafb31f6fcae25
+ABI 80 24 narrow 11.47 us retained 51812
+ABI 80 24 wide 11.8 us retained 51812
+ABI 80 24 separators 163.79 us retained 133416
+ABI 80 24 mixed 162.81 us retained 133416
+ABI 300 100 narrow 121.11 us retained 646548
+ABI 300 100 wide 127.79 us retained 646548
+ABI 300 100 separators 2384.86 us retained 1617524
+ABI 300 100 mixed 2366.5 us retained 1617524
+ABI 600 100 narrow 230.64 us retained 1617524
+ABI 600 100 wide 326.36 us retained 1617524
+ABI 600 100 separators 4716.94 us retained 4045406
+ABI 600 100 mixed 4666.43 us retained 4045406
+ABI 300 200 narrow 242.12 us retained 4045406
+ABI 300 200 wide 250.97 us retained 4045406
+ABI 300 200 separators 4755.49 us retained 4045406
+ABI 300 200 mixed 4728.59 us retained 4045406
+PROFILE narrow calls/nyAlloc/requested bytes/realloc/boxes/retains/drops per frame
+cellUnits [30000, 0, 0, 0, 0, 0, 30000]
+isSep [30000, 0, 0, 0, 0, 0, 0]
+rowPositions [100, 100, 241600, 0, 0, 30000, 200]
+isTableRow [100, 0, 0, 0, 0, 0, 100]
+blockTargets [101, 0, 0, 0, 0, 0, 101]
+flushBlock [101, 0, 0, 0, 0, 101, 101]
+frameStep [100, 101, 4824, 7, 100, 999, 799]
+layoutFrame [1, 1, 48, 0, 1, 103, 105]
+posStep [30000, 0, 0, 0, 0, 0, 0]
+ABI outside functions [0, 102, 242432, 0, 1, 0, 0]
+PROFILE wide calls/nyAlloc/requested bytes/realloc/boxes/retains/drops per frame
+cellUnits [30000, 0, 0, 0, 0, 0, 30000]
+isSep [30000, 0, 0, 0, 0, 0, 0]
+rowPositions [100, 100, 241600, 0, 0, 30000, 200]
+isTableRow [100, 0, 0, 0, 0, 0, 100]
+blockTargets [101, 0, 0, 0, 0, 0, 101]
+flushBlock [101, 0, 0, 0, 0, 101, 101]
+frameStep [100, 101, 4824, 7, 100, 999, 799]
+layoutFrame [1, 1, 48, 0, 1, 103, 105]
+posStep [30000, 0, 0, 0, 0, 0, 0]
+ABI outside functions [0, 102, 242432, 0, 1, 0, 0]
+PROFILE separators calls/nyAlloc/requested bytes/realloc/boxes/retains/drops per frame
+cellUnits [78900, 0, 0, 0, 0, 0, 78900]
+isSep [90500, 0, 0, 0, 0, 0, 0]
+isTableRow [100, 0, 0, 0, 0, 0, 100]
+segStep [60000, 61400, 2614400, 0, 60000, 344200, 352800]
+segmentWidths [200, 200, 8000, 0, 200, 400, 1000]
+maxI [3762, 0, 0, 0, 0, 0, 0]
+blockTargets [1, 0, 0, 0, 0, 200, 2]
+alignStep [30000, 30200, 1688800, 800, 30000, 277300, 311100]
+flushBlock [1, 1, 1608, 0, 0, 303, 104]
+frameStep [100, 108, 8944, 0, 100, 726, 733]
+layoutFrame [1, 1, 48, 0, 1, 103, 105]
+alignRow [100, 100, 5600, 0, 100, 30500, 800]
+mergeTargets [100, 99, 30888, 0, 0, 297, 495]
+ABI outside functions [0, 102, 242432, 0, 1, 0, 0]
+PROFILE mixed calls/nyAlloc/requested bytes/realloc/boxes/retains/drops per frame
+cellUnits [78900, 0, 0, 0, 0, 0, 78900]
+isSep [90500, 0, 0, 0, 0, 0, 0]
+isTableRow [100, 0, 0, 0, 0, 0, 100]
+segStep [60000, 61400, 2614400, 0, 60000, 344200, 352800]
+segmentWidths [200, 200, 8000, 0, 200, 400, 1000]
+maxI [3762, 0, 0, 0, 0, 0, 0]
+blockTargets [1, 0, 0, 0, 0, 200, 2]
+alignStep [30000, 30200, 1688800, 800, 30000, 277300, 311100]
+flushBlock [1, 1, 1608, 0, 0, 303, 104]
+frameStep [100, 108, 8944, 0, 100, 726, 733]
+layoutFrame [1, 1, 48, 0, 1, 103, 105]
+alignRow [100, 100, 5600, 0, 100, 30500, 800]
+mergeTargets [100, 99, 30888, 0, 0, 297, 495]
+ABI outside functions [0, 102, 242432, 0, 1, 0, 0]

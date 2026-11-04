@@ -1806,6 +1806,68 @@ const Ownership = struct {
     }
 };
 
+/// Reuse only a still-owned box whose last read precedes this constructor in the same block.
+/// Adding the consumed operand before ownership analysis keeps it alive through intervening errors.
+fn reuseProductConstructors(original: Function, values: *const std.StringHashMap(*const Type)) Function {
+    var fn_ = original;
+    fn_.blocks = a.dupe(Block, original.blocks) catch oom();
+    var own = Ownership{ .values = values, .fn_ = original, .live_in = .init(a) };
+    own.analyse();
+    for (fn_.blocks) |*block| {
+        block.instructions = a.dupe(Instruction, block.instructions) catch oom();
+        var live = own.beforeTerminator(block.*);
+        var at = block.instructions.len;
+        while (at > 0) {
+            at -= 1;
+            const instruction = &block.instructions[at];
+            if (eql(str(instruction.o, "kind"), "productConstruct") and completeProductFields(instruction.*)) {
+                var seen = Set.empty;
+                for (own.uses(instruction.o)) |use| seen.put(a, use.id, {}) catch oom();
+                var previous = at;
+                // shortcut: inspect at most 64 preceding instructions; use indexed candidates if distant reuse matters.
+                const first = at -| 64;
+                search: while (previous > first) {
+                    previous -= 1;
+                    const used = own.uses(block.instructions[previous].o);
+                    for (used) |use| {
+                        if ((seen.getOrPut(a, use.id) catch oom()).found_existing) continue;
+                        const prior = block.instructions[previous];
+                        if (!eql(str(prior.o, "kind"), "fieldAccess") or !eql(use.id, str(prior.o, "sourceValueId"))) continue;
+                        if (live.contains(use.id) or !sameType(values.get(use.id).?, instruction.result.type)) continue;
+                        for (used) |other| if (eql(other.id, use.id) and other.consumed) continue :search;
+                        instruction.o = instruction.o.clone(a) catch oom();
+                        instruction.o.put(a, "kind", .{ .string = "productUpdate" }) catch oom();
+                        instruction.o.put(a, "sourceValueId", .{ .string = use.id }) catch oom();
+                        break :search;
+                    }
+                }
+            }
+            _ = live.swapRemove(instruction.result.id);
+            for (own.uses(instruction.o)) |use| live.put(a, use.id, {}) catch oom();
+        }
+    }
+    return fn_;
+}
+
+fn completeProductFields(instruction: Instruction) bool {
+    const named = switch (instruction.result.type.*) {
+        .named => |named| named,
+        else => return false,
+    };
+    const declaration = declarations.get(named.id) orelse return false;
+    const fields = declaration.product orelse return false;
+    const supplied = arr(instruction.o, "fields");
+    if (fields.len != supplied.len) return false;
+    for (fields) |field| {
+        var matches: usize = 0;
+        for (supplied) |item| if (eql(field.id, str(item.object, "targetFieldId"))) {
+            matches += 1;
+        };
+        if (matches != 1) return false;
+    }
+    return true;
+}
+
 fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const []const u8, values_of: *const std.StringHashMap(*const Type)) void {
     var own = Ownership{ .values = values_of, .fn_ = fn_, .live_in = .init(a) };
     own.analyse();
@@ -2004,10 +2066,11 @@ fn emit(ordered: []const Function) ?[]const u8 {
         const generic = functions.get(instance.id).?;
         var map = Bindings.init(a);
         for (generic.type_parameters, instance.args) |id, arg| map.put(id, arg) catch oom();
-        const fn_ = substituteFunction(&map, generic);
+        var fn_ = substituteFunction(&map, generic);
         const values = valuesOf(fn_);
         var body = Body{ .values = .init(a) };
         for (values) |value| body.values.put(value.id, value.type) catch oom();
+        fn_ = reuseProductConstructors(fn_, &body.values);
         for (values) |value| _ = zigOf(value.type);
         _ = zigOf(fn_.result);
         var lines: List([]const u8) = .empty;
@@ -2705,4 +2768,183 @@ test "runner ignores unused capabilities but follows capabilities through record
             } else try std.testing.expect(std.mem.indexOf(u8, result.source, "const C_good") == null);
         }
     }
+}
+
+test "constructor reuse keeps owned sources live and excludes consumed or later-used sources" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    const box: Type = .{ .named = .{ .id = "Box", .args = &.{} } };
+    const string: Type = .{ .primitive = "primitiveString" };
+    const unit: Type = .{ .primitive = "primitiveUnit" };
+    declarations = .init(a);
+    try declarations.put("Box", .{ .id = "Box", .type_parameters = &.{}, .product = try a.dupe(Field, &.{.{ .id = "text", .type = &string }}), .variants = &.{} });
+    may_fail = .init(a);
+    try may_fail.put("fail", {});
+    const read = (try parseJson(
+        \\{"kind":"fieldAccess","sourceValueId":"source","fieldId":"text"}
+    )).object;
+    const construct = (try parseJson(
+        \\{"kind":"productConstruct","fields":[{"targetFieldId":"text","valueId":"text"}]}
+    )).object;
+    const consume = (try parseJson(
+        \\{"kind":"readParameter","sourceValueId":"source"}
+    )).object;
+    const fail = (try parseJson(
+        \\{"kind":"directCall","functionId":"fail","arguments":[]}
+    )).object;
+    for (0..10) |scenario| {
+        declarations.getPtr("Box").?.product = try a.dupe(Field, if (scenario == 7)
+            &.{ .{ .id = "text", .type = &string }, .{ .id = "other", .type = &string } }
+        else
+            &.{.{ .id = "text", .type = if (scenario == 8) &box else &string }});
+        var instructions: List(Instruction) = .empty;
+        push(Instruction, &instructions, .{ .result = .{ .id = "text", .type = if (scenario == 8) &box else &string }, .o = read });
+        if (scenario == 1) push(Instruction, &instructions, .{ .result = .{ .id = "alias", .type = &box }, .o = consume });
+        if (scenario == 4) push(Instruction, &instructions, .{ .result = .{ .id = "unit", .type = &unit }, .o = fail });
+        if (scenario == 9) for (0..64) |padding| {
+            push(Instruction, &instructions, .{ .result = .{ .id = std.fmt.allocPrint(a, "padding{d}", .{padding}) catch oom(), .type = &unit }, .o = fail });
+        };
+        const index = instructions.items.len;
+        const construction = if (scenario == 5) (try parseJson(
+            \\{"kind":"productConstruct","fields":[]}
+        )).object else if (scenario == 6) (try parseJson(
+            \\{"kind":"productConstruct","fields":[{"targetFieldId":"wrong","valueId":"text"}]}
+        )).object else if (scenario == 7) (try parseJson(
+            \\{"kind":"productConstruct","fields":[{"targetFieldId":"text","valueId":"text"},{"targetFieldId":"text","valueId":"text"}]}
+        )).object else if (scenario == 8) (try parseJson(
+            \\{"kind":"productConstruct","fields":[{"targetFieldId":"text","valueId":"source"}]}
+        )).object else construct;
+        push(Instruction, &instructions, .{ .result = .{ .id = "result", .type = &box }, .o = construction });
+        const terminator = (try parseJson(if (scenario == 2)
+            \\{"kind":"return","valueId":"source"}
+        else if (scenario == 3)
+            \\{"kind":"branch","conditionValueId":"condition","whenTrue":"next","whenFalse":"next"}
+        else
+            \\{"kind":"return","valueId":"result"}
+        )).object;
+        var blocks: List(Block) = .empty;
+        push(Block, &blocks, .{ .id = "entry", .parameters = &.{}, .instructions = instructions.items, .terminator = terminator });
+        if (scenario == 3) push(Block, &blocks, .{ .id = "next", .parameters = &.{}, .instructions = &.{}, .terminator = (try parseJson(
+            \\{"kind":"return","valueId":"source"}
+        )).object });
+        const fn_: Function = .{ .id = "test", .type_parameters = &.{}, .parameters = &.{}, .result = &box, .entry = "entry", .blocks = blocks.items };
+        var values = std.StringHashMap(*const Type).init(a);
+        try values.put("source", &box);
+        for (instructions.items) |instruction| try values.put(instruction.result.id, instruction.result.type);
+        const lowered = reuseProductConstructors(fn_, &values);
+        const changed = lowered.blocks[0].instructions[index];
+        try std.testing.expectEqualStrings(if (scenario == 0 or scenario == 4) "productUpdate" else "productConstruct", str(changed.o, "kind"));
+        try std.testing.expectEqualStrings("productConstruct", str(construct, "kind"));
+        if (scenario == 4) {
+            var ownership = Ownership{ .values = &values, .fn_ = lowered, .live_in = .init(a) };
+            ownership.analyse();
+            value_names = .empty;
+            var lines: List([]const u8) = .empty;
+            for (instructions.items) |_| push([]const u8, &lines, "instruction;");
+            const rendered = ownership.blockLines(lowered.blocks[0], lines.items);
+            const drop = cat(&.{ "nyRelease(", v("source"), ");" });
+            try std.testing.expect(std.mem.indexOf(u8, rendered[0], drop) == null);
+            try std.testing.expect(std.mem.indexOf(u8, rendered[1], "errdefer") != null);
+            try std.testing.expect(std.mem.indexOf(u8, rendered[1], drop) != null);
+        }
+    }
+}
+
+test "emitted constructor reuse executes unique shared nested and failing paths without leaks" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const box =
+        \\{"kind":"named","typeId":"Box","arguments":[]}
+    ;
+    const items =
+        \\{"kind":"list","itemType":{"kind":"primitiveString"}}
+    ;
+    const read = try std.mem.concat(allocator, u8, &.{
+        \\{"kind":"fieldAccess","sourceValueId":"source","fieldId":"items","result":{"id":"items","type":
+        ,
+        items,
+        "}}",
+    });
+    const construct = try std.mem.concat(allocator, u8, &.{
+        \\{"kind":"productConstruct","fields":[{"targetFieldId":"items","valueId":"items"}],"result":{"id":"result","type":
+        ,
+        box,
+        "}}",
+    });
+    var function_text: List([]const u8) = .empty;
+    a = allocator;
+    for ([_][]const u8{ "rebuild", "failed" }) |id| {
+        const failure = eql(id, "failed");
+        push([]const u8, &function_text, cat(&.{
+            "{\"semanticFunctionId\":\"", id,        "\",\"parameters\":[{\"semanticParameterId\":\"p\",\"value\":{\"id\":\"source\",\"type\":", box, "}}]", if (failure) ",\"requiredEffects\":[\"failure\"]" else "", ",\"resultType\":", box,
+            \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[
+            ,
+            read,
+            if (failure)
+                \\,{"kind":"exceptionRethrow","valueId":"failure","result":{"id":"unit","type":{"kind":"primitiveUnit"}}}
+            else
+                "",
+            ",",                          construct,
+            \\],"terminator":{"kind":"return","valueId":"result"}}]}
+        }));
+    }
+    // The failing function takes a non-counted exception as its second argument.
+    function_text.items[1] = try std.mem.replaceOwned(u8, allocator, function_text.items[1], "}}],\"requiredEffects\"", "}},{\"semanticParameterId\":\"error\",\"value\":{\"id\":\"failure\",\"type\":{\"kind\":\"exception\"}}}],\"requiredEffects\"");
+    const ir = cat(&.{
+        \\{"types":[{"id":"Box","kind":"product","fields":[{"id":"items","type":
+        ,
+        items,
+        "}]}],\"capabilities\":[],\"functions\":[",
+        join(",", function_text.items),
+        "]}",
+    });
+    const output = try runner(allocator, ir, null);
+    try std.testing.expect(output == .source);
+    const emitted_test = cat(&.{
+        \\test "generated constructor ownership" {
+        \\ var gpa: std.heap.DebugAllocator(.{}) = .init;
+        \\ ny_values = gpa.allocator();
+        \\ {
+        \\ const source = nyBox(
+        ,
+        typeName("Box", &.{}),
+        ", .{ .",
+        fieldName("items"),
+        " = nyListMove([]const u8, &.{nyInt64ToString(42)}) });",
+        " const unique = ",
+        instanceName("rebuild", &.{}),
+        "(source); try std.testing.expectEqual(source, unique);",
+        " const alias = nyShare(unique); const shared = ",
+        instanceName("rebuild", &.{}),
+        "(unique); try std.testing.expect(shared != alias);",
+        " try std.testing.expectEqualStrings(\"42\", alias.",
+        fieldName("items"),
+        "[0]); try std.testing.expectEqualStrings(\"42\", shared.",
+        fieldName("items"),
+        "[0]); nyRelease(shared);",
+        " const held = nyShare(alias); try std.testing.expectError(error.NyFailure, ",
+        instanceName("failed", &.{}),
+        "(alias, .{ .type_name = \"Test\", .message = \"failed\" }));",
+        " try std.testing.expectEqualStrings(\"42\", held.",
+        fieldName("items"),
+        "[0]); nyRelease(held);",
+        \\ }
+        \\ try std.testing.expect(gpa.deinit() == .ok);
+        \\}
+    });
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const io = std.testing.io;
+    try temporary.dir.writeFile(io, .{ .sub_path = "constructors.zig", .data = cat(&.{ output.source, "\n", emitted_test }) });
+    const path = try temporary.dir.realPathFileAlloc(io, "constructors.zig", allocator);
+    const zig_executable = std.testing.environ.getAlloc(allocator, "NYRWVY_ZIG") catch |err| switch (err) {
+        error.EnvironmentVariableMissing => "zig",
+        else => return err,
+    };
+    const argv: []const []const u8 = if (@import("builtin").os.tag == .macos) &.{ zig_executable, "test", "-lc", "-O", "ReleaseSafe", path } else &.{ zig_executable, "test", "-O", "ReleaseSafe", path };
+    const result = try std.process.run(allocator, io, .{ .argv = argv });
+    if (result.term != .exited or result.term.exited != 0) std.debug.print("generated constructor test: {s}\n{s}\n", .{ result.stdout, result.stderr });
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
 }

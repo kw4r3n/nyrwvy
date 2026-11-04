@@ -1,0 +1,116 @@
+
+> nyrwvy-adapters@0.1.0 test:host
+> node scripts/test-typed-host.mjs
+
+1/8 runtime.test.counted runtime frees everything...OK
+2/8 runtime.test.failures, tasks and hand-off cells release their values...OK
+3/8 runtime.test.a deadlock fails every waiter and each unwinds alone...OK
+4/8 runtime.test.count-of-one updates reuse unique storage and copy shared storage...OK
+5/8 runtime.test.a shared list grows in place past its own length and copies otherwise...OK
+6/8 runtime.test.sets and maps look up through a hash index that agrees with equality...OK
+7/8 runtime.test.Bits32 operations match the C# uint semantics...OK
+8/8 runtime.test.three waiters deadlocked at once, waited out of start order, each unwind alone...OK
+All 8 tests passed.
+1/20 main.test.resolved native documents reuse decoded dependencies and return complete nested metadata...OK
+2/20 main.test.irregular recursive types are reported without unbounded instantiation...OK
+3/20 main.test.a nested graph's nodes leave scope when the graph ends...OK
+4/20 typed.test.operation generations path-copy changed tables and share unchanged function bodies...OK
+5/20 typed.test.live-set compaction remaps handles and preserves shared declarations and bodies...OK
+6/20 typed.test.interner checkpoint releases failed proposal entries and retains prior handles...OK
+7/20 typed.test.interner restore cycles keep lookups correct and the map bounded...OK
+8/20 typed.test.failed live-set preparation leaves the old generation usable...OK
+9/20 typed.test.payload decoder covers every kind and compaction preserves all shapes and UTF16 units...OK
+10/20 typed.test.typed compaction owns every declaration and nested type after the source arena is freed...OK
+11/20 typed.test.body depth first traversal visits match result ok before err and children before siblings...OK
+12/20 typed.test.loading string literals retains lone UTF16 units for semantic validation...OK
+13/20 semantic_model.test.borrowed semantic handles retain their own interner across temporary models...OK
+14/20 typed_dependencies.test.typed dependency merge remaps independent interners, deduplicates and preserves first occurrence order...OK
+15/20 typed_dependencies.test.typed dependency collision names every provider without changing the target interner...OK
+16/20 typed_dependencies.test.typed dependency subjects include declaration members in source order...OK
+17/20 typed_dependencies.test.dependency collision compares canonical graph order and exact obligation content...OK
+18/20 typed_builder.test.typed builder rebuilds nested graphs, replaces nodes and appends a result without changing the source...OK
+19/20 typed_builder.test.typed builder rejects a payload whose shape does not match its node kind...OK
+20/20 typed_builder.test.postorder builder transforms nested nodes before parents and remaps graph results...OK
+All 20 tests passed.
+1/7 main.test.unsupported type diagnostics preserve the F sharp nested layout...OK
+2/7 main.test.identifiers keep distinct IDs distinct and literals escape IDs...OK
+3/7 main.test.runner dispatch skips records whose fields hold task handles, including recursive ones...OK
+4/7 main.test.malformed literals and over-deep JSON are reported, not panicked on or pasted...OK
+5/7 main.test.runner ignores unused capabilities but follows capabilities through record fields and operation results...OK
+6/7 main.test.constructor reuse keeps owned sources live and excludes consumed or later-used sources...OK
+7/7 main.test.emitted constructor reuse executes unique shared nested and failing paths without leaks...OK
+All 7 tests passed.
+1/5 native.test.native scalar validation and FSharp descriptions...OK
+2/5 native.test.native adapters cover buffers ownership references structs and unavailable calls...OK
+3/5 root.test.malformed Execution IR references are a backend failure...OK
+4/5 root.test.malformed literal values are a backend failure...OK
+5/5 root.test.stable names and UTF16 ordinal sorting...OK
+All 5 tests passed.
+main.test.writeString replaces ill-formed UTF-8 with U+FFFD...OK
+main.test.dependency pair restores a failed snapshot write and preserves recovery on rollback failure...OK
+run_pure.test.runner dispatch name preserves arbitrary UTF-8 stable IDs...OK
+proposals.test.live-set replacement commits and rejection stay bounded and retain stale proposals...live-set retained bytes (arenas + interner requests): baseline=23740, max=23808
+OK
+operation_engine.test.typed operation transaction renames a declaration and preserves the committed record...OK
+operation_engine.test.typed operations add resolve and retire a missing argument without editing the base...OK
+operation_engine.test.typed operations bind and remove a product field using existing value nodes...OK
+operation_engine.test.typed operations materialize field recipe plans as native graph nodes...OK
+operation_engine.test.typed operation adds capability operations and binds native implementations...OK
+operation_engine.test.typed removal narrows shared union arms and derives native field bindings...OK
+run_value.test.binary64 output follows the wire's round-trip decimal convention...OK
+run_value.test.named values preserve wire field order until semantic canonicalization...OK
+run_value.test.run values keep exact integers, binary64 signs, and text tokens...OK
+run_value.test.scalar decoding preserves negative zero and rejects unsigned negative zero...OK
+run_value.test.run declarations hide imported private members without changing the model...OK
+run_value.test.nested fake response diagnostics include the operation response and field path...OK
+run_value.test.plain constructor size checks include nested 257-field values...OK
+run_value.test.produced recursive values follow the whole envelope JSON depth limit...OK
+ids.test.seeded UUIDv7 payloads and restart guard...OK
+ids.test.unseeded IDs use the host clock and secure entropy...OK
+run_csharp_build.test.temporary directories use the configured root and are distinct...OK
+run_csharp_build.test.sweep removes session directories whose host is gone...OK
+run_csharp_build.test.stored assemblies outlive the session and a changed source misses them...OK
+recipe_file.test.confined recipe paths reject parent traversal on each platform...OK
+bind_c.test.bind-c parse and LP64 classifications...OK
+bind_c.test.bind-c specs decode BOM text and reject numeric constants before publication...OK
+bind_c.test.bind-c syntax diagnostics retain JsonNode positions and accessed UTF16 strings...OK
+change_verification.test.verification classification ignores display names and keeps failures/concurrency conservative...OK
+csharp_facade.test.empty facade and Unicode name checks...OK
+csharp_facade.test.import visibility and external capability roots...OK
+csharp_facade.test.facade name collisions and reserved fields...OK
+csharp_mapping.test.mapping override names preserve extension policy...OK
+csharp_mapping.test.mapping rejects pointer constants and preserves failure diagnostic precedence...OK
+declarations.test.typed generic declaration rewrites group references and fresh type parameters...OK
+managed_text.test.managed text detects BOMs and replaces malformed maximal subparts...OK
+migration.test.signature remap restores parameter and function IDs and generic binding types...OK
+operation_decode.test.typed operation decoding resolves member names and constructs native union variants...OK
+process_lifetime.test.termination kills an owned group before a CPU-bound serving task can unwind...OK
+process_lifetime.test.a child registered after shutdown is killed even after the monitor has finished...OK
+process_lifetime.test.owned children are registered before execution and reaped...OK
+run_csharp_runner.test.C# runner keeps recursive codecs finite and argument values out of source...OK
+run_csharp_runner.test.C# runner emits transitive encoders for types first seen as arguments...OK
+run_process.test.compiler child is bounded even after closing its output streams...OK
+run_process.test.child output is bounded while both redirected streams drain...OK
+run_process.test.both child streams drain beyond pipe capacity without deadlock...OK
+run_process.test.compiler diagnostics decode malformed text before a UTF16 prefix reaches the wire...OK
+run_process.test.owned process trees close inherited output pipes on timeout...OK
+startup.test.startup accepts only exact CLI forms and payloads...OK
+startup.test.pin final reread reports snapshot and manifest I/O failures without publication...OK
+union_evolution.test.union clone remaps nested results and separate node binding domains while retaining literals...Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies.
+OK
+verification_identity.test.native executable identity is a stable digest of the running file...OK
+query.test.typed search finds visible names and literals...OK
+query.test.typed references and binding scopes do not read a value model...OK
+query.test.typed focus and viewer use the generation without a value model...OK
+wire.test.typed declarations match tree encoding with provenance...OK
+typed_edit.test.typed edits copy changed domain records and preserve untouched functions...OK
+view_file.test.generated output preflight refuses invalid paths without publication...OK
+view_file.test.exclusive snapshot creation preserves an existing destination and removes its temporary...OK
+view_file.test.portable atomic publication preserves an existing target and cleans temporary files...OK
+view_file.test.atomic replacement keeps the target's file mode...OK
+view_file.test.publication identity distinguishes files and detects filesystem aliases...OK
+infer.test.equatability of an irregularly recursive type terminates...OK
+materialize.test.typed materializer creates postorder nodes and fresh parameter references...OK
+materialize.test.typed materializer allocates both result bindings before arm nodes and resolves lexical slots...Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies.
+OK
+dependency_simulation.test.retained dependency owns typed graph interner and provenance after source arena release...OK
