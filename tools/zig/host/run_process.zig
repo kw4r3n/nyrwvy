@@ -190,6 +190,12 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
         .completed => |result| result,
     };
     if (!built.term.success()) return .{ .failed = try processFailure(a, built) };
+    // Synced before the rename, so a crash cannot leave a truncated runner that later runs as a hit.
+    {
+        const file = try std.Io.Dir.cwd().openFile(io, partial, .{});
+        defer file.close(io);
+        try file.sync(io);
+    }
     try std.Io.Dir.renameAbsolute(partial, binary, io);
     return .{ .executable = binary };
 }
