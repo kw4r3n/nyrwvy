@@ -24,4 +24,8 @@ if (!process.argv.includes("--node-only")) {
   console.log(`xUnit partition is disjoint and exhaustive: ${fast.size} fast, ${extended.size} extended.`)
 }
 const node = discoverNodeTests(cwd)
+// npm run test:bun globs only .opencode/tests/*.test.ts, so a Bun test elsewhere would run nowhere.
+const strayBun = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.test.ts"], { cwd, encoding: "utf8" })
+  .split("\0").filter(path => path && !/^\.opencode\/tests\/[^/]+\.test\.ts$/.test(path))
+assert.deepEqual(strayBun, [], "Bun tests outside .opencode/tests/*.test.ts run in no suite")
 console.log(`Node ownership is disjoint and exhaustive: ${Object.entries(node).map(([suite, files]) => `${files.length} ${suite}`).join(", ")}.`)
