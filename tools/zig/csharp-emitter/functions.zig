@@ -17,8 +17,8 @@ pub fn valueType(fn_: Value, id: []const u8) Value {
     }
     return .null;
 }
-fn parameter(fn_: Value, id: []const u8) Value {
-    return b.find(b.arr(fn_, "parameters"), "semanticParameterId", id).?;
+fn parameter(fn_: Value, id: []const u8) !Value {
+    return b.find(b.arr(fn_, "parameters"), "semanticParameterId", id) orelse error.MalformedExecutionIr;
 }
 pub fn callbackName(a: b.Allocator, id: []const u8) ![]const u8 {
     return b.cat(a, &.{ "NyFunctions.", try b.name(a, "NyF_", id) });
@@ -81,6 +81,7 @@ pub fn callback(c: Context, target: []const u8, id: []const u8, context: []const
         if (mentionsParameter(b.get(b.get(p, "value"), "type"))) is_generic = true;
     }
     if (context.len == 0 and !is_generic) return callbackName(c.a, id);
+    if (context.len > params.len) return error.InvalidCallbackArity;
     const names = try c.a.alloc([]const u8, params.len - context.len);
     for (names, 0..) |*n, i| n.* = try b.fmt(c.a, "{s}_it{d}", .{ target, i });
     return b.cat(c.a, &.{ "(", try std.mem.join(c.a, ", ", names), ") => ", try invocation(c, id, context, names) });
@@ -120,7 +121,7 @@ fn assignments(a: b.Allocator, fn_: Value, term: Value) ![]const Value {
     const args = b.arr(term, "arguments");
     if (!b.eq(b.kind(term), "tailCall")) return args;
     var result: std.ArrayList(Value) = .empty;
-    for (try b.sorted(a, args, "targetParameterId")) |arg| try result.append(a, try b.object(a, &.{ "targetValueId", "valueId" }, &.{ b.get(b.get(parameter(fn_, b.str(arg, "targetParameterId")), "value"), "id"), b.get(arg, "valueId") }));
+    for (try b.sorted(a, args, "targetParameterId")) |arg| try result.append(a, try b.object(a, &.{ "targetValueId", "valueId" }, &.{ b.get(b.get(try parameter(fn_,b.str(arg, "targetParameterId")), "value"), "id"), b.get(arg, "valueId") }));
     return result.items;
 }
 fn parallelAssignment(w: *Writer, block: Value, args: []const Value) anyerror!void {

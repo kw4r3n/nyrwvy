@@ -84,6 +84,11 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const missing = await failed(first, "open", { mode: "open", snapshot: "missing.json" })
     assert.match(missing.content[0].text, /SnapshotFileNotFound: No snapshot file at .*missing\.json.*create/)
     assert.doesNotMatch(missing.content[0].text, /replay/)
+    // A sidecar without its snapshot is an interrupted create; open says so (create keeps the F# host's wording).
+    await writeFile(join(workspace, "orphan.json.dependency.json"), "{}")
+    const orphan = await failed(first, "open", { mode: "open", snapshot: "orphan.json" })
+    assert.match(orphan.content[0].text, /creating it with a dependency was interrupted\. Delete the sidecar/)
+    await rm(join(workspace, "orphan.json.dependency.json"))
     const noWorkspace = await failed(first, "open", { mode: "create", snapshot: "workspace.json", workspace: join(root, "absent") })
     assert.match(noWorkspace.content[0].text, /^workspace directory does not exist: /)
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })
@@ -292,10 +297,34 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
     assert.deepEqual([replaced.details.recipeKind, replaced.details.expectedShape.kind], ["boolLiteral", "boolLiteral"])
     const batch = (await failed(client, "create_functions", { functions: [{ displayName: "broken", parameters: [], resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: { kind: "boolNot", value: { ...bool(true), extra: 1 } } }] })).structuredContent.error
     assert.deepEqual([batch.problems[0].recipeKind, batch.problems[0].byName, batch.problems[0].expectedShape.kind], ["boolLiteral", true, "boolLiteral"])
+    const mixed = (await failed(client, "batch", { steps: [{ kind: "createFunction", displayName: "broken", parameters: [], resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: { kind: "boolNot", value: { ...bool(true), extra: 1 } } }] })).structuredContent.error
+    assert.deepEqual([mixed.stepError.details.recipeKind, mixed.stepError.details.expectedShape.kind], ["boolLiteral", "boolLiteral"], JSON.stringify(mixed))
     // Past the gate, request validation applies: sources without a hostCapability binding are invalid.
     const invalid = await failed(client, "request", { op: "runPure",
       arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
     assert.equal(invalid.structuredContent.error.code, "RunHostSourceInvalid")
+  } finally {
+    await client?.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("MCP runs a Product with fields parameter and value from plain JSON, not as a {parameter, value} pair", { timeout: 30000 }, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-setting-"))
+  let client
+  try {
+    client = await connect(workspace)
+    await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+    const int64 = { kind: "primitive", primitive: "int64" }
+    const type = await call(client, "create_type", { displayName: "Setting", typeKind: { kind: "product", fields: [
+      { displayName: "parameter", type: { kind: "primitive", primitive: "string" } }, { displayName: "value", type: int64 }] } })
+    await call(client, "commit", { proposalId: type.result.proposalId })
+    const created = await call(client, "create_function", { displayName: "settingValue", requiredEffects: [], resultType: int64,
+      parameters: [{ displayName: "setting", type: { kind: "named", name: "Setting" } }],
+      body: { kind: "fieldAccess", source: { kind: "parameter", name: "setting" }, type: "Setting", field: "value" } })
+    await call(client, "commit", { proposalId: created.result.proposalId })
+    const ran = await call(client, "request", { op: "runPureByName", arguments: { function: "settingValue", arguments: [{ parameter: "a", value: 1 }], expected: 1 } })
+    assert.equal(ran.result.matches, true, JSON.stringify(ran))
   } finally {
     await client?.close()
     await rm(workspace, { recursive: true, force: true })
@@ -330,5 +359,24 @@ test("MCP accepts, commits and runs every recipe_reference worked example", { ti
       await client?.close()
       await rm(workspace, { recursive: true, force: true })
     }
+  }
+})
+
+test("MCP runPure on C# fails fast as fatal out of memory instead of allocating 16 GB", { timeout: 900000 }, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-oom-"))
+  let client
+  try {
+    client = await connect(workspace)
+    await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+    const int64 = { kind: "primitive", primitive: "int64" }
+    const created = await call(client, "create_function", { displayName: "huge", parameters: [], resultType: { kind: "builtinGeneric", generic: "list", arguments: [int64] },
+      requiredEffects: [], body: { kind: "listRange", start: { kind: "int64Literal", value: 0 }, end: { kind: "int64Literal", value: 2000000000 } } })
+    await call(client, "commit", { proposalId: created.result.proposalId })
+    const result = await client.callTool({ name: "nyrwvy_request", arguments: { op: "runPureByName", arguments: { function: "huge", arguments: [] } } }, { timeout: 900000 })
+    assert.equal(result.isError, true, JSON.stringify(result))
+    assert.deepEqual([result.structuredContent.error.failureKind, result.structuredContent.error.exceptionType], ["fatal", "System.OutOfMemoryException"])
+  } finally {
+    await client?.close()
+    await rm(workspace, { recursive: true, force: true })
   }
 })

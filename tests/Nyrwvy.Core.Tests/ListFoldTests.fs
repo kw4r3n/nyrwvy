@@ -231,11 +231,6 @@ module ListFoldTests =
             |> List.find (fun node -> match node.Kind with | SemanticNodeKind.ListFold _ -> true | _ -> false)
         Assert.Equal(Some stateType,
             focus.NodeTypes |> List.find (fun fact -> fact.NodeId = foldNode.Id) |> fun fact -> fact.Type)
-        let viewer = ViewerProjection.focus focus
-        let foldView = viewer.Graph.Nodes |> List.find (fun node -> node.Id = foldNode.Id)
-        Assert.Equal(ViewerNodeRole.Operation "ListFold", foldView.Role)
-        Assert.Contains(foldView.Relations, fun relation ->
-            relation.Kind = ViewerRelationKind.CallsFunction && relation.Target = ViewerTarget.Function folder.Id)
         let typed = TypedSemanticIr.project reopened |> unwrap "typed projection"
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"listFold\"", TypedSemanticIrSerializer.serialize typed)

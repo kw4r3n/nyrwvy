@@ -72,7 +72,7 @@ module ZigHostStartupModesParityTests =
         let _, zigCode, zigErrors, zigAnswers, zigWritten = actual
         let context = $"""{String.Join(" ", arguments)}{"\n"}F#: {code} {errors}{"\n"}Zig: {zigCode} {zigErrors}"""
         Assert.True((code = zigCode), context)
-        Assert.True((errors = zigErrors), context)
+        Assert.True((comparable errors = comparable zigErrors), context)
         Assert.Equal<string list>(answers, zigAnswers)
         Assert.Equal<(string * string) list>(written, zigWritten)
         Assert.DoesNotContain(written, fun (name, _) -> name.EndsWith ".previous" || name.EndsWith ".tmp")

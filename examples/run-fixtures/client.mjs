@@ -24,12 +24,15 @@ function payload(response) {
   try { return JSON.parse(text) } catch { return undefined }
 }
 
+// The SDK cancels after 60 s by default; a cold C# tool build may take up to the adapter's 900 s.
+const callTimeoutMs = 900_000
+
 export async function runFixtures(client, fixtures, transcript, report = console.log) {
   const counts = { passed: 0, failed: 0, unknown: 0 }
   for (const { label, request } of fixtures) {
     let response
     try {
-      response = await client.callTool({ name: "nyrwvy_request", arguments: request })
+      response = await client.callTool({ name: "nyrwvy_request", arguments: request }, { timeout: callTimeoutMs })
     } catch (error) {
       // The request may have executed. Keep the evidence and stop; never replay it.
       await appendFile(transcript, JSON.stringify({ label, request, transportError: String(error) }) + "\n")
@@ -83,7 +86,7 @@ export async function runParity(client, fixtures, backends, transcript, report =
       const sent = { ...request, arguments: { ...request.arguments, backend } }
       let response
       try {
-        response = await client.callTool({ name: "nyrwvy_request", arguments: sent })
+        response = await client.callTool({ name: "nyrwvy_request", arguments: sent }, { timeout: callTimeoutMs })
       } catch (error) {
         await appendFile(transcript, JSON.stringify({ label, backend, request: sent, transportError: String(error) }) + "\n")
         counts.unknown += 1
@@ -141,7 +144,7 @@ async function main() {
       cwd: dirname(snapshot), env: { NYRWVY_ALLOW_HOST_SOURCES: "0",
         ...(process.env.NYRWVY_HOST_EXECUTABLE ? { NYRWVY_HOST_EXECUTABLE: process.env.NYRWVY_HOST_EXECUTABLE } : {}),
         ...(process.env.NYRWVY_ZIG ? { NYRWVY_ZIG: process.env.NYRWVY_ZIG } : {}) }, stderr: "inherit" }))
-    const opened = await client.callTool({ name: "nyrwvy_open", arguments: { mode: "open", snapshot } })
+    const opened = await client.callTool({ name: "nyrwvy_open", arguments: { mode: "open", snapshot } }, { timeout: callTimeoutMs })
     await appendFile(transcript, JSON.stringify({ phase: "open", response: opened }) + "\n")
     if (opened.isError || payload(opened)?.ok === false) throw new Error("Could not open snapshot; see transcript.")
     const counts = parity ? await runParity(client, fixtures, backends, transcript) : await runFixtures(client, fixtures, transcript)

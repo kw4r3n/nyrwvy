@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process"
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -16,6 +16,7 @@ const modules = [
 ]
 // The emitter's runtime is text embedded into generated programs; its test is that text plus a test block.
 const runtimeTest = join(mkdtempSync(join(tmpdir(), "nyrwvy-runtime-")), "runtime.zig")
+process.on("exit", () => rmSync(dirname(runtimeTest), { recursive: true, force: true }))
 writeFileSync(runtimeTest, ["runtime.zig", "case_mapping.zig", "runtime_test.zig"].map(name => readFileSync(join(root, "tools/zig/emitter", name), "utf8")).join("\n"))
 const commands = [
   ["test", "-O", "ReleaseSafe", runtimeTest],

@@ -80,6 +80,7 @@ for (const [host, schema, minor] of [["OpenCode", tool.schema, 1], ["MCP", z, 3]
     assert.throws(() => definitions.inspect.execute({ view: "scopes", function: "f" }, context), /requires nodeId/)
     assert.throws(() => definitions.inspect.execute({ view: "status", nodeId: "n" }, context), /nodeId requires view=scopes/)
     assert.throws(() => definitions.inspect.execute({ view: "status", detail: "full" }, context), /detail requires view=function/)
+    assert.throws(() => definitions.inspect.execute({ view: "scopes", nodeId: "n", detail: "full" }, context), /detail requires view=function/)
     assert.throws(() => definitions.inspect.execute({ view: "references", target: { kind: "type", id: "caller-owned" } }, context), /tool-owned/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { id: "caller-owned" } }, context), /tool-owned/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { op: "commit" } }, context), /Pass op separately/)
