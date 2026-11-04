@@ -355,7 +355,7 @@ const Decoder = struct {
     }
     fn taggedBody(self: *Decoder, path: []const u8, location: []const u8, item: Json, depth: usize) Fail!RunValue {
         if (item != .object) return self.fail("Run values must be non-null typed objects.", .{});
-        if (item.object.get("kind") == null and item.object.get("parameter") != null and self.order.len > 0) return self.fail("{s} arguments are positional plain JSON values, one per parameter in the order ({s}), not {{parameter, value}} pairs: write [{{\"field\":1}}, 10], not [{{\"parameter\":\"x\",\"value\":1}}]. The pair form is only for fake capability case arguments.", .{ self.op, self.order });
+        if (item.object.get("kind") == null and item.object.get("parameter") != null and self.order.len > 0 and depth == 0) return self.fail("{s} arguments are positional plain JSON values, one per parameter in the order ({s}), not {{parameter, value}} pairs: write [{{\"field\":1}}, 10], not [{{\"parameter\":\"x\",\"value\":1}}]. The pair form is only for fake capability case arguments.", .{ self.op, self.order });
         if (item.object.get("kind") == null and item.object.get("parameter") != null) return self.fail("Run values are typed objects with a kind. runPure arguments are positional, one typed value per parameter in declaration order (for example [{{\"kind\":\"string\",\"value\":\"a\"}}]); {{parameter, value}} pairs are the form of fake capability case arguments.", .{});
         const kind = try self.d.requiredString(item, "kind");
         const leaf_kind = same(kind, "string") or same(kind, "bool") or same(kind, "int64") or same(kind, "float64") or same(kind, "bits32") or same(kind, "bytes") or same(kind, "unit");
@@ -686,6 +686,7 @@ pub fn decode(r: *q.Request) Fail!Input {
         d.top = try d.fmt("arguments[{d}]", .{i});
         slot.* = if (i < params.len) try d.plain(try d.at("/arguments", i), d.top, try infer.typeOf(r.a, params[i].declaredType()), value, 0) else try d.tagged(try d.at("/arguments", i), d.top, value, 0);
     }
+    d.order = "";
     var expected: ?RunValue = null;
     if (root.object.get("expected")) |value| {
         d.remaining = 8192;

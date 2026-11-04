@@ -1,6 +1,6 @@
 // Summarizes one codex --json event log: tool calls, rejected calls by error code, token usage.
 export function summarizeEvents(lines) {
-  const events = lines.filter(Boolean).map(line => JSON.parse(line))
+  const events = lines.flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }) // skips blank and stray non-JSON lines
   const calls = events.filter(e => e.type === "item.completed" && e.item.type === "mcp_tool_call").map(e => e.item)
   const rejections = calls.filter(c => c.status !== "completed").map(c => {
     const text = c.result?.content?.[0]?.text ?? c.error?.message ?? ""

@@ -78,10 +78,13 @@ if (values.check) {
   const rows = []
   for (const path of tasks) {
     const task = JSON.parse(await readFile(path, "utf8"))
+    if (!task.checks?.length) throw new Error(`${path} has no checks; a run could never fail`)
     for (let i = 1; i <= Number(values.runs); i++) {
       const dir = join(out, `${values.label}-${basename(path, ".json")}-${i}`)
       const workspace = join(dir, "ws")
-      await mkdir(workspace, { recursive: true })
+      await mkdir(out, { recursive: true })
+      await mkdir(dir) // fails on a reused --out/--label, so an old snapshot can never pass as a new run
+      await mkdir(workspace)
       const started = Date.now()
       const exit = await codex(task, workspace, dir)
       const events = summarizeEvents((await readFile(join(dir, "events.jsonl"), "utf8")).split("\n"))

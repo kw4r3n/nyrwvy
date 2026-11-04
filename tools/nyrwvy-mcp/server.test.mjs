@@ -318,6 +318,9 @@ test("MCP accepts, commits and runs every recipe_reference worked example", { ti
       const pairs = await failed(client, "request", { op: "runPureByName", arguments: { function: "scaledArea",
         arguments: [{ parameter: "shape", value: { Square: { side: 4 } } }, { parameter: "scale", value: null }] } })
       assert.match(pairs.structuredContent.error.message, /positional plain JSON values, one per parameter in the order \(shape, scale\)/)
+      const expectedPair = await failed(client, "request", { op: "runPureByName", arguments: { function: "scaledArea",
+        arguments: [{ Square: { side: 4 } }, null], expected: { parameter: "result", value: 16 } } })
+      assert.doesNotMatch(expectedPair.structuredContent.error.message, /in the order/)
     } finally {
       await client?.close()
       await rm(workspace, { recursive: true, force: true })

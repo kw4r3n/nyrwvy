@@ -11,6 +11,7 @@ test("agent eval counts tool calls, rejection codes and token usage from codex e
     call("failed", "not json"),
     JSON.stringify({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 7 } }),
     "",
+    "WARN stray log line",
   ]
   assert.deepEqual(summarizeEvents(lines), { toolCalls: 3, rejections: ["ProtocolError", "not json"], input: 100, cached: 60, output: 7 })
 })
