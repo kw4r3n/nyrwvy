@@ -130,15 +130,7 @@ pub fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
 }
 
 fn runner(r: *q.Request, input: *values.Input, reach: []const u8) ![]const u8 {
-    const first = switch (model.typedExecutionForEntry(r.a, r.typedModel(), null)) {
-        .ir => |ir| ir,
-        else => reach,
-    };
-    const initial = try emitter.runner(r.a, first, null);
-    const emitted = switch (initial) {
-        .source => return initial.source,
-        .unsupported => try emitter.runner(r.a, reach, input.function_id),
-    };
+    const emitted = try emitter.runner(r.a, reach, input.function_id);
     return switch (emitted) {
         .source => |source| source,
         .unsupported => |problems| {
