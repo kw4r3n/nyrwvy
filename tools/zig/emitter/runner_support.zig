@@ -405,7 +405,9 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
                 const tag = std.meta.activeTag(value);
                 inline for (info.field_names, 0..) |name, position| {
                     if (tag == @field(info.tag_type.?, name)) {
-                        try out.print("[\"{s}\",", .{T.ny_ids[position]});
+                        try out.writeAll("[");
+                        try std.json.Stringify.encodeJsonString(T.ny_ids[position], .{}, out);
+                        try out.writeAll(",");
                         try nyEncode(out, @field(value, name));
                         try out.writeAll("]");
                     }
