@@ -32,7 +32,6 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
         const source = sources[index];
         scratch.line = source;
         scratch.root = if (item == .object) item.object else .empty;
-        // shortcut: a batch keeps only per-item messages, not the recipe details; extend this when a batch probe needs them.
         const creation = build(&scratch, item, expected) catch |err| {
             if (err != error.Rejected or !m.same(scratch.rejection.code, "ProtocolError")) {
                 r.rejection = scratch.rejection;
@@ -42,11 +41,22 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
                 const name = item.object.get("displayName") orelse break :blk "<unknown>";
                 break :blk if (name == .string) name.string else "<unknown>";
             } else "<unknown>";
-            try problems.append(r.a, try m.object(r.a, &.{
+            var members: std.ArrayList(model.Member) = .empty;
+            try members.appendSlice(r.a, &.{
                 try m.member(r.a, "index", try m.number(r.a, index)),
                 try m.member(r.a, "displayName", try m.string(r.a, display_name)),
                 try m.member(r.a, "message", try m.string(r.a, scratch.rejection.message)),
-            }));
+            });
+            // A recipe decoding error names its recipe (recipe.zig); keep that per item.
+            if (scratch.rejection.details.len > 0) {
+                const details = try std.json.parseFromSliceLeaky(std.json.Value, r.a, scratch.rejection.details, .{});
+                if (details.object.get("recipeKind")) |kind| try members.appendSlice(r.a, &.{
+                    try m.member(r.a, "recipeKind", try m.string(r.a, kind.string)),
+                    try m.member(r.a, "recipePath", try m.string(r.a, details.object.get("recipePath").?.string)),
+                    try m.member(r.a, "byName", if (details.object.get("byName").?.bool) .json_true else .json_false),
+                });
+            }
+            try problems.append(r.a, try m.object(r.a, members.items));
             try messages.append(r.a, try std.fmt.allocPrint(r.a, "[{d}] {s}: {s}", .{ index, display_name, scratch.rejection.message }));
             continue;
         };
