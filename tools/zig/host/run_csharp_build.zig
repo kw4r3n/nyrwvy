@@ -93,7 +93,10 @@ pub fn deinit(io: std.Io) void {
     if (session_root.len > 0) std.Io.Dir.cwd().deleteTree(io, session_root) catch {};
 }
 pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
-    if (driver != null) return null;
+    // Another session may have moved the shared driver aside as stale; rebuild it then.
+    if (driver) |path| if (std.Io.Dir.cwd().access(io, path, .{})) |_| return null else |_| {
+        driver = null;
+    };
     // Built once per user under a key of its sources and the dotnet that builds it, then shared.
     var digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(try std.mem.join(a, "\x00", &.{ dotnet, driver_project, driver_source }), &digest, .{});
@@ -131,13 +134,13 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     };
     errdefer stale = false;
     const identified = try p.launch(a, io, &.{ dotnet, assembly, "identity" }, output, "C# compiler identification", 30);
-    stale = true;
     const text = switch (identified) {
-        .failed => |d| {
-            stale = false;
-            return d;
+        .failed => |d| return d,
+        .completed => |done| text: {
+            // A signal (say, the session shutting down) says nothing about the driver.
+            stale = done.term == .exited;
+            break :text if (done.term.success()) done.stdout else return try p.processFailure(a, done);
         },
-        .completed => |done| if (done.term.success()) done.stdout else return try p.processFailure(a, done),
     };
     const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, text, .{}) catch return .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
     const invalid: p.Diagnostic = .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
