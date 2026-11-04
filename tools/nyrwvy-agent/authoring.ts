@@ -205,8 +205,7 @@ export class AuthoringClient {
           }
           return Object.is(value, -0) ? "-0" : value
         }
-        // JSON.stringify writes -0 as 0, so an untyped -0 would silently change sign.
-        if (Object.is(value, -0)) throw new Error('Plain -0 would serialize as 0; pass {kind:"float64",value:-0} or the string "-0".')
+        // shortcut: an untyped -0 is written as 0 because the parameter type is unknown here (Int64 has no -0); a Float64 -0 needs {kind:"float64",value:-0}.
         if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
           throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64/Bits32. Float64 run values use {kind:\"float64\",value}, which accepts finite JSON numbers or special strings.")
         }

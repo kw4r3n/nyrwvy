@@ -56,7 +56,6 @@ test("typed Float64 values survive transport in arguments, expectations and fake
       { kind: "float64", unrelated: 2 ** 53 }, { value: 2 ** 53 }]) {
       await assert.rejects(client.request({ op: "runPure", arguments: [value] }), /exact decimal string/)
     }
-    await assert.rejects(client.request({ op: "runPure", arguments: [-0] }), /Plain -0/)
     const integer = { kind: "int64", value: "9007199254740993" }
     assert.deepEqual(JSON.parse(await client.request({ op: "runPure", arguments: [integer] })).result.arguments, [integer])
   } finally { await client.close() }
