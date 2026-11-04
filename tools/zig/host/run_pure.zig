@@ -213,5 +213,5 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
 test "runner dispatch name preserves arbitrary UTF-8 stable IDs" {
     const name = emitter.functionName(std.testing.allocator, "entry/日本");
     defer std.testing.allocator.free(name);
-    try std.testing.expectEqualStrings("f_entry___", name);
+    try std.testing.expectEqualStrings("f_entry_2f__65e5__672c_", name);
 }

@@ -577,7 +577,8 @@ pub fn minimumVersion(arena: std.mem.Allocator, interner: *const Interner, gener
     return minimum.version;
 }
 
-fn hash(arena: std.mem.Allocator, domain: []const u8, bytes: []const u8) ![]const u8 {
+/// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
+pub fn hash(arena: std.mem.Allocator, domain: []const u8, bytes: []const u8) ![]const u8 {
     var state = std.crypto.hash.sha2.Sha256.init(.{});
     state.update(domain);
     state.update(&.{0});

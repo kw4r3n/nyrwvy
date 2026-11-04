@@ -1296,7 +1296,7 @@ fn fingerprintsOf(root: Value) Failure!Fingerprints {
     neutral = true;
     try collectTypeParameterNames(root);
     const normalized = try canonicalOf(root);
-    return .{ .snapshot = hashIn("nayamnyam.snapshot-fingerprint.v6", canonical), .semantic = hashIn("nayamnyam.semantic-fingerprint.v6", normalized), .canonical = canonical, .normalized = normalized };
+    return .{ .snapshot = session_writer.hash(a, "nayamnyam.snapshot-fingerprint.v6", canonical) catch oom(), .semantic = session_writer.hash(a, "nayamnyam.semantic-fingerprint.v6", normalized) catch oom(), .canonical = canonical, .normalized = normalized };
 }
 
 /// One snapshot document as the session host reads it: what `--validate` prints, line by line,
@@ -2228,15 +2228,6 @@ pub fn typedFocusOf(allocator: std.mem.Allocator, root: Model, function: Model) 
         .callers = callers.items,
         .callees = callees.items,
     };
-}
-
-/// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
-fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {
-    var hash = std.crypto.hash.sha2.Sha256.init(.{});
-    hash.update(domain);
-    hash.update(&.{0});
-    hash.update(canonical);
-    return fmt("sha256:{s}", .{std.fmt.bytesToHex(hash.finalResult(), .lower)});
 }
 
 /// `SnapshotCodec.toCanonicalJson` for a schema from the first record version on.
