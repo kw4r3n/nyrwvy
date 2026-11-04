@@ -85,6 +85,8 @@ for (const [host, schema, minor] of [["OpenCode", tool.schema, 1], ["MCP", z, 3]
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { op: "commit" } }, context), /Pass op separately/)
     await assert.rejects(definitions.open.execute({ mode: "open", snapshot: "workspace.json", dependency: "policy.json" }, context), /requires mode=create/)
     await assert.rejects(definitions.open.execute({ mode: "create", snapshot: "workspace.json", dependency: " " }, context), /non-blank/)
+    assert.throws(() => definitions.open.execute({ mode: "open", snapshot: "workspace.json", expectedFingerprint: "f" }, context), /require mode=upgrade/)
+    assert.throws(() => definitions.open.execute({ mode: "create", snapshot: "workspace.json", replaces: "s" }, context), /require mode=upgrade/)
     assert.equal(await definitions.close.execute({}, context), "No active Nyrwvy authoring session.")
   })
 }

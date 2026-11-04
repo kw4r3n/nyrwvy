@@ -32,8 +32,10 @@ try {
 const info = `pub const build = "nyrwvy-zig-host";\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`
 const stamp = join(output, `${name}.json`)
 const writeStamp = async sources => {
-  await writeFile(`${stamp}.partial`, JSON.stringify({ sources, commit }))
-  await rename(`${stamp}.partial`, stamp)
+  // Per-process name, so concurrent builds do not rename each other's partial file away.
+  const partial = `${stamp}.${process.pid}.partial`
+  await writeFile(partial, JSON.stringify({ sources, commit }))
+  await rename(partial, stamp)
 }
 // Every file in the host's and its modules' directories, as ZigTools keys the test host; mise.toml pins Zig.
 // The selected compiler's version, so a Zig upgrade outside mise.toml (NYRWVY_ZIG or PATH) rebuilds.
@@ -47,6 +49,8 @@ for (const directory of ["tools/zig/host", ...modules.map(([, path]) => dirname(
   for (const file of files) hash.update(`\0${file.slice(root.length)}\0`).update(await readFile(file))
 }
 hash.update(await readFile(join(root, "mise.toml")).catch(() => ""))
+// This script's bytes carry the compile flags, so a flag change rebuilds.
+hash.update(await readFile(fileURLToPath(import.meta.url)))
 const sources = hash.digest("hex")
 const previous = await readFile(stamp, "utf8").then(JSON.parse).catch(() => undefined)
 if (previous?.sources === sources && await access(join(output, name)).then(() => true, () => false)) {
@@ -98,6 +102,11 @@ try {
       else accept()
     })
   })
+  if (process.platform === "win32") {
+    // Windows cannot replace a running exe but can rename it; earlier copies are removed once nothing runs them.
+    for (const entry of await readdir(output)) if (entry.startsWith(`${name}.old-`)) await rm(join(output, entry), { force: true }).catch(() => {})
+    await rename(join(output, name), join(output, `${name}.old-${process.pid}`)).catch(error => { if (error.code !== "ENOENT") throw error })
+  }
   await rename(built, join(output, name))
   await writeStamp(sources)
   console.log(`Built ${join(output, name)}`)
