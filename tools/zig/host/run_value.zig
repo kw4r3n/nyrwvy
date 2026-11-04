@@ -203,6 +203,8 @@ const Decoder = struct {
     names: bool,
     remaining: i64 = 8192,
     top: []const u8 = "",
+    order: []const u8 = "",
+    op: []const u8 = "",
     selector_failure: bool = false,
     fn r(self: *Decoder) *q.Request {
         return self.d.r;
@@ -353,6 +355,7 @@ const Decoder = struct {
     }
     fn taggedBody(self: *Decoder, path: []const u8, location: []const u8, item: Json, depth: usize) Fail!RunValue {
         if (item != .object) return self.fail("Run values must be non-null typed objects.", .{});
+        if (item.object.get("kind") == null and item.object.get("parameter") != null and self.order.len > 0 and depth == 0) return self.fail("{s} arguments are positional plain JSON values, one per parameter in the order ({s}), not {{parameter, value}} pairs: write [{{\"field\":1}}, 10], not [{{\"parameter\":\"x\",\"value\":1}}]. The pair form is only for fake capability case arguments.", .{ self.op, self.order });
         if (item.object.get("kind") == null and item.object.get("parameter") != null) return self.fail("Run values are typed objects with a kind. runPure arguments are positional, one typed value per parameter in declaration order (for example [{{\"kind\":\"string\",\"value\":\"a\"}}]); {{parameter, value}} pairs are the form of fake capability case arguments.", .{});
         const kind = try self.d.requiredString(item, "kind");
         const leaf_kind = same(kind, "string") or same(kind, "bool") or same(kind, "int64") or same(kind, "float64") or same(kind, "bits32") or same(kind, "bytes") or same(kind, "unit");
@@ -670,6 +673,12 @@ pub fn decode(r: *q.Request) Fail!Input {
     const id = if (names) q.idOf(try d.selector(try d.at("", key), try d.d.property(root, key), "function")) else try d.stableId(root, key);
     const fn_value = find(try q.typedVisible(r, "function"), id);
     const params = if (fn_value) |f| f.parameters() else &.{};
+    d.op = op;
+    if (params.len > 0) {
+        const order = try r.a.alloc([]const u8, params.len);
+        for (params, order) |p, *name| name.* = q.nameOf(p);
+        d.order = try std.mem.join(r.a, ", ", order);
+    }
     const args_json = try d.d.array(root, "arguments");
     const args = try r.a.alloc(RunValue, args_json.len);
     for (args_json, args, 0..) |value, *slot, i| {
@@ -677,6 +686,7 @@ pub fn decode(r: *q.Request) Fail!Input {
         d.top = try d.fmt("arguments[{d}]", .{i});
         slot.* = if (i < params.len) try d.plain(try d.at("/arguments", i), d.top, try infer.typeOf(r.a, params[i].declaredType()), value, 0) else try d.tagged(try d.at("/arguments", i), d.top, value, 0);
     }
+    d.order = "";
     var expected: ?RunValue = null;
     if (root.object.get("expected")) |value| {
         d.remaining = 8192;

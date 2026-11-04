@@ -1,0 +1,9 @@
+{
+  "prompt": "この作業フォルダに workspace.json という新しい Nyrwvy snapshot を作り、Nyrwvy MCP tools だけで次を実装してください。snapshot JSON を直接読んだり編集したりしないでください。\n1. Product 型 Order（quantity: Int64、unitPrice: Int64）と、Union 型 Discount（None、Percent { rate: Int64 }、Fixed { amount: Int64 }）を作る。\n2. 関数 total(order: Order, discount: Discount): Int64 を作る。小計は quantity × unitPrice。Percent なら小計 × (100 − rate) ÷ 100（切り捨て）、Fixed なら小計 − amount（0 未満なら 0）、None なら小計を返す。\n3. それぞれ review してから commit する。\n4. runPure で、(quantity 3, unitPrice 200, None) → 600、(3, 200, Percent 10) → 540、(1, 50, Fixed 80) → 0 になることを確かめる。\n5. session を close して、結果を一文で報告する。\n",
+  "checks": [
+    { "function": "total", "arguments": [{ "quantity": 3, "unitPrice": 200 }, { "None": {} }], "expected": 600 },
+    { "function": "total", "arguments": [{ "quantity": 3, "unitPrice": 200 }, { "Percent": { "rate": 10 } }], "expected": 540 },
+    { "function": "total", "arguments": [{ "quantity": 1, "unitPrice": 50 }, { "Fixed": { "amount": 80 } }], "expected": 0 },
+    { "function": "total", "arguments": [{ "quantity": 7, "unitPrice": 30 }, { "Percent": { "rate": 15 } }], "expected": 178 }
+  ]
+}
