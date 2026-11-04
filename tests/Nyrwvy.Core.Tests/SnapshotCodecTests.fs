@@ -152,7 +152,7 @@ module SnapshotCodecTests =
 
     [<Fact>]
     let ``snapshot codec rejects duplicate property names`` () =
-        let json = """{"schemaVersion":9,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":24,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
@@ -165,8 +165,8 @@ module SnapshotCodecTests =
         Assert.Equal(Error(SnapshotCodecError.InvalidShape expected), SnapshotCodec.deserialize json)
 
     [<Theory>]
-    [<InlineData("{\"schemaVersion\":9,\"z\":0,\"a\":0}", "Snapshot is missing required properties: capabilities, effects, functions, obligations, snapshotId, types.")>]
-    [<InlineData("{\"schemaVersion\":9,\"snapshotId\":\"snapshot\",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[],\"z\":0,\"a\":0}", "Snapshot contains unsupported properties: a, z.")>]
+    [<InlineData("{\"schemaVersion\":24,\"z\":0,\"a\":0}", "Snapshot is missing required properties: capabilities, effects, functions, obligations, snapshotId, types.")>]
+    [<InlineData("{\"schemaVersion\":24,\"snapshotId\":\"snapshot\",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[],\"z\":0,\"a\":0}", "Snapshot contains unsupported properties: a, z.")>]
     let ``snapshot property diagnostics retain sorted names and missing property precedence`` json expected =
         Assert.Equal(Error(SnapshotCodecError.InvalidShape expected), SnapshotCodec.deserialize json)
 
@@ -283,3 +283,5 @@ module SnapshotCodecTests =
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.UnsupportedSchemaVersion 7) -> ()
         | result -> failwithf "Expected UnsupportedSchemaVersion, got %A" result
+        // Legacy versions below the first record version are no longer read, as in the Zig reader.
+        Assert.Equal(Error(SnapshotCodecError.UnsupportedSchemaVersion 20), SnapshotCodec.deserialize (json.Replace("\"schemaVersion\":7", "\"schemaVersion\":20")))

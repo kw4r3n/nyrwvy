@@ -371,7 +371,7 @@ module ListHigherOrderTests =
     let ``JSON preserves higher-order List callback identity`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
-        let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
+        let fromJson = SnapshotCodec.deserialize (SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization") |> unwrap "JSON deserialization"
 
         let assertNodes snapshot =
             match (showcaseNode fixture snapshot fixture.MapNodeId).Kind with

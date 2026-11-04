@@ -36,7 +36,10 @@ const writeStamp = async sources => {
   await rename(`${stamp}.partial`, stamp)
 }
 // Every file in the host's and its modules' directories, as ZigTools keys the test host; mise.toml pins Zig.
-const hash = createHash("sha256").update(JSON.stringify([info, modules, process.env.NYRWVY_ZIG ?? "", process.platform, process.arch]))
+// The selected compiler's version, so a Zig upgrade outside mise.toml (NYRWVY_ZIG or PATH) rebuilds.
+let zigVersion = ""
+try { zigVersion = execFileSync(process.env.NYRWVY_ZIG || "zig", ["version"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 30_000 }).trim() } catch {}
+const hash = createHash("sha256").update(JSON.stringify([info, modules, process.env.NYRWVY_ZIG ?? "", zigVersion, process.platform, process.arch]))
 for (const directory of ["tools/zig/host", ...modules.map(([, path]) => dirname(path))]) {
   const files = (await readdir(join(root, directory), { recursive: true, withFileTypes: true }).catch(() => []))
     .filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name))

@@ -396,20 +396,27 @@ fn allConcrete(items: []const *const Type) bool {
 
 // ---------------------------------------------------------------- names
 
-/// `prefix` and then `raw` with every UTF-16 unit that is not an ASCII letter or digit as `_`.
+/// `prefix` and then `raw` with every code point that is not an ASCII letter or digit as `_<hex>_`,
+/// so distinct IDs never share a name.
 fn identifier(prefix: []const u8, raw: []const u8) []const u8 {
     var out: List(u8) = .empty;
-    out.ensureTotalCapacityPrecise(a, prefix.len + 2 * raw.len) catch oom();
-    out.appendSliceAssumeCapacity(prefix);
+    out.appendSlice(a, prefix) catch oom();
     var view = std.unicode.Utf8View.initUnchecked(raw);
     var points = view.iterator();
     while (points.nextCodepoint()) |point| {
-        if (point < 0x80 and std.ascii.isAlphanumeric(@intCast(point))) out.appendAssumeCapacity(@intCast(point)) else {
-            out.appendAssumeCapacity('_');
-            if (point >= 0x10000) out.appendAssumeCapacity('_');
-        }
+        if (point < 0x80 and std.ascii.isAlphanumeric(@intCast(point))) push(u8, &out, @intCast(point)) else out.print(a, "_{x}_", .{point}) catch oom();
     }
     return out.toOwnedSlice(a) catch oom();
+}
+
+test "identifiers keep distinct IDs distinct and literals escape IDs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    try std.testing.expectEqualStrings("v_x_3a_a_2d_b", identifier("v_", "x:a-b"));
+    try std.testing.expectEqualStrings("v_x_3a_a_2e_b", identifier("v_", "x:a.b"));
+    try std.testing.expectEqualStrings("v_a_5f_b", identifier("v_", "a_b"));
+    try std.testing.expectEqualStrings("\"a\\x22\\x5c\\x09b\"", stringLiteral("a\"\\\tb"));
 }
 
 // Value and block identifiers by ID: each is written many times.
@@ -442,7 +449,7 @@ fn operationName(id: []const u8) []const u8 {
     return identifier("op_", id);
 }
 
-/// A short stable suffix for one list of type arguments: the hash ZigBackend.instanceSuffix takes.
+/// A short stable suffix for one list of type arguments: a hash of their JSON.
 fn instanceSuffix(args: []const *const Type) []const u8 {
     if (args.len == 0) return "";
     var digest: [32]u8 = undefined;
@@ -1896,7 +1903,7 @@ fn emitType(out: *List(u8), declaration: Declaration, args: []const *const Type)
         var ids: List([]const u8) = .empty;
         for (declaration.variants) |variant| {
             lineCat(out, &.{ "    ", variantName(variant.id), ": struct { ", fieldTypes(&map, variant.fields), " }," });
-            push([]const u8, &ids, cat(&.{ "\"", variant.id, "\"" }));
+            push([]const u8, &ids, stringLiteral(variant.id));
         }
         lineCat(out, &.{ "    pub const ny_ids = [_][]const u8{ ", join(", ", ids.items), " };" });
         line(out, "};");
@@ -2138,6 +2145,8 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
     out.appendSlice(a,
         \\
         \\pub fn main(init: std.process.Init) !void {
+        \\    // The host kills the runner's process group, which misses it when the host itself is SIGKILLed.
+        \\    if (@import("builtin").os.tag == .linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_PDEATHSIG), @intFromEnum(std.os.linux.SIG.KILL), 0, 0, 0);
         \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
         \\    const entry = args[1];
         \\    var tokens = NyTokens{ .items = args, .index = 2 };

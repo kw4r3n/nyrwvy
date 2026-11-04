@@ -19,7 +19,7 @@ test("build publishes only a successful ReleaseSafe host with the required modul
   const git = join(root, "git")
   await writeFile(git, `#!${process.execPath}\nprocess.stdout.write(process.env.FAKE_HEAD);\n`, { mode: 0o700 })
   const compiler = join(root, "fake-zig")
-  await writeFile(compiler, `#!${process.execPath}\nconst fs = require('node:fs');\nfs.writeFileSync(process.env.CALLS, JSON.stringify({cwd: process.cwd(), args: process.argv.slice(2), info: fs.readFileSync(process.argv.find(x => x.startsWith('-Mbuild_info=')).slice(13), 'utf8')}));\nfs.writeFileSync(process.argv.find(x => x.startsWith('-femit-bin=')).slice(11), 'new');\nprocess.exit(Number(process.env.FAIL));\n`, { mode: 0o700 })
+  await writeFile(compiler, `#!${process.execPath}\nif (process.argv[2] === 'version') process.exit(0);\nconst fs = require('node:fs');\nfs.writeFileSync(process.env.CALLS, JSON.stringify({cwd: process.cwd(), args: process.argv.slice(2), info: fs.readFileSync(process.argv.find(x => x.startsWith('-Mbuild_info=')).slice(13), 'utf8')}));\nfs.writeFileSync(process.argv.find(x => x.startsWith('-femit-bin=')).slice(11), 'new');\nprocess.exit(Number(process.env.FAIL));\n`, { mode: 0o700 })
   const run = (fail, fakeHead = head, zig = compiler) => spawnSync(process.execPath, [join(root, "scripts/build-zig-host.mjs")], { env: { ...process.env, NYRWVY_ZIG: zig, CALLS: join(root, "calls"), FAIL: String(fail), FAKE_HEAD: fakeHead, PATH: `${root}:${process.env.PATH}` } })
   assert.notEqual(run(1).status, 0)
   assert.equal(await readFile(join(bin, "nyrwvy-host"), "utf8"), "old")
@@ -64,7 +64,7 @@ test("interrupting a compiler wrapper kills its child before removing temporary 
   await mkdir(bin, { recursive: true })
   await writeFile(join(bin, "nyrwvy-host"), "old")
   const compiler = join(root, "wrapper")
-  await writeFile(compiler, `#!${process.execPath}\nconst {spawn} = require('node:child_process');\nspawn(${JSON.stringify(process.execPath)}, ['-e', ${JSON.stringify("const fs=require('node:fs');fs.writeFileSync(process.env.READY,'ready');setTimeout(()=>fs.writeFileSync(process.env.LATE,'late'),1000)")}], {stdio:'ignore'});\nsetInterval(()=>{},1000);\n`, { mode: 0o700 })
+  await writeFile(compiler, `#!${process.execPath}\nif (process.argv[2] === 'version') process.exit(0);\nconst {spawn} = require('node:child_process');\nspawn(${JSON.stringify(process.execPath)}, ['-e', ${JSON.stringify("const fs=require('node:fs');fs.writeFileSync(process.env.READY,'ready');setTimeout(()=>fs.writeFileSync(process.env.LATE,'late'),1000)")}], {stdio:'ignore'});\nsetInterval(()=>{},1000);\n`, { mode: 0o700 })
   const builder = spawn(process.execPath, [join(root, "scripts/build-zig-host.mjs")], {
     env: { ...process.env, NYRWVY_ZIG: compiler, READY: join(root, "ready"), LATE: join(root, "late") }, stdio: "ignore",
   })

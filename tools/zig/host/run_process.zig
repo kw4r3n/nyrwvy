@@ -172,10 +172,14 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
     try privateDirectory(io, cache);
     try privateDirectory(io, target);
     const input = try std.fs.path.join(a, &.{ target, "runner.zig" });
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = input, .data = source, .flags = .{ .permissions = if (windows) .default_file else .fromMode(0o600) } });
     var random: [16]u8 = undefined;
     io.random(&random);
     const suffix = std.fmt.bytesToHex(random, .lower);
+    // Renamed into place, so a concurrent session's compiler never reads a half-rewritten source.
+    const written = try std.fmt.allocPrint(a, "{s}.{s}", .{ input, suffix });
+    defer std.Io.Dir.cwd().deleteFile(io, written) catch {};
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = written, .data = source, .flags = .{ .permissions = if (windows) .default_file else .fromMode(0o600) } });
+    try std.Io.Dir.renameAbsolute(written, input, io);
     const partial = try std.fmt.allocPrint(a, "{s}.{s}{s}", .{ binary, suffix, if (windows) ".exe" else "" });
     defer std.Io.Dir.cwd().deleteFile(io, partial) catch {};
     var arguments: std.ArrayList([]const u8) = .empty;
@@ -186,6 +190,12 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
         .completed => |result| result,
     };
     if (!built.term.success()) return .{ .failed = try processFailure(a, built) };
+    // Synced before the rename, so a crash cannot leave a truncated runner that later runs as a hit.
+    {
+        const file = try std.Io.Dir.cwd().openFile(io, partial, .{ .mode = .read_write });
+        defer file.close(io);
+        try file.sync(io);
+    }
     try std.Io.Dir.renameAbsolute(partial, binary, io);
     return .{ .executable = binary };
 }

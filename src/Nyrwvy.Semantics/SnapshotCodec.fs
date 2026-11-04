@@ -28,23 +28,16 @@ module SnapshotCodec =
     let private invalidShape message = raise (InvalidDataException message)
 
     /// Before schema 21 a type parameter occurrence carried its display name and a function listed
-    /// no type parameters (the list was implied by its parameter types). The form is fixed once per
-    /// document, so the shared type-reference writer and reader look it up here instead of every
-    /// node encoder threading it through. While writing a pre-21 document this holds the declared
-    /// names to put on each occurrence; while reading one it collects the names found on occurrences,
-    /// from which `readFunction` derives each function's list.
+    /// no type parameters (the list was implied by its parameter types). Only the frozen canonical
+    /// (fingerprint) encoding still writes that form; the reader rejects documents below 21. While
+    /// writing a pre-21 document this holds the declared names to put on each occurrence, so the
+    /// shared type-reference writer looks it up here instead of every node encoder threading it through.
     let private legacyWriteNames = new System.Threading.ThreadLocal<Map<TypeParameterId, string> option>(fun () -> None)
-    let private legacyReadNames = new System.Threading.ThreadLocal<Dictionary<TypeParameterId, string> option>(fun () -> None)
 
     let private withLegacyWriteNames (names: Map<TypeParameterId, string> option) (action: unit -> 'T) =
         let previous = legacyWriteNames.Value
         legacyWriteNames.Value <- names
         try action () finally legacyWriteNames.Value <- previous
-
-    let private withLegacyReadNames (names: Dictionary<TypeParameterId, string> option) (action: unit -> 'T) =
-        let previous = legacyReadNames.Value
-        legacyReadNames.Value <- names
-        try action () finally legacyReadNames.Value <- previous
 
     let private ensureObject (context: string) (element: JsonElement) =
         if element.ValueKind <> JsonValueKind.Object then
@@ -1424,24 +1417,6 @@ module SnapshotCodec =
     /// later edit; fingerprints keep their frozen canonical encoding independently.
     let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrentCached snapshot
 
-    /// The `schemaVersion` a snapshot JSON document declares, before any decoding of its content.
-    let declaredVersion (json: string): Result<SnapshotSchemaVersion, SnapshotCodecError> =
-        try
-            use document = JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))
-            let root = document.RootElement
-            if root.ValueKind <> JsonValueKind.Object then Error(SnapshotCodecError.InvalidShape "Snapshot must be a JSON object.")
-            else
-                match root.TryGetProperty "schemaVersion" with
-                | true, version when version.ValueKind = JsonValueKind.Number ->
-                    let value = version.GetInt32()
-                    match SnapshotSchema.tryJson value with
-                    | Some declared -> Ok declared
-                    | None -> Error(SnapshotCodecError.UnsupportedSchemaVersion value)
-                | _ -> Error(SnapshotCodecError.InvalidShape "Snapshot property 'schemaVersion' must be an integer.")
-        with
-        | :? JsonException as error -> Error(SnapshotCodecError.InvalidJson error.Message)
-        | :? FormatException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
-
     // The merged model a resolved read validated, by its local part and dependency, so the
     // workspace built from the same two snapshots is not validated again.
     let private resolvedReads = System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, Snapshot * Snapshot>()
@@ -1514,19 +1489,8 @@ module SnapshotCodec =
             ensureProperties "Function type" (set [ "kind"; "parameters"; "resultType" ]) (set [ "kind"; "parameters"; "resultType" ]) element
             TypeRef.Function(readArray "parameters" readTypeRef element, readTypeRef (requireProperty "resultType" element))
         | "typeParameter" ->
-            match legacyReadNames.Value with
-            | Some names ->
-                // The name is optional so that a newer document relabelled with an older version
-                // fails on the construct it needs (`firstUnsupported`), not on this shape.
-                ensureProperties "Type parameter reference" (set [ "kind"; "typeParameterId" ]) (set [ "kind"; "typeParameterId"; "displayName" ]) element
-                let typeParameterId = readId<TypeParameterTag> "typeParameterId" element
-                match tryProperty "displayName" element with
-                | Some _ when not (names.ContainsKey typeParameterId) -> names.[typeParameterId] <- readString "displayName" element
-                | _ -> ()
-                TypeRef.TypeParameter typeParameterId
-            | None ->
-                ensureProperties "Type parameter reference" (set [ "kind"; "typeParameterId" ]) (set [ "kind"; "typeParameterId" ]) element
-                TypeRef.TypeParameter(readId<TypeParameterTag> "typeParameterId" element)
+            ensureProperties "Type parameter reference" (set [ "kind"; "typeParameterId" ]) (set [ "kind"; "typeParameterId" ]) element
+            TypeRef.TypeParameter(readId<TypeParameterTag> "typeParameterId" element)
         | "capability" ->
             ensureProperties "Capability type reference" (set [ "kind"; "capabilityId" ]) (set [ "kind"; "capabilityId" ]) element
             TypeRef.Capability(readId<CapabilityTag> "capabilityId" element)
@@ -2662,22 +2626,7 @@ module SnapshotCodec =
         let required = set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
         ensureProperties "Function" required (Set.union (visibilityProperties explicitVisibility) (set [ "typeParameters"; "mustNotWait" ] |> Set.union required)) element
         let parameters = readArray "parameters" readParameter element
-        let typeParameters =
-            match legacyReadNames.Value with
-            | None -> readTypeParameters element
-            | Some _ when (tryProperty "typeParameters" element).IsSome ->
-                // An explicit list in an older document is read so that `firstUnsupported` can name
-                // the construct and the version it needs.
-                readTypeParameters element
-            | Some names ->
-                // Before schema 21 the list was implied: the parameters' type parameters in
-                // first-appearance order, each named as its occurrences spelled it.
-                TypeParameters.derived (parameters |> List.map (fun parameter -> parameter.Type))
-                |> List.map (fun id ->
-                    id,
-                    (match names.TryGetValue id with
-                     | true, name -> name
-                     | _ -> StableId.value id))
+        let typeParameters = readTypeParameters element
         { Id = readId<FunctionTag> "id" element
           DisplayName = readString "displayName" element
           Exported = readVisibility explicitVisibility element
@@ -2750,27 +2699,22 @@ module SnapshotCodec =
                 let version = readInt32 "schemaVersion" root
                 match SnapshotSchema.tryJson version with
                 | None -> Error(SnapshotCodecError.UnsupportedSchemaVersion version)
+                // Documents below the first record version are legacy; the Zig reader skips them too.
+                | Some declared when declared.Json < SnapshotSchema.firstRecord.Json -> Error(SnapshotCodecError.UnsupportedSchemaVersion version)
                 | Some declared ->
                     let parentId =
                         match tryProperty "parentSnapshotId" root with
                         | Some _ -> Some(readId<SnapshotTag> "parentSnapshotId" root)
                         | None -> None
-                    // Version-gated defaults: a document below schema 21 has no visibility (every
-                    // declaration reads as exported) and no declared function type parameter lists
-                    // (each is derived from the occurrences, which carry the names).
                     let explicitVisibility = SnapshotSchema.writesVisibility declared
-                    let legacyNames =
-                        if declared.Json < SnapshotSchema.declaredFunctionTypeParameters.Json then Some(Dictionary<TypeParameterId, string>())
-                        else None
                     let snapshot =
-                        withLegacyReadNames legacyNames (fun () ->
-                            { Id = readId<SnapshotTag> "snapshotId" root
-                              ParentId = parentId
-                              Types = readArray "types" (readType explicitVisibility) root
-                              Effects = readArray "effects" (readEffect explicitVisibility) root
-                              Capabilities = readArray "capabilities" (readCapability explicitVisibility) root
-                              Functions = readArray "functions" (readFunction explicitVisibility) root
-                              Obligations = readArray "obligations" readObligation root })
+                        { Id = readId<SnapshotTag> "snapshotId" root
+                          ParentId = parentId
+                          Types = readArray "types" (readType explicitVisibility) root
+                          Effects = readArray "effects" (readEffect explicitVisibility) root
+                          Capabilities = readArray "capabilities" (readCapability explicitVisibility) root
+                          Functions = readArray "functions" (readFunction explicitVisibility) root
+                          Obligations = readArray "obligations" readObligation root }
                     match SnapshotSchema.firstUnsupported declared snapshot with
                     | Some(_, minimum, name) -> invalidShape $"{name} requires snapshot schemaVersion {minimum.Json}."
                     | None -> ()
@@ -2815,7 +2759,7 @@ module SnapshotCodec =
     /// `readUnvalidated` of JSON the Zig validator (`model-reader --validate`, kept in parity with
     /// `SnapshotValidator` by the extended tests) has accepted as these same bytes: the Snapshot is
     /// recorded as valid, so validating it again returns no issues without recomputing.
-    let readZigValidated (json: string): Result<Snapshot, SnapshotCodecError> =
+    let internal readZigValidated (json: string): Result<Snapshot, SnapshotCodecError> =
         readUnvalidated json |> Result.map (fun snapshot -> SnapshotValidator.assumeValid snapshot; snapshot)
 
     /// `deserializeResolved` without validating the merged model (the marker, its digest, the

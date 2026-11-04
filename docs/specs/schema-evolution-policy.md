@@ -40,7 +40,7 @@ The snapshot JSON `schemaVersion` and the Nyason schema identifier (`SnapshotSch
 
 - the ordinary JSON writer and the record codec emit `SnapshotSchema.current` (JSON 24 / Nyason v20), including later saves of a migrated document;
 - the internal canonical encoding retains the smallest version that holds every construct, exclusively for the frozen v6 fingerprint domains, legacy dependency digests and explicit compatibility fixtures. Representation-only migration changes persisted bytes without changing these hashes;
-- a reader rejects a version outside the supported range, and rejects a document whose declared version is lower than the minimum of a construct in it (`<`, for every row).
+- a reader rejects a version outside the supported range or below 21 (`SnapshotSchema.firstRecord`; earlier versions are written only by the canonical encoding), and rejects a document whose declared version is lower than the minimum of a construct in it (`<`, for every row).
 
 | JSON `schemaVersion` | Nyason `schema` | Constructs that need at least this version |
 | --- | --- | --- |
@@ -63,7 +63,7 @@ The snapshot JSON `schemaVersion` and the Nyason schema identifier (`SnapshotSch
 
 Versions 9 to 12 keep their earlier meaning. Version 13 collects the constructs added in orders 40 to 53, which were first written as version 9 and are now gated; a snapshot that uses none of them is unchanged. Version 21 is the one row whose construct an older reader does not reject: a private declaration cannot be written below 21, and the same bytes declared at 20 are a legal older document whose declarations read as exported (the reading rule is chosen by version, `SnapshotSchema.writesVisibility`). Older versions (JSON 8, Nyason v4 and before) are rejected.
 
-Version 21 is the one row that changes the written form of an existing construct rather than adding one: a function's type parameters move from names on each occurrence to a declared list on the function. A snapshot whose lists follow the implied order retains its minimum-version canonical fingerprint bytes. Ordinary writers use the explicit current form. A reader of an earlier version derives the lists, so the semantic state read from an old document is the same one its migration writes.
+Version 21 is the one row that changes the written form of an existing construct rather than adding one: a function's type parameters move from names on each occurrence to a declared list on the function. A snapshot whose lists follow the implied order retains its minimum-version canonical fingerprint bytes. Ordinary writers use the explicit current form. Readers no longer accept a version below 21 (2026-11-04); the derivation rule survives only in the canonical encoding, which writes a derived list in the pre-21 form.
 
 A new persisted construct gets a row in the table, normally with a new version. `SnapshotSchema.featureOfNodeKind` matches every `SemanticNodeKind` without a wildcard, so a new node kind does not compile until it is assigned a version or explicitly left at the baseline. `SnapshotSchemaTests` uses internal minimum-version fixtures for each row and checks that both codecs reject it under the version just below. `CurrentPersistenceAndScalarTests` separately checks public current-version persistence, frozen hashes and post-migration saves with a retained dependency.
 
