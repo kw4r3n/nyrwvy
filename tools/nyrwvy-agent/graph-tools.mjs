@@ -96,6 +96,7 @@ export function createGraphTools(schema) {
         if ((args.upgrades !== undefined || args.selection !== undefined) && (args.mode !== "upgrade" || args.dependency !== undefined || args.expectedFingerprint !== undefined || args.replaces !== undefined || (args.upgrades !== undefined && args.selection !== undefined))) {
           throw new Error("Name one of upgrades or selection in mode=upgrade, without single-member dependency/expectedFingerprint/replaces fields.")
         }
+        if (args.mode !== "upgrade" && (args.expectedFingerprint !== undefined || args.replaces !== undefined)) throw new Error("expectedFingerprint and replaces require mode=upgrade.")
         if (args.reviewFingerprint !== undefined && args.upgrades === undefined && args.selection === undefined) throw new Error("reviewFingerprint requires upgrades or selection.")
         return openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency, args.dependencies,
           args.mode === "upgrade" ? (args.upgrades !== undefined
