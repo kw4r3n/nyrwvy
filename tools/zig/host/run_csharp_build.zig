@@ -204,13 +204,20 @@ fn storedPath(a: A, key: [32]u8) ![]const u8 {
 }
 fn load(a: A, io: std.Io, key: [32]u8) !?struct { pe: []u8, pdb: []u8 } {
     const entry = try storedPath(a, key);
-    const pe = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.dll" }), a, .unlimited) catch return null;
-    const pdb = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.pdb" }), a, .unlimited) catch {
-        // A half-present entry (a crash before its files reached disk) is a miss; drop it so it is rebuilt.
-        std.Io.Dir.cwd().deleteTree(io, entry) catch {};
+    const pe = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.dll" }), a, .unlimited) catch |err| {
+        dropMissing(io, entry, err);
+        return null;
+    };
+    const pdb = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.pdb" }), a, .unlimited) catch |err| {
+        dropMissing(io, entry, err);
         return null;
     };
     return .{ .pe = pe, .pdb = pdb };
+}
+/// A half-present entry (a crash before its files reached disk) is a miss; drop it so it is rebuilt.
+/// Other read errors may be transient, so the entry is left for the next run.
+fn dropMissing(io: std.Io, entry: []const u8, err: anyerror) void {
+    if (err == error.FileNotFound) std.Io.Dir.cwd().deleteTree(io, entry) catch {};
 }
 fn store(a: A, io: std.Io, key: [32]u8, pe: []const u8, pdb: []const u8) !void {
     const entry = try storedPath(a, key);

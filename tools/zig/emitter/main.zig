@@ -2147,7 +2147,7 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\pub fn main(init: std.process.Init) !void {
         \\    // The host kills the runner's process group, which misses it when the host itself is SIGKILLed.
         \\    if (@import("builtin").os.tag == .linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_PDEATHSIG), @intFromEnum(std.os.linux.SIG.KILL), 0, 0, 0);
-        \\    const args =try init.minimal.args.toSlice(init.arena.allocator());
+        \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
         \\    const entry = args[1];
         \\    var tokens = NyTokens{ .items = args, .index = 2 };
         \\    _ = &tokens;

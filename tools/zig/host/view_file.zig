@@ -125,7 +125,11 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
     renamed = true;
     // The rename survives a crash only once the directory is synced (Windows has no directory fsync).
     // Best effort: the snapshot is already replaced, so a sync failure must not report it unwritten.
-    if (snapshot and !windows) (std.Io.File{ .handle = current.handle, .flags = .{ .nonblocking = false } }).sync(io) catch {};
+    // `current` is an O_PATH handle on Linux, which fsync rejects, so sync a readable handle to it.
+    if (snapshot and !windows) if (current.openDir(io, ".", .{ .iterate = true })) |readable| {
+        defer readable.close(io);
+        (std.Io.File{ .handle = readable.handle, .flags = .{ .nonblocking = false } }).sync(io) catch {};
+    } else |_| {};
     return .{ .written = "" };
 }
 

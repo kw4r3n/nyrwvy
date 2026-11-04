@@ -192,7 +192,7 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
     if (!built.term.success()) return .{ .failed = try processFailure(a, built) };
     // Synced before the rename, so a crash cannot leave a truncated runner that later runs as a hit.
     {
-        const file = try std.Io.Dir.cwd().openFile(io, partial, .{});
+        const file = try std.Io.Dir.cwd().openFile(io, partial, .{ .mode = .read_write });
         defer file.close(io);
         try file.sync(io);
     }
