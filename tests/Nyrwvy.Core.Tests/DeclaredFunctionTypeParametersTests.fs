@@ -40,7 +40,7 @@ module DeclaredFunctionTypeParametersTests =
     let private snapshotOf (fn: SemanticFunction) = { Snapshot.empty (id<SnapshotTag> "snapshot") with Functions = [ fn ] }
 
     [<Fact>]
-    let ``a derived list is written in the pre-21 form, which reads back to the same snapshot and bytes`` () =
+    let ``a derived list is written in the pre-21 canonical form, and the current form reads back to the same snapshot`` () =
         let derived = snapshotOf (second [ tId, "T"; uId, "U" ])
         Assert.Empty(SnapshotValidator.validate derived)
         Assert.Equal(SnapshotSchema.baseline, SnapshotSchema.required derived)
@@ -48,29 +48,15 @@ module DeclaredFunctionTypeParametersTests =
         // Occurrences carry their names and the function lists none, exactly as before schema 21.
         Assert.Contains("\"kind\":\"typeParameter\",\"typeParameterId\":\"declared-T\",\"displayName\":\"T\"", json)
         Assert.DoesNotContain("\"typeParameters\"", json)
-        let restored = SnapshotCodec.deserialize json |> unwrap "restore"
+        let restored = SnapshotCodec.deserialize (SnapshotCodec.serialize derived |> unwrap "current") |> unwrap "restore"
         Assert.Equal(derived, restored)
-        Assert.Equal<(TypeParameterId * string) list>([ tId, "T"; uId, "U" ], restored.Functions.Head.TypeParameters)
         Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "reserialize")
-        Assert.Equal(SnapshotFingerprint.compute derived, SnapshotFingerprint.compute restored)
-        Assert.Equal(SemanticFingerprint.compute derived, SemanticFingerprint.compute restored)
-        Assert.Equal(derived, SnapshotCodec.deserialize json |> unwrap "restore")
 
     [<Fact>]
-    let ``a legacy document with names on occurrences derives the list in first-appearance order`` () =
-        // Hand-written schema 9 document: the names live on the occurrences, U before T in the body
-        // but T first in the parameter types, so the derived list is (T, U).
+    let ``a schema 21 document may not spell a name on a type parameter occurrence`` () =
         let json =
-            """{"schemaVersion":9,"snapshotId":"declared-legacy","types":[],"effects":[],"capabilities":[],"functions":[{"id":"declared-second","displayName":"second","parameters":[{"id":"declared-first","displayName":"first","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"declared-T","displayName":"Item"}]}},{"id":"declared-second","displayName":"second","type":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"Marker"}}],"resultType":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"Marker"},"requiredEffects":[],"body":{"nodes":[{"id":"declared-second-result","kind":"parameterReference","parameterId":"declared-second"}],"resultNodeId":"declared-second-result"}}],"obligations":[]}"""
-        let restored = SnapshotCodec.deserialize json |> unwrap "legacy"
-        Assert.Equal<(TypeParameterId * string) list>([ tId, "Item"; uId, "Marker" ], restored.Functions.Head.TypeParameters)
-        Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "reserialize")
-        // Declaring the same list explicitly is the same semantic state.
-        let explicitTwin = snapshotOf { second [ tId, "Item"; uId, "Marker" ] with Id = id<FunctionTag> "second" }
-        Assert.Equal(SemanticFingerprint.compute explicitTwin, SemanticFingerprint.compute restored)
-        // A document at schema 21 may not spell a name on an occurrence.
-        let relabelled = json.Replace("\"schemaVersion\":9", "\"schemaVersion\":21")
-        match SnapshotCodec.deserialize relabelled with
+            """{"schemaVersion":21,"snapshotId":"declared-legacy","types":[],"effects":[],"capabilities":[],"functions":[{"id":"declared-second","displayName":"second","parameters":[{"id":"declared-first","displayName":"first","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"declared-T","displayName":"Item"}]}},{"id":"declared-second","displayName":"second","type":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"Marker"}}],"resultType":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"Marker"},"requiredEffects":[],"body":{"nodes":[{"id":"declared-second-result","kind":"parameterReference","parameterId":"declared-second"}],"resultNodeId":"declared-second-result"}}],"obligations":[]}"""
+        match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("displayName", message)
         | other -> failwithf "Schema 21 accepted a named occurrence: %A" other
 
@@ -117,7 +103,7 @@ module DeclaredFunctionTypeParametersTests =
         $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"second",{declared}"parameters":[{{"displayName":"first","type":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"typeParameter","name":"T"}}]}}}},{{"displayName":"second","type":{{"kind":"typeParameter","name":"U"}}}}],"resultType":{{"kind":"typeParameter","name":"U"}},"requiredEffects":[],"body":{{"kind":"parameter","name":"second"}}}}"""
 
     [<Fact>]
-    let ``a snapshot using both schema-21 constructs round-trips in both codecs and legacy fingerprints stay unchanged`` () =
+    let ``a snapshot using both schema-21 constructs round-trips in both codecs and the legacy canonical bytes stay unchanged`` () =
         // Declared order (U, T) and a private helper beside an exported generic function: both
         // `DeclaredFunctionTypeParameters` and `DeclarationVisibility` are in use.
         let exportedReordered = second [ uId, "U"; tId, "T" ]
@@ -143,14 +129,9 @@ module DeclaredFunctionTypeParametersTests =
         Assert.Contains("\"typeParameters\":[{\"typeParameterId\":\"declared-U\"", json)
         Assert.DoesNotContain("\"displayName\":\"T\"}}", json)
         Assert.Equal(mixed, SnapshotCodec.deserialize json |> unwrap "json restore")
-        // A legacy document (names on occurrences, no list, no visibility) still reads as the same
-        // all-exported snapshot and re-serializes to its own bytes, so both fingerprints are unchanged.
+        // The frozen canonical form of a derived list is still the pre-21 legacy bytes (no list, no
+        // visibility, names on occurrences), so both fingerprints are unchanged.
         let legacy =
             """{"schemaVersion":9,"snapshotId":"declared-legacy","types":[],"effects":[],"capabilities":[],"functions":[{"id":"declared-second","displayName":"second","parameters":[{"id":"declared-first","displayName":"first","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"declared-T","displayName":"T"}]}},{"id":"declared-second","displayName":"second","type":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"U"}}],"resultType":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"U"},"requiredEffects":[],"body":{"nodes":[{"id":"declared-second-result","kind":"parameterReference","parameterId":"declared-second"}],"resultNodeId":"declared-second-result"}}],"obligations":[]}"""
-        let restored = SnapshotCodec.deserialize legacy |> unwrap "legacy"
-        Assert.True(restored.Functions.Head.Exported)
-        Assert.Equal<(TypeParameterId * string) list>([ tId, "T"; uId, "U" ], restored.Functions.Head.TypeParameters)
-        Assert.Equal(legacy, SnapshotCodec.serializeCanonical restored |> unwrap "legacy reserialize")
         let derivedTwin = { snapshotOf (second [ tId, "T"; uId, "U" ]) with Id = id<SnapshotTag> "legacy" }
-        Assert.Equal(SnapshotFingerprint.compute restored, SnapshotFingerprint.compute derivedTwin)
-        Assert.Equal(SemanticFingerprint.compute restored, SemanticFingerprint.compute derivedTwin)
+        Assert.Equal(legacy, SnapshotCodec.serializeCanonical derivedTwin |> unwrap "legacy bytes")

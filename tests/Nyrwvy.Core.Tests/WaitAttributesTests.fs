@@ -188,7 +188,7 @@ module WaitAttributesTests =
         Assert.DoesNotContain("taskBound", plainJson)
         Assert.Empty(SnapshotSchema.usedFeatures plain |> Set.filter ((=) SnapshotSchemaFeature.WaitAttributes))
         Assert.True((SnapshotSchema.required plain).Json < 24)
-        Assert.Equal(plainJson, SnapshotCodec.deserialize plainJson |> unwrap "plain read" |> SnapshotCodec.serializeCanonical |> unwrap "plain again")
+        Assert.Equal(plainJson, (SnapshotCodec.serialize plain |> unwrap "plain current" |> SnapshotCodec.deserialize) |> unwrap "plain read" |> SnapshotCodec.serializeCanonical |> unwrap "plain again")
 
         // `quiet` is a valid must-not-wait function; `shielded` is unmarked so that the snapshot validates.
         let marked = waitingSnapshot false

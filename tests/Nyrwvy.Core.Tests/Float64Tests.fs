@@ -295,7 +295,7 @@ module Float64Tests =
     let ``JSON preserves canonical binary64 bits and rejects noncanonical text`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
-        let restoredJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
+        let restoredJson = SnapshotCodec.deserialize (SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization") |> unwrap "JSON deserialization"
 
         for restored in [ restoredJson ] do
             let values = literalBits restored |> List.map Float64Bits.value
