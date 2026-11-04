@@ -478,9 +478,6 @@ module AgentTypeDeclarationWorkflow =
     let commitGroup workspace proposal =
         publishGroupWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations
 
-    let commitGroupWithPolicy workspace proposal policy =
-        publishGroupWithPolicy workspace proposal policy
-
     let commit workspace proposal =
         publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations
 

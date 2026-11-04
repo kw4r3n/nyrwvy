@@ -678,6 +678,8 @@ pub fn openUsing(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only:
     snapshot_path = path;
     writable = !read_only;
     const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch null;
+    if (stat == null and exists(io, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })))
+        startupFailure("SnapshotFileNotFound: No snapshot file at {s}, but '{s}.dependency.json' exists: creating it with a dependency was interrupted. Delete the sidecar, then use create (MCP nyrwvy_open mode \"create\") again.", .{ path, path });
     if (stat == null or stat.?.kind != .file) startupFailure("SnapshotFileNotFound: No snapshot file at {s}. Use create (MCP nyrwvy_open mode \"create\") to start a new one.", .{path});
     if (!read_only) {
         try acquireLock(io, a, path);

@@ -18,7 +18,6 @@
     <Compile Include="EffectRequirements.fs" />
     <Compile Include="Waiting.fs" />
     <Compile Include="SemanticQuery.fs" />
-    <Compile Include="DeclarationVisibility.fs" />
     <Compile Include="LooseJsonString.fs" />
     <Compile Include="Validation.fs" />
     <Compile Include="SnapshotSchema.fs" />
@@ -35,7 +34,6 @@
     <Compile Include="AgentWorkflow.fs" />
     <Compile Include="StructuralContracts.fs" />
     <Compile Include="StructuralTransactionInternals.fs" />
-    <Compile Include="AgentBatchWorkflow.fs" />
     <Compile Include="AgentTypeDeclarationWorkflow.fs" />
     <Compile Include="AgentEffectDeclarationWorkflow.fs" />
     <Compile Include="AgentCapabilityDeclarationWorkflow.fs" />
@@ -51,7 +49,5 @@
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
     <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />
-    <Compile Include="AgentCapabilityOperationSignatureMigrationWorkflow.fs" />
-    <Compile Include="AgentDependencyUpgradeWorkflow.fs" />
   </ItemGroup>
 </Project>

@@ -18,6 +18,8 @@ const replayArgs = (example, directory) => ["--replay", directory]
 // function-abort has no replay mode and accepts a non-empty directory, so its sidecar is written first.
 const presetOnly = new Set(["function-abort"])
 const only = process.argv.slice(2)
+const unknown = only.filter(name => !examples.includes(name))
+if (unknown.length) throw new Error(`Unknown examples: ${unknown.join(", ")}; choose from ${examples.join(", ")}`)
 const parent = await mkdtemp(join(tmpdir(), "nyrwvy-examples-zig-"))
 const failed = []
 async function targetZig(directory) {

@@ -145,6 +145,10 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     const checked_facade = if (facade_check) |checked| try pathOutcome(r, checked) else null;
     if (checked_output != null and checked_facade != null) try differentFiles(r, checked_output.?, checked_facade.?);
     const written = if (output) |path| try pathOutcome(r, try files.write(r.a, r.snapshot_path, path, ".cs", "", marker, artifact.source)) else null;
+    // A later facade failure must not read as if the output were untouched.
+    errdefer if (written) |path| if (r.rejection.code.len > 0) {
+        r.rejection.message = std.fmt.allocPrint(r.a, "{s} The implementation file {s} was already replaced.", .{ r.rejection.message, path }) catch r.rejection.message;
+    };
     // Initially missing Unicode aliases become observable after publishing the implementation.
     if (written != null and checked_facade != null) try differentFiles(r, written.?, checked_facade.?);
     const facade_written = if (facade_path) |path| try pathOutcome(r, try files.write(r.a, r.snapshot_path, path, ".cs", "", marker, facade_source.?)) else null;

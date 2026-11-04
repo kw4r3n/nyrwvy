@@ -398,11 +398,12 @@ module ZigHostRunPureParityTests =
                   runName "pair" [ pair "unicode identities" 2 ] (Some(pair "unicode identities" 2))
                   runName "query" [ "\"a\""; responses [ returns missing ] ] (Some missing)
                   runName "negatedNaN" [ """{"kind":"fakeCapability","capability":"FloatReader","operations":[{"operation":"read","cases":[{"arguments":[{"parameter":"number","value":{"kind":"float64","value":"NaN"}}],"responses":[{"kind":"return","value":{"kind":"string","value":"matched"}}]}]}]}"""; "\"NaN\"" ] None ]
-            let replies = strictPair path requests
+            let replies, zig = pairExcept [ 4 ] path requests
             for reply in replies |> List.take 4 do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
             Assert.Equal("provider16", (success replies.Head).GetProperty("calls").[0].GetProperty("parameter").GetString())
-            // The existing Zig backend compares scripted NaN keys by their token bits.
-            Assert.Equal("RunBindingNoMatch", code replies[4]))
+            // The F# host compared scripted NaN keys by their bits; NaN keys are canonical now, as on the C# backend.
+            Assert.Equal("RunBindingNoMatch", code replies[4])
+            Assert.Equal("matched", (success zig[4]).GetProperty("actual").GetProperty("value").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``native Zig host respects private imported declaration visibility before backend execution`` () =

@@ -205,8 +205,9 @@ export class AuthoringClient {
           }
           return Object.is(value, -0) ? "-0" : value
         }
+        // shortcut: an untyped -0 is written as 0 because the parameter type is unknown here (Int64 has no -0); a Float64 -0 needs {kind:"float64",value:-0}. Reject it once the client knows parameter types.
         if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
-          throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64/Bits32. Float64 run values accept finite JSON numbers or special strings.")
+          throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64/Bits32. Float64 run values use {kind:\"float64\",value}, which accepts finite JSON numbers or special strings.")
         }
         return value
       })

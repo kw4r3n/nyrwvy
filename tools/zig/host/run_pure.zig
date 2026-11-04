@@ -5,6 +5,7 @@ const emitter = @import("zig_emitter");
 const q = @import("query.zig");
 const values = @import("run_value.zig");
 const processes = @import("run_process.zig");
+const csharp_build = @import("run_csharp_build.zig");
 const m = @import("materialize.zig");
 const root = @import("root");
 
@@ -193,11 +194,12 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
         .executable => |path| path,
         .failed => |failure| return values.diagnostic(r, &input, failure.code, failure.message),
     };
-    const tokens = try values.tokens(r, &input);
-    var argv: std.ArrayList([]const u8) = .empty;
-    try argv.appendSlice(r.a, &.{ executable, emitter.functionName(r.a, input.function_id) });
-    try argv.appendSlice(r.a, tokens);
-    switch (try processes.launch(r.a, root.host_io, argv.items, std.fs.path.dirname(executable).?, "pure function", 5)) {
+    // Tokens go through a file as on the C# backend: a long String overflows Linux's 128 KiB argv string limit.
+    const directory = try csharp_build.temporary(r.a, root.host_io, "nyrwvy-zig-run");
+    defer std.Io.Dir.cwd().deleteTree(root.host_io, directory) catch {};
+    const input_path = try std.fs.path.join(r.a, &.{ directory, "input.txt" });
+    try std.Io.Dir.cwd().writeFile(root.host_io, .{ .sub_path = input_path, .data = try std.mem.join(r.a, " ", try values.tokens(r, &input)) });
+    switch (try processes.launch(r.a, root.host_io, &.{ executable, emitter.functionName(r.a, input.function_id), input_path }, std.fs.path.dirname(executable).?, "pure function", 5)) {
         .failed => |failure| return values.diagnostic(r, &input, failure.code, failure.message),
         .completed => |result| {
             if (!result.term.success()) return values.crash(r, &input, switch (result.term) {

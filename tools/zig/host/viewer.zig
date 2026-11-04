@@ -1,6 +1,6 @@
 //! The viewer data of a Function Focus page: `ViewerData.ofFocus` over `ViewerProjection.focus` of
 //! `SemanticQuery.focusFunction`, written byte for byte as the F# host writes it, and the page that
-//! embeds it in the viewer asset (`ViewerHtml.page`).
+//! embeds it in the viewer asset.
 const std = @import("std");
 const model = @import("model_reader");
 const wire = @import("wire.zig");
@@ -12,10 +12,10 @@ const Str = model.Str;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
-/// Marks a page as viewer output (`ViewerHtml.generatorMeta`).
+/// Marks a page as viewer output.
 pub const generator_meta = "<meta name=\"generator\" content=\"Nyrwvy viewer\">";
 
-/// `ViewerHtml.page`: the asset with the data where it says `@DATA@`.
+/// The asset with the data where it says `@DATA@`.
 pub fn page(a: Allocator, data: []const u8) ![]const u8 {
     const index = std.mem.indexOf(u8, asset.page, "@DATA@").?;
     return std.mem.concat(a, u8, &.{ asset.page[0..index], data, asset.page[index + "@DATA@".len ..] });

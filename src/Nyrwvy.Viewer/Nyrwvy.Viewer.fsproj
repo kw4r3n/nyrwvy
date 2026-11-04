@@ -1,8 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="ViewerModel.fs" />
-    <Compile Include="ViewerHtml.fs" />
-    <EmbeddedResource Include="viewer.html" LogicalName="Nyrwvy.Viewer.viewer.html" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
