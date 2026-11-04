@@ -295,7 +295,8 @@ module Float64Tests =
     let ``JSON preserves canonical binary64 bits and rejects noncanonical text`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
-        let restoredJson = SnapshotCodec.deserialize (SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization") |> unwrap "JSON deserialization"
+        let current = SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization"
+        let restoredJson = SnapshotCodec.deserialize current |> unwrap "JSON deserialization"
 
         for restored in [ restoredJson ] do
             let values = literalBits restored |> List.map Float64Bits.value
@@ -313,7 +314,7 @@ module Float64Tests =
 
         let canonical = Float64Bits.toHex (Float64Bits.create Float64Bits.canonicalNaNBits)
         for noncanonical in [ "7ff0000000000001"; "fff8000000000000"; "7FF8000000000000" ] do
-            match SnapshotCodec.deserialize (json.Replace(canonical, noncanonical)) with
+            match SnapshotCodec.deserialize (current.Replace(canonical, noncanonical)) with
             | Error error -> Assert.Contains("canonical", sprintf "%A" error)
             | Ok _ -> failwithf "Accepted noncanonical Float64 bits %s" noncanonical
 
