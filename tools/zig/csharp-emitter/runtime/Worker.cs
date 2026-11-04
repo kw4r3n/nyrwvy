@@ -14,7 +14,12 @@ static class RunnerWorker
 
     static int Main()
     {
-        if (OperatingSystem.IsLinux()) prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);
+        if (OperatingSystem.IsLinux())
+        {
+            prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);
+            // Killed with the host even when it is SIGKILLed and cannot kill its process group.
+            prctl(1 /* PR_SET_PDEATHSIG */, 9 /* SIGKILL */, 0, 0, 0);
+        }
         var replies = Console.Out;
         var requests = Console.In;
         replies.WriteLine("[\"ready\"]");

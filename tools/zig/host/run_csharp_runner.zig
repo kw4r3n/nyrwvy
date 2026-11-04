@@ -282,7 +282,8 @@ pub fn source(r: *q.Request, input: *v.Input, concurrent: bool) Fail![]const u8 
     const checks_text = std.mem.indexOf(u8, encoded, "CheckedString(") != null or std.mem.indexOf(u8, arms.written(), "CheckedString(") != null or std.mem.indexOf(u8, encoders.written(), "CheckedString(") != null;
     var out: std.Io.Writer.Allocating = .init(r.a);
     try out.writer.writeAll("using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n");
-    try out.writer.writeAll("if (OperatingSystem.IsLinux()) RunnerProcess.prctl(4, 0, 0, 0, 0);\nvar input = new RunnerInput(System.IO.File.ReadAllText(args[0]));\nvar options = new JsonSerializerOptions { MaxDepth = 256 };\nint remaining = 8192;\n");
+    // PR_SET_PDEATHSIG fires when the forking thread exits; the host spawns from its serving task, which lives as long as the host.
+    try out.writer.writeAll("if (OperatingSystem.IsLinux()) { RunnerProcess.prctl(4, 0, 0, 0, 0); RunnerProcess.prctl(1, 9, 0, 0, 0); }\nvar input = new RunnerInput(System.IO.File.ReadAllText(args[0]));\nvar options = new JsonSerializerOptions { MaxDepth = 256 };\nint remaining = 8192;\n");
     if (checks_text) try out.writer.writeAll("long textRemaining = 65536;\n");
     try out.writer.writeAll("try {\n");
     if (concurrent) try out.writer.writeAll("NyRuntime.Clock = new NyVirtualClock();\n");
