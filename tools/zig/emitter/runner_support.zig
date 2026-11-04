@@ -184,7 +184,7 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) std.Io.Writer.Error
     switch (@typeInfo(T)) {
         .int => try nyToken(w, first, "{d}", .{value}),
         .bool => try nyToken(w, first, "{s}", .{if (value) "1" else "0"}),
-        .float => try nyToken(w, first, "{x:0>16}", .{@as(u64, @bitCast(value))}),
+        .float => try nyToken(w, first, "{x:0>16}", .{if (std.math.isNan(value)) @as(u64, 0x7ff8000000000000) else @as(u64, @bitCast(value))}),
         .optional => {
             if (value) |item| {
                 try nyToken(w, first, "1", .{});
