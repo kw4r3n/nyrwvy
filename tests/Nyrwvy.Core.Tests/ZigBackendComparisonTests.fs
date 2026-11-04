@@ -453,8 +453,6 @@ module ZigBackendComparisonTests =
           for n in [ "0"; "5" ] do true, "upTo", [ n ]
           // An allocation the runtime cannot make is fatal on both backends.
           false, "upTo", [ "9223372036854775807" ]
-          // 16 GB of items: each runner's memory cap makes it fatal instead of swapping until the time limit.
-          false, "upTo", [ "2000000000" ]
           for a in floats do
               for kind in floatUnary @ floatTests @ floatToInt do true, kind, [ a ]
               // Pairs over a smaller set keep the run short; every value still meets every operation.

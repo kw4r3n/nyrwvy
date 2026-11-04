@@ -26,6 +26,11 @@ module ZigHostParityTests =
 
     let internal comparable (line: string) =
         let masked = Regex.Replace(line, "\"build\":\"[^\"]*\"", "\"build\":\"…\"")
+        // The Zig host adds recipe error details (2026-11-04) that the recorded F# host never wrote.
+        let masked = Regex.Replace(masked, ",\"details\":[{]\"recipeKind\":\"[^\"]*\",\"recipePath\":\"[^\"]*\",\"byName\":(?:true|false)[}]", "")
+        let masked = Regex.Replace(masked, ",\"recipeKind\":\"[^\"]*\",\"recipePath\":\"[^\"]*\",\"byName\":(?:true|false)", "")
+        // The Zig usage text drops the F# host's migrate command (2026-11-05); it is always the last stderr block.
+        let masked = Regex.Replace(masked, "(?s)Usage: Nyrwvy\\.AuthoringSession .*", "Usage: …")
         Regex.Replace(masked, "(Invalid JSON: |not valid JSON: ).*", "$1…")
 
     let internal zigHost () = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
@@ -2612,7 +2617,7 @@ module ZigHostReplaceBodyTests =
             let replies = runFiles false
             let actual = runFiles true
             Assert.Equal(replies.Length, actual.Length)
-            for expected, found in List.zip replies actual do Assert.Equal(expected, found)
+            for expected, found in List.zip replies actual do Assert.Equal(comparable expected, comparable found)
             let text = String.concat "\n" replies
             for message in [ "must stay inside"; "must not pass through"; "must name an existing JSON file"; "exceeds 1 MiB"; "must contain valid JSON"; "must be a file path"; "cannot be read as a JSON file" ] do
                 Assert.Contains(message, text)

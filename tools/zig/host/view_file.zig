@@ -109,15 +109,17 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
     var random: [16]u8 = undefined;
     io.randomSecure(&random) catch return .{ .refused = "I/O error: no random bytes for a temporary name." };
     const temporary = if (snapshot) try std.fmt.allocPrint(a, ".{s}.{x}.tmp", .{ name, random }) else try std.fmt.allocPrint(a, ".nyrwvy-{x}.tmp", .{random});
-    // A replaced file keeps its mode (a user's chmod 600), which a default-mode temporary would reset.
-    const permissions: std.Io.File.Permissions = if (windows) .default_file else if (current.statFile(io, name, .{ .follow_symlinks = false })) |stat| .fromMode(stat.permissions.toMode() & 0o7777) else |_| .default_file;
-    const file = current.createFile(io, temporary, .{ .exclusive = true, .permissions = permissions }) catch |err| return failure(a, err, "create", temporary);
+    // A replaced regular file keeps its mode (a user's chmod 600), which a default-mode temporary would reset; a symlink's own mode is not copied.
+    const kept: ?std.Io.File.Permissions = if (windows) null else if (current.statFile(io, name, .{ .follow_symlinks = false })) |stat| (if (stat.kind == .file) std.Io.File.Permissions.fromMode(stat.permissions.toMode() & 0o7777) else null) else |_| null;
+    const file = current.createFile(io, temporary, .{ .exclusive = true, .permissions = kept orelse .default_file }) catch |err| return failure(a, err, "create", temporary);
     var renamed = false;
     defer if (!renamed) {
         current.deleteFile(io, temporary) catch {};
     };
     {
         defer file.close(io);
+        // createFile applies the umask; set the kept mode exactly.
+        if (kept) |permissions| file.setPermissions(io, permissions) catch |err| return failure(a, err, "chmod", temporary);
         file.writeStreamingAll(io, content) catch |err| return failure(a, err, "write", temporary);
         file.sync(io) catch |err| return failure(a, err, "sync", temporary);
     }
@@ -300,10 +302,15 @@ test "atomic replacement keeps the target's file mode" {
     const io = std.testing.io;
     var temporary = std.testing.tmpDir(.{});
     defer temporary.cleanup();
-    (try temporary.dir.createFile(io, "snapshot.json", .{ .permissions = .fromMode(0o600) })).close(io);
-    const target = try std.fs.path.join(a, &.{ try temporary.dir.realPathFileAlloc(io, ".", a), "snapshot.json" });
-    try std.testing.expect((try replaceAtomic(a, target, "next")) == .written);
-    try std.testing.expectEqual(@as(std.posix.mode_t, 0o600), (try temporary.dir.statFile(io, "snapshot.json", .{})).permissions.toMode() & 0o777);
+    // 0o664 and 0o601 lie outside the usual 022/077 umasks, so only an explicit chmod keeps them.
+    for ([_]std.posix.mode_t{ 0o600, 0o664, 0o601 }) |mode| {
+        const original = try temporary.dir.createFile(io, "snapshot.json", .{});
+        try original.setPermissions(io, .fromMode(mode));
+        original.close(io);
+        const target = try std.fs.path.join(a, &.{ try temporary.dir.realPathFileAlloc(io, ".", a), "snapshot.json" });
+        try std.testing.expect((try replaceAtomic(a, target, "next")) == .written);
+        try std.testing.expectEqual(mode, (try temporary.dir.statFile(io, "snapshot.json", .{})).permissions.toMode() & 0o777);
+    }
 }
 
 test "publication identity distinguishes files and detects filesystem aliases" {

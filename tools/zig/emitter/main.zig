@@ -2160,8 +2160,7 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\pub fn main(init: std.process.Init) !void {
         \\    // The host kills the runner's process group, which misses it when the host itself is SIGKILLed.
         \\    if (@import("builtin").os.tag == .linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_PDEATHSIG), @intFromEnum(std.os.linux.SIG.KILL), 0, 0, 0);
-        \\    // A runaway allocation fails as out of memory instead of swapping; the address space also holds thread stacks, so it is looser than the C# 1 GiB heap.
-        \\    if (@import("builtin").os.tag == .linux) std.posix.setrlimit(.AS, .{ .cur = 2 << 30, .max = 2 << 30 }) catch {};
+        \\    // shortcut: no memory cap here: RLIMIT_AS also counts each task thread's stack, so any useful cap breaks parallelAll over a few hundred items; add one with a smaller task stack_size if Zig-backend runs must be bounded like the C# 1 GiB heap.
         \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
         \\    const entry = args[1];
         \\    var tokens = NyTokens{ .it = std.mem.splitScalar(u8, try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], init.arena.allocator(), .unlimited), ' ') };

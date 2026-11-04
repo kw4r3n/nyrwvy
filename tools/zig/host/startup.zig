@@ -102,9 +102,9 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     host.writable = true;
     std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(path) orelse "/") catch |err| host.startupFailure("IoFailure: {s}", .{@errorName(err)});
     const sidecar = try std.mem.concat(a, u8, &.{ path, ".dependency.json" });
-    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(io, path);
+    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
     try host.acquireLock(io, a, path);
-    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(io, path);
+    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
     var request: query.Request = .{ .a = a, .line = "{}", .root = .{}, .provenance = null, .snapshot_path = path };
     var pinned: std.ArrayList(planning.Pinned) = .empty;
     for (command.sources) |source| try pinned.append(a, planning.pin(&request, source) catch |e| return failed(&request, e));
@@ -135,9 +135,8 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     if (!fileExists(io, backend)) _ = @import("view_file.zig").createAtomic(a, backend, "{\"targets\": [\"csharp\"]}\n") catch {};
     try host.load(io, a, path, false);
 }
-fn alreadyExists(io: std.Io, path: []const u8) noreturn {
-    // Only the sidecar: the same guidance open gives for a creation interrupted before the snapshot was written.
-    if (!fileExists(io, path)) host.startupFailure("SnapshotFileAlreadyExists: No snapshot file at {s}, but '{s}.dependency.json' exists: creating it with a dependency was interrupted. Delete the sidecar, then use create (MCP nyrwvy_open mode \"create\") again.", .{ path, path });
+// An orphan sidecar keeps this message (the recorded F# host's create stderr); open names the interrupted create.
+fn alreadyExists(path: []const u8) noreturn {
     host.startupFailure("SnapshotFileAlreadyExists: A snapshot already exists at {s}. Use open to resume it; create never overwrites.", .{path});
 }
 fn fileExists(io: std.Io, path: []const u8) bool {

@@ -84,12 +84,10 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const missing = await failed(first, "open", { mode: "open", snapshot: "missing.json" })
     assert.match(missing.content[0].text, /SnapshotFileNotFound: No snapshot file at .*missing\.json.*create/)
     assert.doesNotMatch(missing.content[0].text, /replay/)
-    // A sidecar without its snapshot is an interrupted create, for create as for open.
+    // A sidecar without its snapshot is an interrupted create; open says so (create keeps the F# host's wording).
     await writeFile(join(workspace, "orphan.json.dependency.json"), "{}")
-    for (const mode of ["create", "open"]) {
-      const orphan = await failed(first, "open", { mode, snapshot: "orphan.json" })
-      assert.match(orphan.content[0].text, /creating it with a dependency was interrupted\. Delete the sidecar/)
-    }
+    const orphan = await failed(first, "open", { mode: "open", snapshot: "orphan.json" })
+    assert.match(orphan.content[0].text, /creating it with a dependency was interrupted\. Delete the sidecar/)
     await rm(join(workspace, "orphan.json.dependency.json"))
     const noWorkspace = await failed(first, "open", { mode: "create", snapshot: "workspace.json", workspace: join(root, "absent") })
     assert.match(noWorkspace.content[0].text, /^workspace directory does not exist: /)
@@ -361,5 +359,24 @@ test("MCP accepts, commits and runs every recipe_reference worked example", { ti
       await client?.close()
       await rm(workspace, { recursive: true, force: true })
     }
+  }
+})
+
+test("MCP runPure on C# fails fast as fatal out of memory instead of allocating 16 GB", { timeout: 900000 }, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-oom-"))
+  let client
+  try {
+    client = await connect(workspace)
+    await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+    const int64 = { kind: "primitive", primitive: "int64" }
+    const created = await call(client, "create_function", { displayName: "huge", parameters: [], resultType: { kind: "builtinGeneric", generic: "list", arguments: [int64] },
+      requiredEffects: [], body: { kind: "listRange", start: { kind: "int64Literal", value: 0 }, end: { kind: "int64Literal", value: 2000000000 } } })
+    await call(client, "commit", { proposalId: created.result.proposalId })
+    const result = await client.callTool({ name: "nyrwvy_request", arguments: { op: "runPureByName", arguments: { function: "huge", arguments: [] } } }, { timeout: 900000 })
+    assert.equal(result.isError, true, JSON.stringify(result))
+    assert.deepEqual([result.structuredContent.error.failureKind, result.structuredContent.error.exceptionType], ["fatal", "System.OutOfMemoryException"])
+  } finally {
+    await client?.close()
+    await rm(workspace, { recursive: true, force: true })
   }
 })
