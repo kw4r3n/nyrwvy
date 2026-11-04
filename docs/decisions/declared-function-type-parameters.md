@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
+- **Amended:** 2026-11-04: the F# JSON reader no longer reads documents below schema 21 (they are rejected as unsupported, as the Zig reader skips them as legacy). The rules below for reading such documents no longer apply; the frozen canonical encoding still writes the pre-21 form for fingerprints.
 - **Roadmap:** part of the [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned) (owner decision of 2026-10-19), implemented ahead of the removal step so that the cutover's single migration covers it
 
 Until this change a function had no type parameter list of its own: its type parameters were whatever `TypeRef.TypeParameter` occurrences its parameter types contained, in first-appearance order, and every occurrence carried its own display name. A Product or Union, by contrast, declares its type parameters in order ([generic types](generic-types.md)). The implicit rule had no place to attach anything to a type parameter (a later constraint such as `equatable`, or a documented order for the backend's generic method), and the per-occurrence names needed their own consistency check (`TypeParameterDisplayNameConflict`) and were duplicated through every body type reference.
