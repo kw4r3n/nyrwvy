@@ -547,7 +547,34 @@ const references = {
 
 /** @typedef {keyof typeof references} RecipeKind */
 
-const usage = "Pass category for its kinds' one-line signatures (wire field names and types; often enough to write a scalar recipe), kind for one exact ordinary-tool wire shape with notes, or kinds for several shapes in one call. Global function/type/capability/effect name slots accept a display-name string or {id} / {name,dependencySnapshotId} selector. Optional name, dependencySnapshotId and ownership guard an exact ID; inspect declarations.provenance for providing pins. Selectors lower to current exact identities and never resolve ambiguity automatically. A named TypeRef keeps its name slot, e.g. {kind:'named',name:{id:'<TypeId>'}}. Field/variant/parameter names remain local to their selected owner."
+const int64 = { kind: "primitive", primitive: "int64" }
+const scaledArea = {
+  purpose: "A named bind, a matchOption with someName, and union arms reading their fields; run the steps in order, committing each proposal.",
+  steps: [
+    { tool: "create_type", args: { displayName: "Shape", typeKind: { kind: "union", variants: [
+      { displayName: "Square", fields: [{ displayName: "side", type: int64 }] },
+      { displayName: "Rect", fields: [{ displayName: "width", type: int64 }, { displayName: "height", type: int64 }] },
+    ] } } },
+    { tool: "create_function", args: { displayName: "scaledArea", requiredEffects: [], resultType: int64,
+      parameters: [{ displayName: "shape", type: { kind: "named", name: "Shape" } }, { displayName: "scale", type: { kind: "builtinGeneric", generic: "option", arguments: [int64] } }],
+      body: { kind: "bind", name: "factor",
+        value: { kind: "matchOption", input: { kind: "parameter", name: "scale" }, someName: "s", someBody: { kind: "patternReference", name: "s" }, noneBody: { kind: "int64Literal", value: 1 } },
+        body: { kind: "matchUnion", type: "Shape", input: { kind: "parameter", name: "shape" }, arms: [
+          { variant: "Square", body: { kind: "int64WrappingMultiply",
+            left: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Square", field: "side" },
+            right: { kind: "patternReference", name: "factor" } } },
+          { variant: "Rect", body: { kind: "int64WrappingMultiply",
+            left: { kind: "int64WrappingMultiply",
+              left: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Rect", field: "width" },
+              right: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Rect", field: "height" } },
+            right: { kind: "patternReference", name: "factor" } } },
+        ] } } } },
+  ],
+}
+/** One worked, host-checked example per category whose kinds combine in ways a shape alone does not show. */
+export const recipeExamples = /** @type {Partial<Record<RecipeCategory, typeof scaledArea>>} */ ({ references: scaledArea, control: scaledArea })
+
+const usage = "Pass category for its kinds' one-line signatures (wire field names and types; often enough to write a scalar recipe; references and control also return a worked example), kind for one exact ordinary-tool wire shape with notes, or kinds for several shapes in one call. Global function/type/capability/effect name slots accept a display-name string or {id} / {name,dependencySnapshotId} selector. Optional name, dependencySnapshotId and ownership guard an exact ID; inspect declarations.provenance for providing pins. Selectors lower to current exact identities and never resolve ambiguity automatically. A named TypeRef keeps its name slot, e.g. {kind:'named',name:{id:'<TypeId>'}}. Field/variant/parameter names remain local to their selected owner."
 
 /** @param {RecipeKind} kind */
 function entry(kind) {
@@ -571,7 +598,7 @@ export function recipeReference(query = {}) {
   }
   if (category !== undefined) {
     if (!Object.hasOwn(categories, category)) throw new Error(`Unknown recipe category '${category}'.`)
-    return { format: "nameResolvedExpressionRecipe", category, signatures: categories[category] }
+    return { format: "nameResolvedExpressionRecipe", category, signatures: categories[category], ...(recipeExamples[category] && { example: recipeExamples[category] }) }
   }
   const names = Object.fromEntries(Object.entries(categories).map(([name, signatures]) => [name, Object.keys(signatures)]))
   return { format: "nameResolvedExpressionRecipe", categories: names, typeRef, usage }

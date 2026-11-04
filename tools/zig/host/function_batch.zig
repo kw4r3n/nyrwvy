@@ -32,6 +32,7 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
         const source = sources[index];
         scratch.line = source;
         scratch.root = if (item == .object) item.object else .empty;
+        // shortcut: a batch keeps only per-item messages, not the recipe details; extend this when a batch probe needs them.
         const creation = build(&scratch, item, expected) catch |err| {
             if (err != error.Rejected or !m.same(scratch.rejection.code, "ProtocolError")) {
                 r.rejection = scratch.rejection;
