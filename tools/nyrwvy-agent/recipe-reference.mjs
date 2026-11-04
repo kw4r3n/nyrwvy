@@ -549,7 +549,7 @@ const references = {
 
 const int64 = { kind: "primitive", primitive: "int64" }
 const scaledArea = {
-  purpose: "A named bind, a matchOption with someName, and union arms reading their fields; run the steps in order, committing each proposal.",
+  purpose: "A named bind, a matchOption with someName, and union arms reading their fields; run the steps in order, committing each proposal, then check the function with runPureByName and plain JSON values.",
   steps: [
     { tool: "create_type", args: { displayName: "Shape", typeKind: { kind: "union", variants: [
       { displayName: "Square", fields: [{ displayName: "side", type: int64 }] },
@@ -561,7 +561,9 @@ const scaledArea = {
         value: { kind: "matchOption", input: { kind: "parameter", name: "scale" }, someName: "s", someBody: { kind: "patternReference", name: "s" }, noneBody: { kind: "int64Literal", value: 1 } },
         body: { kind: "matchUnion", type: "Shape", input: { kind: "parameter", name: "shape" }, arms: [
           { variant: "Square", body: { kind: "int64WrappingMultiply",
-            left: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Square", field: "side" },
+            left: { kind: "int64WrappingMultiply",
+              left: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Square", field: "side" },
+              right: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Square", field: "side" } },
             right: { kind: "patternReference", name: "factor" } } },
           { variant: "Rect", body: { kind: "int64WrappingMultiply",
             left: { kind: "int64WrappingMultiply",
@@ -569,6 +571,8 @@ const scaledArea = {
               right: { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Shape", variant: "Rect", field: "height" } },
             right: { kind: "patternReference", name: "factor" } } },
         ] } } } },
+    { tool: "request", args: { op: "runPureByName", arguments: { function: "scaledArea", arguments: [{ Rect: { width: 2, height: 3 } }, 10], expected: 60 } } },
+    { tool: "request", args: { op: "runPureByName", arguments: { function: "scaledArea", arguments: [{ Square: { side: 4 } }, null], expected: 16 } } },
   ],
 }
 /** One worked, host-checked example per category whose kinds combine in ways a shape alone does not show. */

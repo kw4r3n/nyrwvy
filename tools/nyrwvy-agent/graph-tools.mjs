@@ -18,9 +18,10 @@ async function requestAuthoring(payload, context) {
   const reply = await sendAuthoring(payload, context)
   if (!reply.includes("\"recipeKind\"")) return reply
   const parsed = JSON.parse(reply)
-  const details = parsed?.error?.details
-  if (!details?.byName || !recipeKinds.includes(details.recipeKind)) return reply
-  details.expectedShape = recipeReference({ kind: details.recipeKind })
+  // One recipe error has details; a createFunctions batch lists one problem per failed item.
+  for (const item of [parsed?.error?.details, ...(parsed?.error?.problems ?? [])]) {
+    if (item?.byName && recipeKinds.includes(item.recipeKind)) item.expectedShape = recipeReference({ kind: item.recipeKind })
+  }
   return JSON.stringify(parsed)
 }
 
@@ -106,7 +107,7 @@ export function createGraphTools(schema) {
   const selector = schema.union([schema.string(), object]).describe('An exact display name or explicit {id} / {name,dependencySnapshotId} selector. Optional name, dependencySnapshotId and ownership are guards; inspect declarations.provenance to discover providing pins. Ambiguous names never resolve automatically.')
   const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"bits32"|"bytes"|"string"|"unit"}, {kind:"named",name:"Type"} (a generic type adds arguments:[<typeRef>,...]), {kind:"capability",name:"Capability"}, {kind:"builtinGeneric",generic:"option"|"result"|"list"|"map"|"set"|"taskScope"|"task"|"oneShot"|"exception",arguments:[<typeRef>,...]}, {kind:"function",parameters:[<typeRef>,...],resultType:<typeRef>} for pure capture-free function values, or {kind:"typeParameter",name:"T"} (new function parameter types introduce it; replacement binds the existing owner parameter). The same name means the same parameter, and callers get type arguments by argument matching. Use recipe_reference for arity and operation restrictions.')
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
-  const reviewDetail = "The review is compact by default and its result is bounded to 16 KiB UTF-8. projection reports exact omission counts and requiresDetailedReview; retrieve missing safety/impact details with request op readProposal (proposalId, JSON-pointer path, offset/limit; pages at most 8 KiB, structured graph by default). Reading never refreshes a stale proposal. Small reviews retain proposalId, receipt fingerprints, readiness, the diff, the function signature with its resultNodeId and nodeCount, effects, aborts, callers, callees and open obligations, without the per-node graph. Diff node summaries show literal values and referenced names, and a targeted diff shows previousTarget, proposedTarget and patternReferences (which binding each new pattern reference reads: scopeDepth, owning match node, arm and slot). Pass detail \"full\" only when the proposed graph itself must be read before commit (for migrations it adds rewrittenFunctions); after commit, inspect the function."
+  const reviewDetail = "The review is compact and bounded to 16 KiB; when projection.requiresDetailedReview is true, request op help topic review explains readProposal paging and detail \"full\"."
   const detail = schema.enum(/** @type {const} */ (["compact", "full"])).describe('Review size: "compact" (default) or "full" (adds the proposed per-node graph, or rewrittenFunctions for migrations).').optional()
   const exported = schema.boolean().describe("Visibility across a dependency boundary: true makes the declaration usable from snapshots that depend on this one; omitted means private (usable only inside this snapshot). Change it later with request op simulateOperationsByName {kind:'setExported', function|type|effect|capability, exported}.").optional()
   return {
@@ -173,8 +174,8 @@ export function createGraphTools(schema) {
     }),
     recipe_reference: defineTool({
       description: "Read the maintained name-resolved ExpressionRecipe wire shapes used by create_function and replace. No snapshot or authoring session is required. Omit every argument for the categorized index of kind names. Pass category for one-line signatures of its kinds, kind for one exact shape with notes, or kinds to read several shapes in one call; pass at most one of them.",
-      args: { category: schema.enum(recipeCategories).optional(), kind: schema.enum(recipeKinds).optional(), kinds: schema.array(schema.string()).min(1).describe("Several kinds from the index; checked when read, so the kind list is not repeated in this schema.").optional() },
-      /** @param {{ category?: import("./recipe-reference.mjs").RecipeCategory; kind?: import("./recipe-reference.mjs").RecipeKind; kinds?: string[] }} args */
+      args: { category: schema.enum(recipeCategories).optional(), kind: schema.string().optional().describe("One kind name from the index; an unknown name is rejected."), kinds: schema.array(schema.string()).min(1).describe("Several kinds from the index; checked when read, so the kind list is not repeated in this schema.").optional() },
+      /** @param {{ category?: import("./recipe-reference.mjs").RecipeCategory; kind?: string; kinds?: string[] }} args */
       execute: async args => JSON.stringify(recipeReference(/** @type {Parameters<typeof recipeReference>[0]} */ (args))),
     }),
     create_type: defineTool({

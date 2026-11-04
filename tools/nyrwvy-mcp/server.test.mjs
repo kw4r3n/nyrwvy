@@ -290,6 +290,8 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
     await call(client, "commit", { proposalId: created.proposalId })
     const replaced = (await failed(client, "replace", { function: "value", replacement: { kind: "boolNot", value: { ...bool(true), extra: 1 } } })).structuredContent.error
     assert.deepEqual([replaced.details.recipeKind, replaced.details.expectedShape.kind], ["boolLiteral", "boolLiteral"])
+    const batch = (await failed(client, "create_functions", { functions: [{ displayName: "broken", parameters: [], resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: { kind: "boolNot", value: { ...bool(true), extra: 1 } } }] })).structuredContent.error
+    assert.deepEqual([batch.problems[0].recipeKind, batch.problems[0].byName, batch.problems[0].expectedShape.kind], ["boolLiteral", true, "boolLiteral"])
     // Past the gate, request validation applies: sources without a hostCapability binding are invalid.
     const invalid = await failed(client, "request", { op: "runPure",
       arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
@@ -300,14 +302,18 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
   }
 })
 
-test("MCP accepts and commits every recipe_reference worked example", { timeout: 30000 }, async () => {
+test("MCP accepts, commits and runs every recipe_reference worked example", { timeout: 120000 }, async () => {
   for (const example of new Set(Object.values(recipeExamples))) {
     const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-example-"))
     let client
     try {
       client = await connect(workspace)
       await call(client, "open", { mode: "create", snapshot: "workspace.json" })
-      for (const step of example.steps) await call(client, "commit", { proposalId: (await call(client, step.tool, step.args)).result.proposalId })
+      for (const step of example.steps) {
+        const reply = await call(client, step.tool, step.args)
+        if (step.tool === "request") assert.equal(reply.result.matches, true, JSON.stringify(reply))
+        else await call(client, "commit", { proposalId: reply.result.proposalId })
+      }
     } finally {
       await client?.close()
       await rm(workspace, { recursive: true, force: true })
