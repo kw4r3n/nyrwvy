@@ -1424,24 +1424,6 @@ module SnapshotCodec =
     /// later edit; fingerprints keep their frozen canonical encoding independently.
     let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrentCached snapshot
 
-    /// The `schemaVersion` a snapshot JSON document declares, before any decoding of its content.
-    let declaredVersion (json: string): Result<SnapshotSchemaVersion, SnapshotCodecError> =
-        try
-            use document = JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))
-            let root = document.RootElement
-            if root.ValueKind <> JsonValueKind.Object then Error(SnapshotCodecError.InvalidShape "Snapshot must be a JSON object.")
-            else
-                match root.TryGetProperty "schemaVersion" with
-                | true, version when version.ValueKind = JsonValueKind.Number ->
-                    let value = version.GetInt32()
-                    match SnapshotSchema.tryJson value with
-                    | Some declared -> Ok declared
-                    | None -> Error(SnapshotCodecError.UnsupportedSchemaVersion value)
-                | _ -> Error(SnapshotCodecError.InvalidShape "Snapshot property 'schemaVersion' must be an integer.")
-        with
-        | :? JsonException as error -> Error(SnapshotCodecError.InvalidJson error.Message)
-        | :? FormatException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
-
     // The merged model a resolved read validated, by its local part and dependency, so the
     // workspace built from the same two snapshots is not validated again.
     let private resolvedReads = System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, Snapshot * Snapshot>()
@@ -2815,7 +2797,7 @@ module SnapshotCodec =
     /// `readUnvalidated` of JSON the Zig validator (`model-reader --validate`, kept in parity with
     /// `SnapshotValidator` by the extended tests) has accepted as these same bytes: the Snapshot is
     /// recorded as valid, so validating it again returns no issues without recomputing.
-    let readZigValidated (json: string): Result<Snapshot, SnapshotCodecError> =
+    let internal readZigValidated (json: string): Result<Snapshot, SnapshotCodecError> =
         readUnvalidated json |> Result.map (fun snapshot -> SnapshotValidator.assumeValid snapshot; snapshot)
 
     /// `deserializeResolved` without validating the merged model (the marker, its digest, the

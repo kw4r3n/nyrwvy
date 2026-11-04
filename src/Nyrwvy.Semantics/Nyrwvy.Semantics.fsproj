@@ -27,7 +27,6 @@
     <EmbeddedResource Include="../../tools/zig/snapshot-reader/record_kinds.txt" LogicalName="record_kinds.txt" />
     <Compile Include="RecordCodec.fs" />
     <Compile Include="Fingerprint.fs" />
-    <Compile Include="SnapshotMigration.fs" />
     <Compile Include="DependencyGraph.fs" />
     <Compile Include="Readiness.fs" />
     <Compile Include="Transactions.fs" />
