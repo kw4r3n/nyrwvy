@@ -10,7 +10,7 @@ This decision extends `addProductField` in `simulateOperations` and `simulateOpe
 
 A construction plan of `addProductField` names its field value in one of two ways: `valueNodeId`, an existing node as today, or `value`, an `ExpressionRecipe`. Each plan uses exactly one of the two.
 
-- A `value` recipe is bound, type-checked and materialized in the lexical scope of its `productConstruct` node. Parameters of the owning function and the pattern slots visible at that node are available, at the depths a targeted replacement of that node would use. This is the mechanism `addUnionVariant` arm plans already use (`AgentUnionVariantArmPlans`).
+- A `value` recipe is bound, type-checked and materialized in the lexical scope of its `productConstruct` node. Parameters of the owning function and the pattern slots visible at that node are available, at the depths a targeted replacement of that node would use. This is the mechanism `addUnionVariant` arm plans already use (`AgentUnionVariantArmPlans`, removed with the F# host).
 - The recipe must produce the new field type and may use only the owning function's `RequiredEffects`.
 - Materialization runs before the operation is simulated. The core operation therefore carries the materialized nodes (`ProductFieldConstructionPlan.AddedNodes`). They are inserted into the construct's own graph, just before the construct, with fresh system-owned IDs. Commit re-simulates the same nodes.
 - The plan-coverage rule is unchanged: every `productConstruct` of the Product needs exactly one plan.

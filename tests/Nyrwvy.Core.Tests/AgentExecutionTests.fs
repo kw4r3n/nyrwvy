@@ -135,7 +135,7 @@ NyFunctions.{mainFunctionName}(empty, console);
             |> unwrap "agent simulation"
 
         let typed =
-            AgentExecution.projectTypedSemanticIr workspace
+            AgentWorkspace.snapshotForExecution workspace |> TypedSemanticIr.project
             |> unwrap "agent execution projection"
 
         if typed.SourceSnapshotId <> fixture.Snapshot.Id then
@@ -166,7 +166,7 @@ NyFunctions.{mainFunctionName}(empty, console);
             | AgentCommitResult.Rejected diagnostics ->
                 failwithf "Explicit incomplete publication was rejected: %A" diagnostics
 
-        match AgentExecution.projectTypedSemanticIr incompleteWorkspace with
+        match AgentWorkspace.snapshotForExecution incompleteWorkspace |> TypedSemanticIr.project with
         | Error(TypedSemanticIrError.IncompleteSnapshot [ _ ]) -> ()
         | result -> failwithf "Expected incomplete execution rejection, got %A" result
 
@@ -198,7 +198,7 @@ NyFunctions.{mainFunctionName}(empty, console);
                 failwithf "Reviewed M1 edit was rejected: %A" diagnostics
 
         let typed =
-            AgentExecution.projectTypedSemanticIr committedWorkspace
+            AgentWorkspace.snapshotForExecution committedWorkspace |> TypedSemanticIr.project
             |> unwrap "post-commit typed semantic projection"
         let committedSnapshotId = AgentWorkspace.currentSnapshotId committedWorkspace
         if typed.SourceSnapshotId <> committedSnapshotId then

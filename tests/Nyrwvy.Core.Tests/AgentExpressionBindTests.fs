@@ -209,14 +209,6 @@ module AgentExpressionBindTests =
         Assert.Equal<ValueDependency list>([ { Role = ValueDependencyRole.BindInput; NodeId = input } ], summary.ValueDependencies)
         Assert.Equal((target original).Body, review.BaseFocus.Function.Body)
         Assert.Equal((target published).Body, review.ProposedFocus.Function.Body)
-        let viewer = review.ProposedFocus |> ViewerProjection.focus
-        let projectedBind = viewer.Graph.Nodes |> List.find (fun node -> node.Id = bindNode.Id)
-        let branch = List.exactlyOne projectedBind.Branches
-        Assert.Equal(ViewerNodeRole.Operation "Bind", projectedBind.Role)
-        Assert.Equal(ViewerBranchRole.BindBody, branch.Role)
-        Assert.Equal(body.ValueBinding.Id, (List.exactlyOne branch.Bindings).Id)
-        Assert.Equal(stringType, (List.exactlyOne branch.Bindings).Type)
-        Assert.Contains((List.exactlyOne branch.Graph.Nodes).Relations, fun relation -> relation.Target = ViewerTarget.PatternBinding body.ValueBinding.Id)
         Assert.Equal<SemanticType list>(original.Types, published.Types)
         Assert.Equal<SemanticEffect list>(original.Effects, published.Effects)
         Assert.Equal<SemanticCapability list>(original.Capabilities, published.Capabilities)

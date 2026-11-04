@@ -74,8 +74,8 @@ type AgentAddCapabilityOperationIntent =
       ImplementationPlans: AgentCapabilityImplementationPlan list }
 
 /// Adds one variant with arbitrary fields to an existing Union. `Variant` carries the system-owned
-/// variant and field IDs because the arm plans already bind the fields; `AgentUnionVariantArmPlans`
-/// allocates them and materializes each arm recipe in its match's scope. Every `matchUnion` over
+/// variant and field IDs because the arm plans already bind the fields; the host allocates them and
+/// materializes each arm recipe in its match's scope. Every `matchUnion` over
 /// the Union needs exactly one arm plan, so every match stays exhaustive in the reviewed change.
 type AgentAddUnionVariantIntent =
     { TargetTypeId: TypeId

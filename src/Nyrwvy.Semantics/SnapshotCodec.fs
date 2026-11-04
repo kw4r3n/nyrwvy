@@ -1459,10 +1459,6 @@ module SnapshotCodec =
     let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         serializeResolvedAt (Some SnapshotSchema.current) dependency local
 
-    /// Minimum-version fixtures for legacy dependency compatibility; ordinary writes use current.
-    let internal serializeResolvedCanonical (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
-        serializeResolvedAt None dependency local
-
     let private unaryNodeProperties = set [ "id"; "kind"; "valueNodeId" ]
     let private typedDeclarationProperties = set [ "id"; "displayName"; "type" ]
 
