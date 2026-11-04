@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <Compile Include="ViewerModel.fs" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
-  </ItemGroup>
-</Project>

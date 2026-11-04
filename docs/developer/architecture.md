@@ -86,8 +86,7 @@ semantic / execution / backend contracts
 ### Physical source ownership
 
 Production F# sources live directly in their owning assembly directories:
-`src/Nyrwvy.Semantics`, `src/Nyrwvy.Execution`, `src/Nyrwvy.Backend.CSharp`,
-and `src/Nyrwvy.Viewer`. Their project files declare local compile items in
+`src/Nyrwvy.Semantics`, `src/Nyrwvy.Execution` and `src/Nyrwvy.Backend.CSharp`. Their project files declare local compile items in
 explicit F# order; they no longer link a shared `src/Nyrwvy.Core` source bucket.
 The public **namespace remains `Nyrwvy.Core`**; namespaces and physical ownership
 need not have identical names.
@@ -110,7 +109,7 @@ dotnet build src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj -c Release
 dotnet fsi scripts/generate-recipe-signatures.fsx
 ```
 
-`RecipeKindConsistencyTests` fails when the generated file is stale or an entry's operands differ from its recipe case, and `scripts/tests/recipe-reference.test.mjs` fails when a generated signature is missing from the reference categories. Operations with callbacks, type arguments, branches, scopes, declared types or diagnostics of their own (for example `boolAnd`, `valueEqual`, `listConstruct`, `listFold`, `matchUnion`) stay hand-written in both inference and the reference. The table does not cover the other places a new operation touches, such as the wire readers, node kinds, lowering and backends.
+`RecipeKindConsistencyTests` fails when the generated file or the Zig host's `recipe_signatures.txt` is stale, and `scripts/tests/recipe-reference.test.mjs` fails when a generated signature is missing from the reference categories. Operations with callbacks, type arguments, branches, scopes, declared types or diagnostics of their own (for example `boolAnd`, `valueEqual`, `listConstruct`, `listFold`, `matchUnion`) stay hand-written in both inference and the reference. The table does not cover the other places a new operation touches, such as the wire readers, node kinds, lowering and backends.
 
 ### `Nyrwvy.Execution`
 
@@ -122,7 +121,7 @@ Consumes Execution IR plus an explicit backend profile and emits deterministic C
 
 ### `Nyrwvy.Viewer`
 
-Holds the viewer model (the projection of a Focus or Change Review) and the viewer page: one fixed HTML/CSS/JavaScript asset (`viewer.html`) that renders the viewer data embedded in it. The session host encodes the model as that data (`ViewerData`, beside the wire encoders in `Nyrwvy.AuthoringSession`), so a host in another language writes the same page by writing the same JSON. Viewer state is not semantic state.
+Holds the viewer page only: one fixed HTML/CSS/JavaScript asset (`viewer.html`, embedded by `asset.zig`) that renders the viewer data embedded in it. The Zig host projects a Focus into that data (`tools/zig/host/viewer.zig`); the F# viewer model was removed with the F# host. Viewer state is not semantic state.
 
 ### `Nyrwvy.Tools.*`
 

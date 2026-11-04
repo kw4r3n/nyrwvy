@@ -28,19 +28,16 @@ module AssemblyBoundaryTests =
         let semanticAssembly = typeof<Snapshot>.Assembly
         let executionAssembly = typeof<TypedSemanticProgram>.Assembly
         let backendAssembly = typeof<CSharpArtifact>.Assembly
-        let viewerAssembly = typeof<ViewerTarget>.Assembly
 
         let actual =
             [ assemblyName semanticAssembly
               assemblyName executionAssembly
-              assemblyName backendAssembly
-              assemblyName viewerAssembly ]
+              assemblyName backendAssembly ]
 
         let expected =
             [ "Nyrwvy.Semantics"
               "Nyrwvy.Execution"
-              "Nyrwvy.Backend.CSharp"
-              "Nyrwvy.Viewer" ]
+              "Nyrwvy.Backend.CSharp" ]
 
         if actual <> expected then
             failwithf "Unexpected architecture assemblies. Expected %A, got %A" expected actual
@@ -50,8 +47,7 @@ module AssemblyBoundaryTests =
         typeof<Snapshot>.Assembly
         |> forbidReferences
             [ "Nyrwvy.Execution"
-              "Nyrwvy.Backend.CSharp"
-              "Nyrwvy.Viewer" ]
+              "Nyrwvy.Backend.CSharp" ]
 
     [<Fact>]
     let ``shared structural contracts stay in semantics`` () =
@@ -63,19 +59,11 @@ module AssemblyBoundaryTests =
         Assert.Null(semantics.GetType("Nyrwvy.Core.AgentListMapStructuralWorkflow"))
 
     [<Fact>]
-    let ``execution depends on semantics but not backend or viewer`` () =
+    let ``execution depends on semantics but not backend`` () =
         let assembly = typeof<ExecutionProgram>.Assembly
         requireReference "Nyrwvy.Semantics" assembly
-        forbidReferences [ "Nyrwvy.Backend.CSharp"; "Nyrwvy.Viewer" ] assembly
+        forbidReferences [ "Nyrwvy.Backend.CSharp" ] assembly
 
     [<Fact>]
-    let ``C# backend depends on execution without depending on viewer`` () =
-        let assembly = typeof<CSharpArtifact>.Assembly
-        requireReference "Nyrwvy.Execution" assembly
-        forbidReferences [ "Nyrwvy.Viewer" ] assembly
-
-    [<Fact>]
-    let ``viewer depends on semantics but not execution or backend`` () =
-        let assembly = typeof<ViewerTarget>.Assembly
-        requireReference "Nyrwvy.Semantics" assembly
-        forbidReferences [ "Nyrwvy.Execution"; "Nyrwvy.Backend.CSharp" ] assembly
+    let ``C# backend depends on execution`` () =
+        requireReference "Nyrwvy.Execution" typeof<CSharpArtifact>.Assembly

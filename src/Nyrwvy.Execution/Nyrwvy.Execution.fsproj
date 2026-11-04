@@ -4,7 +4,6 @@
     <Compile Include="TypedSemanticIrSerializer.fs" />
     <Compile Include="ExecutionIrModel.fs" />
     <Compile Include="ExecutionCallGraph.fs" />
-    <Compile Include="AgentExecution.fs" />
     <Compile Include="ExecutionIrAnalysis.fs" />
     <Compile Include="ExecutionIrBytesOwnership.fs" />
     <Compile Include="ExecutionIrDeclarations.fs" />

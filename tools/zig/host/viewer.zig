@@ -1,6 +1,6 @@
 //! The viewer data of a Function Focus page: `ViewerData.ofFocus` over `ViewerProjection.focus` of
-//! `SemanticQuery.focusFunction`, written byte for byte as the F# host writes it, and the page that
-//! embeds it in the viewer asset.
+//! `SemanticQuery.focusFunction`, written byte for byte as the removed F# host wrote it, and the page
+//! that embeds it in the viewer asset.
 const std = @import("std");
 const model = @import("model_reader");
 const wire = @import("wire.zig");
