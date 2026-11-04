@@ -121,7 +121,8 @@ module SnapshotSchema =
 
     let private v24 = version 24 "nayamnyam.snapshot.v20"
 
-    /// Every version the codecs read, oldest first.
+    /// Every version `minimumVersions` names, oldest first. The frozen fingerprint encoding still
+    /// writes 9-20; the JSON reader, like the Zig reader, accepts only `firstRecord` onward.
     let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21; v22; v23; v24 ]
 
     /// The newest version: the one ordinary writers and migration write every snapshot at, whatever

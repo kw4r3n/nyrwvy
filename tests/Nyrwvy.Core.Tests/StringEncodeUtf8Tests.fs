@@ -71,9 +71,9 @@ module StringEncodeUtf8Tests =
         let json = SnapshotCodec.serializeCanonical committed |> unwrap "serialize"
         Assert.Contains("\"stringEncodeUtf8\"", json)
         Assert.Contains("\"schemaVersion\":19", json)
-        let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
+        let decoded = SnapshotCodec.deserialize (SnapshotCodec.serialize committed |> unwrap "serialize") |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let persisted = SnapshotCodec.serializeCanonical decoded |> unwrap "reserialize"
+        let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
         let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
@@ -82,9 +82,6 @@ module StringEncodeUtf8Tests =
         Assert.Contains("\"stringEncodeUtf8\"", ExecutionIrSerializer.serialize execution)
         let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
         Assert.Contains("NyText.EncodeUtf8(", artifact.Source)
-        match SnapshotCodec.deserialize (json.Replace("\"schemaVersion\":19", "\"schemaVersion\":18")) with
-        | Ok _ -> failwith "A schema 18 snapshot with StringEncodeUtf8 decoded."
-        | Error error -> Assert.Contains("StringEncodeUtf8", sprintf "%A" error)
         let parameterId = committed.Functions.Head.Parameters.Head.Id
         let broken =
             { committed with

@@ -196,7 +196,7 @@ module Int64Tests =
     let ``JSON preserves full-range Int64 literals and node kinds`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
-        let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
+        let fromJson = SnapshotCodec.deserialize (SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization") |> unwrap "JSON deserialization"
 
         let literals snapshot =
             snapshot.Functions
