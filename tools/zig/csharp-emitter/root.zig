@@ -229,6 +229,16 @@ pub fn emit(a: Allocator, ir_json: []const u8, profile: Value) anyerror!Result {
     return .{ .artifact = .{ .source = w.text.items, .symbols = try @import("declarations.zig").manifest(c) } };
 }
 
+test "malformed literal values are a backend failure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for ([_][]const u8{ "{\"kind\":\"int64Literal\",\"value\":1.0}", "{\"kind\":\"int64Literal\",\"value\":99999999999999999999}", "{\"kind\":\"boolLiteral\",\"value\":1}" }) |instruction| {
+        const ir = try std.mem.concat(arena.allocator(), u8, &.{ "{\"functions\":[{\"blocks\":[{\"instructions\":[", instruction, "]}]}]}" });
+        const result = try emit(arena.allocator(), ir, .null);
+        try std.testing.expectEqualStrings("MalformedLiteral", result.failure.message);
+    }
+}
+
 test "stable names and UTF16 ordinal sorting" {
     const a = std.testing.allocator;
     const n = try name(a, "NyF_", "é");

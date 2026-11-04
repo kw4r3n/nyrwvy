@@ -51,6 +51,8 @@ pub fn prepare(c: Context) anyerror!?Failure {
     var targets: Set = .empty;
     var operations: Set = .empty;
     for (ins) |i| {
+        const value = b.get(i, "value");
+        if ((b.eq(b.kind(i), "boolLiteral") and value != .bool) or (b.eq(b.kind(i), "int64Literal") and value != .integer)) return fail("MalformedLiteral");
         for (try f.targets(a, i)) |id| try targets.put(a, id, {});
         for (try f.operations(a, i)) |id| try operations.put(a, id, {});
     }
