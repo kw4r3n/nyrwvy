@@ -578,7 +578,7 @@ fn codecProblem(a: std.mem.Allocator, record: ?[]const u8, lines_text: []const u
     var first_issue: ?[]const u8 = null;
     var issue_count: usize = 0;
     while (lines.next()) |line| {
-        if (std.mem.startsWith(u8, line, "skip legacy schema ")) return try std.fmt.allocPrint(a, "Snapshot schema version {s} is a legacy schema, which the Zig host does not read. Migrate it with the last F# host (migrate --snapshot <path>).", .{line[19..]});
+        if (std.mem.startsWith(u8, line, "skip legacy schema ")) return try std.fmt.allocPrint(a, "Snapshot schema version {s} is a legacy schema, which the Zig host does not read. Migrate it with the last F# host (tag fsharp-host-final: migrate --snapshot <path>).", .{line[19..]});
         if (std.mem.startsWith(u8, line, "error ")) {
             const body = line[6..];
             const colon = std.mem.indexOf(u8, body, ": ") orelse return body;

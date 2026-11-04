@@ -9,7 +9,7 @@ const managed_text = @import("managed_text.zig");
 const Allocator = std.mem.Allocator;
 const tm = model.session_model;
 const Json = std.json.Value;
-pub const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession open --snapshot <snapshot-path> --read-only [--allow-host-sources] (takes no lock, so it works while another session has the snapshot open; commit is refused)\n       Nyrwvy.AuthoringSession migrate --snapshot <snapshot-path> [--dependency <exact copy of a legacy pin's source>] [--to <new-path>] (rewrites the snapshot and its dependency sidecar to the current schema, prints the migration report and exits; no session is started; --to writes the result to a new path instead, in the form its extension selects (.nyrec for records), and leaves the source untouched)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n\n       Nyrwvy.AuthoringSession bind-c --header <file.h> ... (proposes capabilities and a C# mapping table for C functions; run bind-c alone for its options)\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default.";
+pub const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession open --snapshot <snapshot-path> --read-only [--allow-host-sources] (takes no lock, so it works while another session has the snapshot open; commit is refused)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n\n       Nyrwvy.AuthoringSession bind-c --header <file.h> ... (proposes capabilities and a C# mapping table for C functions; run bind-c alone for its options)\nLegacy snapshots: migrate them with the last F# host (tag fsharp-host-final); this host has no migrate command.\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default.";
 
 const Mode = enum { open, read_only, create, pin, single, batch, selection };
 const Command = struct { mode: Mode, path: []const u8, sources: []const []const u8 = &.{}, payload: []const u8 = "", fingerprint: []const u8 = "", replaces: ?[]const u8 = null };
@@ -102,9 +102,9 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     host.writable = true;
     std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(path) orelse "/") catch |err| host.startupFailure("IoFailure: {s}", .{@errorName(err)});
     const sidecar = try std.mem.concat(a, u8, &.{ path, ".dependency.json" });
-    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
+    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(io, path);
     try host.acquireLock(io, a, path);
-    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
+    if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(io, path);
     var request: query.Request = .{ .a = a, .line = "{}", .root = .{}, .provenance = null, .snapshot_path = path };
     var pinned: std.ArrayList(planning.Pinned) = .empty;
     for (command.sources) |source| try pinned.append(a, planning.pin(&request, source) catch |e| return failed(&request, e));
@@ -135,7 +135,9 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     if (!fileExists(io, backend)) _ = @import("view_file.zig").createAtomic(a, backend, "{\"targets\": [\"csharp\"]}\n") catch {};
     try host.load(io, a, path, false);
 }
-fn alreadyExists(path: []const u8) noreturn {
+fn alreadyExists(io: std.Io, path: []const u8) noreturn {
+    // Only the sidecar: the same guidance open gives for a creation interrupted before the snapshot was written.
+    if (!fileExists(io, path)) host.startupFailure("SnapshotFileAlreadyExists: No snapshot file at {s}, but '{s}.dependency.json' exists: creating it with a dependency was interrupted. Delete the sidecar, then use create (MCP nyrwvy_open mode \"create\") again.", .{ path, path });
     host.startupFailure("SnapshotFileAlreadyExists: A snapshot already exists at {s}. Use open to resume it; create never overwrites.", .{path});
 }
 fn fileExists(io: std.Io, path: []const u8) bool {

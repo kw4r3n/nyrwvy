@@ -109,7 +109,9 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
     var random: [16]u8 = undefined;
     io.randomSecure(&random) catch return .{ .refused = "I/O error: no random bytes for a temporary name." };
     const temporary = if (snapshot) try std.fmt.allocPrint(a, ".{s}.{x}.tmp", .{ name, random }) else try std.fmt.allocPrint(a, ".nyrwvy-{x}.tmp", .{random});
-    const file = current.createFile(io, temporary, .{ .exclusive = true }) catch |err| return failure(a, err, "create", temporary);
+    // A replaced file keeps its mode (a user's chmod 600), which a default-mode temporary would reset.
+    const permissions: std.Io.File.Permissions = if (windows) .default_file else if (current.statFile(io, name, .{ .follow_symlinks = false })) |stat| .fromMode(stat.permissions.toMode() & 0o7777) else |_| .default_file;
+    const file = current.createFile(io, temporary, .{ .exclusive = true, .permissions = permissions }) catch |err| return failure(a, err, "create", temporary);
     var renamed = false;
     defer if (!renamed) {
         current.deleteFile(io, temporary) catch {};
@@ -288,6 +290,20 @@ test "portable atomic publication preserves an existing target and cleans tempor
         count += 1;
     }
     try std.testing.expectEqual(@as(usize, 1), count);
+}
+
+test "atomic replacement keeps the target's file mode" {
+    if (windows) return error.SkipZigTest;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    (try temporary.dir.createFile(io, "snapshot.json", .{ .permissions = .fromMode(0o600) })).close(io);
+    const target = try std.fs.path.join(a, &.{ try temporary.dir.realPathFileAlloc(io, ".", a), "snapshot.json" });
+    try std.testing.expect((try replaceAtomic(a, target, "next")) == .written);
+    try std.testing.expectEqual(@as(std.posix.mode_t, 0o600), (try temporary.dir.statFile(io, "snapshot.json", .{})).permissions.toMode() & 0o777);
 }
 
 test "publication identity distinguishes files and detects filesystem aliases" {
