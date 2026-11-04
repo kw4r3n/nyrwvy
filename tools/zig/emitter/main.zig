@@ -608,6 +608,8 @@ const Instance = struct { id: []const u8, args: []const *const Type };
 var declarations: std.StringHashMap(Declaration) = undefined;
 var functions: std.StringHashMap(Function) = undefined;
 var capabilities: []Capability = undefined;
+var capability_instances: std.StringHashMap(void) = undefined;
+var capability_order: List([]const u8) = .empty;
 var may_fail: std.StringHashMap(void) = undefined;
 var problems: List([]const u8) = .empty;
 var type_instances: std.StringHashMap(void) = undefined;
@@ -677,7 +679,14 @@ fn zigType(t: *const Type, record: bool) ?[]const u8 {
         },
         // A capability value's type is declared by whoever binds the capability (a runPure runner's
         // fakes for now), with one method per operation.
-        .capability => |id| return if (findCapability(id) != null) identifier("C_", id) else null,
+        .capability => |id| {
+            if (findCapability(id) == null) return null;
+            if (record and !capability_instances.contains(id)) {
+                capability_instances.put(id, {}) catch oom();
+                push([]const u8, &capability_order, id);
+            }
+            return identifier("C_", id);
+        },
         .function => |function| {
             const result = zigType(function.result, record);
             var parts: List([]const u8) = .empty;
@@ -2010,17 +2019,22 @@ fn emit(ordered: []const Function) ?[]const u8 {
         };
         if (problems.items.len == 0) emitFunction(&bodies, instanceName(instance.id, instance.args), fn_, lines.items, &body.values);
     }
-    // Fake declarations also mention types that no selected function necessarily uses.
-    for (capabilities) |capability| for (capability.operations) |operation| {
-        _ = zigType(operation.result, true);
-        for (operation.parameters) |parameter| _ = zigType(parameter.type, true);
-    };
-    // Field types can name further instances, so declarations are emitted until none is new.
+    // Follow both queues: fields can name capabilities, whose operations can name further types.
     var types_out: List(u8) = .empty;
     var emitted: usize = 0;
-    while (problems.items.len == 0 and emitted < type_order.items.len) : (emitted += 1) {
-        const instance = type_order.items[emitted];
-        emitType(&types_out, declarations.get(instance.id).?, instance.args);
+    var bound: usize = 0;
+    while (problems.items.len == 0 and (emitted < type_order.items.len or bound < capability_order.items.len)) {
+        while (bound < capability_order.items.len) : (bound += 1) {
+            const capability = findCapability(capability_order.items[bound]).?;
+            for (capability.operations) |operation| {
+                _ = zigType(operation.result, true);
+                for (operation.parameters) |parameter| _ = zigType(parameter.type, true);
+            }
+        }
+        while (problems.items.len == 0 and emitted < type_order.items.len) : (emitted += 1) {
+            const instance = type_order.items[emitted];
+            emitType(&types_out, declarations.get(instance.id).?, instance.args);
+        }
     }
     if (problems.items.len > 0) return null;
     builder.appendSlice(a, types_out.items) catch oom();
@@ -2040,21 +2054,25 @@ fn fakeCapabilities() ?[]const u8 {
         };
         slots = @max(slots, count);
     }
-    for (capabilities) |capability| for (capability.operations) |operation| {
-        var types: List(*const Type) = .empty;
-        push(*const Type, &types, operation.result);
-        for (operation.parameters) |parameter| push(*const Type, &types, parameter.type);
-        for (types.items) |t| {
-            if (t.* != .capability and zigType(t, false) != null) continue;
-            const text = cat(&.{ "capability operation type ", typeDisplay(t) });
-            if (seen.contains(text)) continue;
-            seen.put(text, {}) catch oom();
-            problem(text);
+    for (capabilities) |capability| {
+        if (!capability_instances.contains(capability.id)) continue;
+        for (capability.operations) |operation| {
+            var types: List(*const Type) = .empty;
+            push(*const Type, &types, operation.result);
+            for (operation.parameters) |parameter| push(*const Type, &types, parameter.type);
+            for (types.items) |t| {
+                if (t.* != .capability and zigType(t, false) != null) continue;
+                const text = cat(&.{ "capability operation type ", typeDisplay(t) });
+                if (seen.contains(text)) continue;
+                seen.put(text, {}) catch oom();
+                problem(text);
+            }
         }
-    };
+    }
     if (problems.items.len > 0) return null;
     var out: List(u8) = .empty;
     for (capabilities) |capability| {
+        if (!capability_instances.contains(capability.id)) continue;
         line(&out, cat(&.{ "const ", identifier("C_", capability.id), " = struct {" }));
         line(&out, "    fake: usize,");
         line(&out, "    site: usize,");
@@ -2337,6 +2355,8 @@ fn variantDeclKey(item: Variant) []const u8 {
 fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
     const root = (try parseJson(text)).object;
 
+    capability_instances = .init(a);
+    capability_order = .empty;
     declarations = .init(a);
     for (arr(root, "types")) |item| {
         const o = item.object;
@@ -2646,4 +2666,43 @@ test "malformed literals and over-deep JSON are reported, not panicked on or pas
     const nested = open ++ close;
     try std.testing.expectError(error.SyntaxError, parseJson(&nested));
     _ = try parseJson(nested[1..2001]);
+}
+
+test "runner ignores unused capabilities but follows capabilities through record fields and operation results" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const prefix =
+        \\{"types":[{"id":"Holder","kind":"product","fields":[{"id":"cap","type":{"kind":"capability","capabilityId":"bad"}}]},{"id":"Payload","kind":"product","fields":[]}],"capabilities":[{"id":"bad","operations":[{"id":"open","parameters":[],"resultType":{"kind":"capability","capabilityId":"handle"}}]},{"id":"handle","operations":[]},{"id":"good","operations":[{"id":"read","parameters":[],"resultType":{"kind":"named","typeId":"Payload","arguments":[]}}]}],"functions":[{"semanticFunctionId":"identity","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":
+    ;
+    const middle = "}}],\"resultType\":";
+    const suffix =
+        \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    ;
+    for ([_][]const u8{
+        \\{"kind":"primitiveInt64"}
+        ,
+        \\{"kind":"capability","capabilityId":"bad"}
+        ,
+        \\{"kind":"named","typeId":"Holder","arguments":[]}
+        ,
+        \\{"kind":"capability","capabilityId":"good"}
+        ,
+        \\{"kind":"primitiveInt64"}
+        ,
+    }, 0..) |typ, index| {
+        const ir = try std.mem.concat(allocator, u8, &.{ prefix, typ, middle, typ, suffix });
+        const result = try runner(allocator, ir, "identity");
+        if (index == 1 or index == 2) {
+            try std.testing.expect(result == .unsupported);
+            try std.testing.expect(std.mem.indexOf(u8, result.unsupported[0], "capability operation type") != null);
+        } else {
+            try std.testing.expect(result == .source);
+            try std.testing.expect(std.mem.indexOf(u8, result.source, "const C_bad") == null);
+            if (index == 3) {
+                try std.testing.expect(std.mem.indexOf(u8, result.source, "const C_good") != null);
+                try std.testing.expect(std.mem.indexOf(u8, result.source, "const T_Payload") != null);
+            } else try std.testing.expect(std.mem.indexOf(u8, result.source, "const C_good") == null);
+        }
+    }
 }
