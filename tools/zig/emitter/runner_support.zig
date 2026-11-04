@@ -1,12 +1,10 @@
 
+/// The space-separated input file the host writes, since long arguments overflow argv.
 const NyTokens = struct {
-    items: []const [:0]const u8,
-    index: usize = 1,
+    it: std.mem.SplitIterator(u8, .scalar),
 
     fn next(self: *NyTokens) []const u8 {
-        const token = self.items[self.index];
-        self.index += 1;
-        return token;
+        return self.it.next().?;
     }
 };
 
