@@ -73,8 +73,6 @@ module DiagnosticText =
             else
                 expectedText, actualText
 
-    let typeRefPair (snapshot: Snapshot) (expected: TypeRef) (actual: TypeRef): string * string = typeRefPairIn [] snapshot expected actual
-
     /// A named type with its ID, for messages that compare two named types.
     let namedType (snapshot: Snapshot) (typeId: TypeId) =
         match snapshot.Types |> List.tryFind (fun typeEntity -> typeEntity.Id = typeId) with
@@ -86,8 +84,6 @@ module DiagnosticText =
         match value with
         | TypeRef.Named(typeId, []) -> namedType snapshot typeId
         | _ -> typeRefIn extra snapshot value
-
-    let typeRefWithId (snapshot: Snapshot) (value: TypeRef) = typeRefWithIdIn [] snapshot value
 
     /// The normal-completion type, or a note that the expression never completes normally.
     let completionIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot) (value: GraphCompletion) =
@@ -102,8 +98,6 @@ module DiagnosticText =
         match left, right with
         | GraphCompletion.Normal leftType, GraphCompletion.Normal rightType -> typeRefPairIn extra snapshot leftType rightType
         | _ -> completionIn extra snapshot left, completionIn extra snapshot right
-
-    let completionPair (snapshot: Snapshot) (left: GraphCompletion) (right: GraphCompletion): string * string = completionPairIn [] snapshot left right
 
     /// A function by display name and ID: `'countStep' (01a0…)`.
     let functionName (functionEntity: SemanticFunction) =

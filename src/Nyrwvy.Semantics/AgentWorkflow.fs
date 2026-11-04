@@ -139,10 +139,6 @@ module AgentWorkspace =
         SemanticWorkspace.create initialSnapshot
         |> Result.map (fun workspace -> { Workspace = workspace })
 
-    /// Open a locally stored snapshot against a separately validated, pinned dependency.
-    let createResolved (dependency: Snapshot) (local: Snapshot): Result<AgentWorkspace, ValidationIssue list> =
-        create (SnapshotCodec.resolveDependency dependency local)
-
     let currentSnapshotId (workspace: AgentWorkspace): SnapshotId =
         SemanticWorkspace.currentSnapshot workspace.Workspace |> fun snapshot -> snapshot.Id
 

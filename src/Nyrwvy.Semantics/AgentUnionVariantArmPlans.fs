@@ -20,18 +20,6 @@ module AgentUnionVariantArmPlans =
     open ExpressionRecipeMaterialization
     open TargetedReplacementGraph
 
-    /// The new variant with fresh system-owned variant and field IDs. Field types may name the
-    /// Union's own type parameters.
-    let allocateVariant (displayName: string) (fields: AgentTypeFieldIntent list): SemanticVariant =
-        { Id = StableIdAllocator.newVariantId ()
-          DisplayName = displayName
-          Fields =
-            fields
-            |> List.map (fun field ->
-                ({ Id = StableIdAllocator.newFieldId ()
-                   DisplayName = field.DisplayName
-                   Type = field.Type }: SemanticField)) }
-
     /// Binds and type-checks every arm recipe against the current snapshot extended with the new
     /// variant (so a body may already construct it), each in its match's lexical scope, and
     /// materializes it with fresh node and pattern-binding IDs. The exhaustive-plan rule itself
