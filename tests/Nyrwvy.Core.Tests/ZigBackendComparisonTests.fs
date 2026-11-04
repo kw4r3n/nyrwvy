@@ -149,6 +149,11 @@ module ZigBackendComparisonTests =
           effectful "shielded" [ "svc", svcType ] outcome $"""{{"kind":"cancellationShield","body":"shieldBody","context":{ctx}}}"""
           effectful "addWork" [ "svc", svcType; "acc", int64Type; "n", int64Type ] int64Type (bind (work (p "n")) $"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}""")
           effectful "sumWork" [ "svc", svcType; "xs", ints ] int64Type $"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{lit 0},"function":"addWork","context":{ctx}}}"""
+          // Each call is caught, so only the runner's 1024-call limit ends the fold.
+          effectful "workOnce" [ "svc", svcType; "start", unitType ] outcome (ok (work (lit 1)))
+          fn "minusOne" [ "failure", exceptionType ] outcome (ok (lit -1))
+          effectful "tryWork" [ "svc", svcType; "acc", int64Type; "n", int64Type ] outcome $"""{{"kind":"exceptionCatch","body":"workOnce","bodyContext":{ctx},"handler":"minusOne","handlerContext":[]}}"""
+          effectful "manyTries" [ "svc", svcType ] outcome $"""{{"kind":"listEffectFold","source":{{"kind":"listRange","start":{lit 0},"end":{lit 2000}}},"seed":{lit 0},"function":"tryWork","context":{ctx}}}"""
           // One-shot hand-offs, failures surfacing from tasks, a Result-returning effectful fold, and a deadlock.
           inScope "handoffBody" handed (bind create (bind $"""{{"kind":"oneShotComplete","cell":{value 0},"value":{lit 5}}}""" (bind $"""{{"kind":"oneShotWait","cell":{value 1}}}""" (ok (value 0)))))
           scoped "handoff" handed "handoffBody"
@@ -387,6 +392,7 @@ module ZigBackendComparisonTests =
           false, "cancelled", [ fake [] [] ]
           true, "shielded", [ fake [ response 4 (Some 3) ] [] ]
           true, "sumWork", [ fake [ response 1 None; response 2 None; response 3 None ] []; "[1,2,3]" ]
+          false, "manyTries", [ fake [] [] ]
           true, "handoff", [ fake [] [] ]
           true, "timeout", [ fake [] [] ]
           false, "stuck", [ fake [] [] ]
@@ -447,6 +453,8 @@ module ZigBackendComparisonTests =
           for n in [ "0"; "5" ] do true, "upTo", [ n ]
           // An allocation the runtime cannot make is fatal on both backends.
           false, "upTo", [ "9223372036854775807" ]
+          // 16 GB of items: each runner's memory cap makes it fatal instead of swapping until the time limit.
+          false, "upTo", [ "2000000000" ]
           for a in floats do
               for kind in floatUnary @ floatTests @ floatToInt do true, kind, [ a ]
               // Pairs over a smaller set keep the run short; every value still meets every operation.

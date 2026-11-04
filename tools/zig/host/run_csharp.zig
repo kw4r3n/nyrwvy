@@ -90,7 +90,7 @@ fn runChecked(r: *q.Request, input: *v.Input, reach: []const u8, concurrent: boo
     const input_path = try std.fs.path.join(r.a, &.{ directory, "input.txt" });
     try std.Io.Dir.cwd().writeFile(root.host_io, .{ .sub_path = input_path, .data = try std.mem.join(r.a, " ", try v.tokens(r, input)) });
     const stdout = if (input.host_sources.len > 0) raw: {
-        switch (try p.launchBounded(r.a, root.host_io, &.{ build.dotnet, assembly, input_path }, directory, "pure function", 5, 4 * 1048577 + 4)) {
+        switch (try p.launchBounded(r.a, root.host_io, &.{ build.dotnet, assembly, input_path }, directory, "pure function", 5, 4 * 1048577 + 4, &build.run_environ)) {
             .failed => |d| return v.diagnostic(r, input, d.code, d.message),
             .completed => |done| {
                 const output = try managed_text.decode(r.a, done.stdout);

@@ -2160,6 +2160,8 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\pub fn main(init: std.process.Init) !void {
         \\    // The host kills the runner's process group, which misses it when the host itself is SIGKILLed.
         \\    if (@import("builtin").os.tag == .linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_PDEATHSIG), @intFromEnum(std.os.linux.SIG.KILL), 0, 0, 0);
+        \\    // A runaway allocation fails as out of memory instead of swapping; the address space also holds thread stacks, so it is looser than the C# 1 GiB heap.
+        \\    if (@import("builtin").os.tag == .linux) std.posix.setrlimit(.AS, .{ .cur = 2 << 30, .max = 2 << 30 }) catch {};
         \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
         \\    const entry = args[1];
         \\    var tokens = NyTokens{ .it = std.mem.splitScalar(u8, try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], init.arena.allocator(), .unlimited), ' ') };
@@ -2172,12 +2174,13 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\    ny_calls = .init(nyAllocator());
         \\    nyUseValueAllocator();
         \\    var value: std.Io.Writer.Allocating = .init(nyAllocator());
+        \\    if (false) {}
         \\
     ) catch oom();
     for (ordered) |fn_| {
         if (if (entry) |id| !eql(fn_.id, id) else !runnable(fn_)) continue;
         const name = instanceName(fn_.id, &.{});
-        out.print(a, "    if (std.mem.eql(u8, entry, \"{s}\")) {{\n", .{name}) catch oom();
+        out.print(a, "    else if (std.mem.eql(u8, entry, \"{s}\")) {{\n", .{name}) catch oom();
         // A capability parameter is a scripted fake; its call sites follow the earlier fakes'.
         var fake: usize = 0;
         var site: usize = 0;
@@ -2193,6 +2196,7 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         out.print(a, "        const result = nyValue({s}({s}));\n        try nyEncode(&value.writer, result);\n        nyRelease(result);\n    }}\n", .{ name, join(", ", names.items) }) catch oom();
     }
     out.appendSlice(a,
+        \\    else @panic("unknown runner entry");
         \\    try out.print("[\"value\",{s},[{s}]]\n", .{ value.written(), ny_calls.written() });
         \\    try out.flush();
         \\    nyLeakCheck();

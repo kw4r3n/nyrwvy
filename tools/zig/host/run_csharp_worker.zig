@@ -98,7 +98,7 @@ pub fn run(a: A, io: std.Io, worker_assembly: []const u8, assembly: []const u8, 
     if (current) |w| if (w.served >= 64) retire(io);
     if (current == null) {
         const w = try std.heap.page_allocator.create(Worker);
-        w.* = .{ .arena = .init(std.heap.page_allocator), .child = lifetime.spawn(io, .worker, .{ .argv = &.{ @import("run_csharp_build.zig").dotnet, worker_assembly }, .cwd = .{ .path = std.fs.path.dirname(worker_assembly).? }, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe }) catch |e| {
+        w.* = .{ .arena = .init(std.heap.page_allocator), .child = lifetime.spawn(io, .worker, .{ .argv = &.{ @import("run_csharp_build.zig").dotnet, worker_assembly }, .cwd = .{ .path = std.fs.path.dirname(worker_assembly).? }, .environ_map = &@import("run_csharp_build.zig").run_environ, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe }) catch |e| {
             std.heap.page_allocator.destroy(w);
             return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
         }, .last = .now(io, .awake) };

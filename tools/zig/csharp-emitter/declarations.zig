@@ -148,13 +148,14 @@ fn implementations(w: *Writer, c: Context) anyerror!void {
     for (try b.sorted(c.a, try @import("functions.zig").instructions(c.a, c.program), "originNodeId")) |i| {
         const k = i;
         if (!b.eq(b.kind(k), "capabilityConstruct")) continue;
-        const cap = c.capability(b.str(k, "capabilityId"));
+        const cap = b.find(c.capabilities(), "id", b.str(k, "capabilityId")) orelse return error.MalformedExecutionIr;
         try w.line(try b.cat(c.a, &.{ "internal sealed class ", try b.name(c.a, "NyI_", b.str(i, "originNodeId")), " : ", try b.name(c.a, "NyC_", b.str(cap, "id")) }));
         try w.line("{");
         w.push();
         for (try b.sorted(c.a, b.arr(cap, "operations"), "id")) |op| {
-            const impl = b.find(b.arr(k, "implementations"), "operationId", b.str(op, "id")).?;
+            const impl = b.find(b.arr(k, "implementations"), "operationId", b.str(op, "id")) orelse return error.MalformedExecutionIr;
             const fn_ = c.function(b.str(impl, "functionId"));
+            if (b.arr(fn_, "parameters").len != b.arr(op, "parameters").len) return error.MalformedExecutionIr;
             var args: std.ArrayList([]const u8) = .empty;
             for (b.arr(fn_, "parameters"), b.arr(op, "parameters")) |p, supplied| try args.append(c.a, try b.cat(c.a, &.{ try b.name(c.a, "p_", b.str(p, "semanticParameterId")), ": ", try b.name(c.a, "cp_", b.str(supplied, "id")) }));
             try w.line(try b.cat(c.a, &.{ "public ", try b.formatType(c.a, b.get(op, "resultType")), " ", try b.name(c.a, "Op_", b.str(op, "id")), "(", try operationParameters(c.a, op), ") => NyFunctions.", try b.name(c.a, "NyF_", b.str(impl, "functionId")), "(", try std.mem.join(c.a, ", ", args.items), ");" }));

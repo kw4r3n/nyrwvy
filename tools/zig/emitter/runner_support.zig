@@ -6,12 +6,27 @@ const NyTokens = struct {
     fn next(self: *NyTokens) []const u8 {
         return self.it.next().?;
     }
+
+    fn flag(self: *NyTokens) bool {
+        const token = self.next();
+        if (std.mem.eql(u8, token, "1")) return true;
+        if (std.mem.eql(u8, token, "0")) return false;
+        @panic("bad flag token");
+    }
+
+    /// The host never writes a sign for a non-negative number, so a leading '+' is malformed.
+    fn int(self: *NyTokens, comptime T: type, base: u8, comptime message: []const u8) T {
+        const token = self.next();
+        if (token.len > 0 and token[0] == '+') @panic(message);
+        return std.fmt.parseInt(T, token, base) catch @panic(message);
+    }
 };
 
 /// A String token is "s" and the Base64 of its UTF-16LE code units.
 fn nyDecodeText(token: []const u8) []const u8 {
     const encoded = token[1..];
     const size = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch @panic("bad String token");
+    if (size % 2 != 0) @panic("bad String token");
     const units = nyAllocator().alloc(u16, size / 2) catch @panic("out of memory");
     std.base64.standard.Decoder.decode(std.mem.sliceAsBytes(units), encoded) catch @panic("bad String token");
     for (units) |*unit| unit.* = std.mem.littleToNative(u16, unit.*);
@@ -27,18 +42,18 @@ fn nyEncodeText(out: *std.Io.Writer, text: []const u8) !void {
 
 fn nyDecode(comptime T: type, tokens: *NyTokens) T {
     switch (@typeInfo(T)) {
-        .int => return std.fmt.parseInt(T, tokens.next(), 10) catch @panic("bad integer token"),
+        .int => return tokens.int(T, 10, "bad integer token"),
         // A Float64 token is its 16 hexadecimal bit digits.
-        .float => return @bitCast(std.fmt.parseInt(u64, tokens.next(), 16) catch @panic("bad Float64 token")),
-        .bool => return std.mem.eql(u8, tokens.next(), "1"),
+        .float => return @bitCast(tokens.int(u64, 16, "bad Float64 token")),
+        .bool => return tokens.flag(),
         .optional => |info| {
-            if (std.mem.eql(u8, tokens.next(), "1")) return nyDecode(info.child, tokens);
+            if (tokens.flag()) return nyDecode(info.child, tokens);
             return null;
         },
         .pointer => |info| {
             if (info.size == .slice and info.child == u8) return nyDecodeText(tokens.next());
             if (info.size == .slice) {
-                const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad List token");
+                const count = tokens.int(usize, 10, "bad List token");
                 const items = nyAlloc(info.child, count);
                 for (items) |*item| item.* = nyDecode(info.child, tokens);
                 return items;
@@ -65,7 +80,7 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
             if (comptime @hasDecl(T, "ny_map")) {
                 const K = @typeInfo(@FieldType(T, "keys")).pointer.child;
                 const V = @typeInfo(@FieldType(T, "values")).pointer.child;
-                const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad Map token");
+                const count = tokens.int(usize, 10, "bad Map token");
                 var map = T{ .keys = &.{}, .values = &.{} };
                 for (0..count) |_| {
                     const key = nyDecode(K, tokens);
@@ -79,13 +94,13 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
         },
         .@"union" => |info| {
             if (@hasDecl(T, "ny_ids")) {
-                const index = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad variant token");
+                const index = tokens.int(usize, 10, "bad variant token");
                 inline for (info.field_names, info.field_types, 0..) |name, FieldType, position| {
                     if (position == index) return @unionInit(T, name, nyDecode(FieldType, tokens));
                 }
                 @panic("bad variant token");
             }
-            if (std.mem.eql(u8, tokens.next(), "1")) return .{ .ok = nyDecode(@FieldType(T, "ok"), tokens) };
+            if (tokens.flag()) return .{ .ok = nyDecode(@FieldType(T, "ok"), tokens) };
             return .{ .err = nyDecode(@FieldType(T, "err"), tokens) };
         },
         else => @compileError("nyDecode does not support " ++ @typeName(T)),
@@ -103,12 +118,12 @@ fn NyScript(comptime R: type) type {
 }
 
 fn nyReadResponse(comptime R: type, tokens: *NyTokens) NyResponse(R) {
-    const kind = std.fmt.parseInt(u8, tokens.next(), 10) catch @panic("bad response token");
+    const kind = tokens.int(u8, 10, "bad response token");
     return switch (kind) {
         0, 2 => .{ .kind = kind, .value = nyDecode(R, tokens) },
         1 => .{ .kind = 1, .message = nyDecodeText(tokens.next()) },
         3 => blk: {
-            const delay = std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad delay token");
+            const delay = tokens.int(i64, 10, "bad delay token");
             const inner = nyAllocator().create(NyResponse(R)) catch @panic("out of memory");
             inner.* = nyReadResponse(R, tokens);
             break :blk .{ .kind = 3, .delay = delay, .inner = inner };
@@ -121,8 +136,8 @@ fn nyReadResponse(comptime R: type, tokens: *NyTokens) NyResponse(R) {
 fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
     ny_static_values = true;
     defer ny_static_values = false;
-    const keyed = std.mem.eql(u8, tokens.next(), "1");
-    const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token");
+    const keyed = tokens.flag();
+    const count = tokens.int(usize, 10, "bad script token");
     const keys = nyAlloc([]const u8, count);
     const queues = nyAlloc([]const NyResponse(R), count);
     const next = nyAlloc(usize, count);
@@ -130,7 +145,7 @@ fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
         next[index] = 0;
         // A key token is "k" and the argument tokens joined by commas.
         if (keyed) keys[index] = tokens.next()[1..];
-        const responses = nyAlloc(NyResponse(R), std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token"));
+        const responses = nyAlloc(NyResponse(R), tokens.int(usize, 10, "bad script token"));
         for (responses) |*response| response.* = nyReadResponse(R, tokens);
         queues[index] = responses;
     }

@@ -19,9 +19,13 @@ var major: i64 = 0;
 pub var dotnet: []const u8 = "dotnet";
 pub var runtime_version: []const u8 = "";
 pub var build_context_fingerprint: []const u8 = "";
+/// The environment of a process that runs agent code: a 1 GiB GC heap makes a runaway allocation an OutOfMemoryException.
+pub var run_environ: std.process.Environ.Map = undefined;
 
 pub fn init(a: A, io: std.Io, env: *const std.process.Environ.Map) !void {
     lifetime = a;
+    run_environ = try env.clone(a);
+    try run_environ.put("DOTNET_GCHeapHardLimit", "0x40000000");
     const configured_temp = if (windows) nonEmpty(env.get("TEMP")) orelse nonEmpty(env.get("TMP")) orelse return error.TempDirectoryUnavailable else nonEmpty(env.get("TMPDIR")) orelse "/tmp";
     temp_root = try resolveTempRoot(a, try std.process.currentPathAlloc(io, a), configured_temp);
     var paths = std.mem.splitScalar(u8, env.get("PATH") orelse "", std.fs.path.delimiter);
