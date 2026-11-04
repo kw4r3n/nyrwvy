@@ -65,12 +65,12 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
 /// its streams then hangs. Kill the process group before awaiting its owner, so neither wait
 /// cancellation nor inherited pipe handles can lose the process before it is reaped.
 pub fn launch(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64) !Outcome {
-    return launchBounded(a, io, argv, cwd, phase, seconds, 1048576);
+    return launchBounded(a, io, argv, cwd, phase, seconds, 1048576, null);
 }
 
 /// Managed text may use four bytes per UTF-16 unit; its caller applies the decoded text limit.
-pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64, max_bytes: usize) !Outcome {
-    var child = lifetime.spawn(io, .foreground, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe }) catch |e|
+pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64, max_bytes: usize, environ_map: ?*const std.process.Environ.Map) !Outcome {
+    var child = lifetime.spawn(io, .foreground, .{ .argv = argv, .cwd = .{ .path = cwd }, .environ_map = environ_map, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe }) catch |e|
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
     var done: std.Io.Event = .unset;
     var running = io.concurrent(collected, .{ a, io, child, &done, max_bytes }) catch |e| {

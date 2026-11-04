@@ -223,10 +223,30 @@ pub fn emit(a: Allocator, ir_json: []const u8, profile: Value) anyerror!Result {
     try w.line("");
     try w.lines(@embedFile("runtime/Bytes.cs"));
     try w.line("");
-    try @import("declarations.zig").emit(&w, c);
-    try @import("functions.zig").emit(&w, c);
+    body(&w, c) catch |e| switch (e) {
+        error.MalformedExecutionIr, error.InvalidCallbackArity, error.InvalidTerminator => return .{ .failure = .{ .message = @errorName(e) } },
+        else => return e,
+    };
     try w.line("#pragma warning restore CS0219");
     return .{ .artifact = .{ .source = w.text.items, .symbols = try @import("declarations.zig").manifest(c) } };
+}
+
+fn body(w: *Writer, c: Context) anyerror!void {
+    try @import("declarations.zig").emit(w, c);
+    try @import("functions.zig").emit(w, c);
+}
+
+test "malformed Execution IR references are a backend failure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_][2][]const u8{
+        .{ "{\"functions\":[{\"blocks\":[{\"instructions\":[{\"kind\":\"capabilityConstruct\",\"capabilityId\":\"missing\",\"originNodeId\":\"n\"}]}]}]}", "MalformedExecutionIr" },
+        .{ "{\"functions\":[{\"semanticFunctionId\":\"f\",\"parameters\":[],\"resultType\":{\"kind\":\"primitiveUnit\"},\"blocks\":[{\"id\":\"b\",\"instructions\":[],\"terminator\":{\"kind\":\"tailCall\",\"arguments\":[{\"targetParameterId\":\"missing\",\"valueId\":\"v\"}]}}]}]}", "MalformedExecutionIr" },
+    };
+    for (cases) |case| {
+        const result = try emit(arena.allocator(), case[0], .null);
+        try std.testing.expectEqualStrings(case[1], result.failure.message);
+    }
 }
 
 test "malformed literal values are a backend failure" {

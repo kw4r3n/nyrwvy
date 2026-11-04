@@ -105,9 +105,10 @@ pub fn emit(w: *Writer, c: Context, fn_: Value, i: Value) anyerror!void {
         return;
     }
     if (b.eq(op, "exceptionCatch")) {
+        // The runner's limit exception lives only in the runner's Program.cs, so match it by name.
         const err = try b.cat(a, &.{ target, "_exception" });
         try line(w, &.{ "try { ", target, " = ", try f.invocation(c, b.str(i, "bodyFunctionId"), b.arr(i, "bodyContext"), &.{"NyUnit.Value"}), "; }" });
-        try line(w, &.{ "catch (Exception ", err, ") when (", err, " is not (OutOfMemoryException or InsufficientExecutionStackException)) { ", target, " = ", try f.invocation(c, b.str(i, "handlerFunctionId"), b.arr(i, "handlerContext"), &.{try b.cat(a, &.{ "System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(", err, ")" })}), "; }" });
+        try line(w, &.{ "catch (Exception ", err, ") when (", err, " is not (OutOfMemoryException or InsufficientExecutionStackException) && ", err, ".GetType().Name != \"RunnerException\") { ", target, " = ", try f.invocation(c, b.str(i, "handlerFunctionId"), b.arr(i, "handlerContext"), &.{try b.cat(a, &.{ "System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(", err, ")" })}), "; }" });
         return;
     }
     if (b.eq(op, "cancellationShield")) {
