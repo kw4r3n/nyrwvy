@@ -232,7 +232,7 @@ pub fn emit(a: Allocator, ir_json: []const u8, profile: Value) anyerror!Result {
 test "malformed literal values are a backend failure" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    for ([_][]const u8{ "{\"kind\":\"int64Literal\",\"value\":1.0}", "{\"kind\":\"int64Literal\",\"value\":99999999999999999999}", "{\"kind\":\"boolLiteral\",\"value\":1}" }) |instruction| {
+    for ([_][]const u8{ "{\"kind\":\"int64Literal\",\"value\":1.0}", "{\"kind\":\"int64Literal\",\"value\":99999999999999999999}", "{\"kind\":\"boolLiteral\",\"value\":1}", "{\"kind\":\"float64Literal\"}", "{\"kind\":\"float64Literal\",\"bits\":\"3ff0000000000000);x\"}" }) |instruction| {
         const ir = try std.mem.concat(arena.allocator(), u8, &.{ "{\"functions\":[{\"blocks\":[{\"instructions\":[", instruction, "]}]}]}" });
         const result = try emit(arena.allocator(), ir, .null);
         try std.testing.expectEqualStrings("MalformedLiteral", result.failure.message);

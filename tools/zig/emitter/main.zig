@@ -1262,7 +1262,12 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
             const text = b.callback("mapperFunctionId", "context", &.{role("item", itemType(b.typeAt("sourceListValueId")))}, b.result);
             break :blk labeled(cat(&.{ "var out: std.ArrayList(", b.resultElement(), ") = .empty; for (", b.f("sourceListValueId"), ") |item| { const part = ", text, "; for (part) |each| nyRetain(each); out.appendSlice(nyRaw(), part) catch @panic(\"out of memory\"); nyRelease(part); } break :blk nyAdoptList(", b.resultElement(), ", &out);" }));
         },
-        .float64Literal => cat(&.{ "@as(f64, @bitCast(@as(u64, 0x", str(b.o, "bits"), ")))" }),
+        .float64Literal => switch (b.o.get("bits") orelse .null) {
+            .string => |bits| if (bits.len == 16 and for (bits) |c| {
+                if (!std.ascii.isHex(c)) break false;
+            } else true) cat(&.{ "@as(f64, @bitCast(@as(u64, 0x", bits, ")))" }) else malformed("float64Literal bits"),
+            else => malformed("float64Literal bits"),
+        },
         .float64Add => binary(b, "+"),
         .float64Subtract => binary(b, "-"),
         .float64Multiply => binary(b, "*"),
@@ -2627,7 +2632,11 @@ test "malformed literals and over-deep JSON are reported, not panicked on or pas
     }
     body.o = (try parseJson("{\"value\":0}")).object;
     try std.testing.expectEqualStrings("undefined", instructionExpression(&body, .boolLiteral));
-    try std.testing.expectEqual(3, problems.items.len);
+    for ([_][]const u8{ "{}", "{\"bits\":\"3ff0\"}", "{\"bits\":\"3ff000000000000g\"}" }) |text| {
+        body.o = (try parseJson(text)).object;
+        try std.testing.expectEqualStrings("undefined", instructionExpression(&body, .float64Literal));
+    }
+    try std.testing.expectEqual(6, problems.items.len);
     problems = .empty;
     const open: [1001]u8 = @splat('[');
     const close: [1001]u8 = @splat(']');

@@ -52,7 +52,7 @@ pub fn prepare(c: Context) anyerror!?Failure {
     var operations: Set = .empty;
     for (ins) |i| {
         const value = b.get(i, "value");
-        if ((b.eq(b.kind(i), "boolLiteral") and value != .bool) or (b.eq(b.kind(i), "int64Literal") and value != .integer)) return fail("MalformedLiteral");
+        if ((b.eq(b.kind(i), "boolLiteral") and value != .bool) or (b.eq(b.kind(i), "int64Literal") and value != .integer) or (b.eq(b.kind(i), "float64Literal") and !bits64(b.str(i, "bits")))) return fail("MalformedLiteral");
         for (try f.targets(a, i)) |id| try targets.put(a, id, {});
         for (try f.operations(a, i)) |id| try operations.put(a, id, {});
     }
@@ -111,4 +111,11 @@ pub fn prepare(c: Context) anyerror!?Failure {
         };
     }
     return null;
+}
+
+/// Float64 literal bits are pasted into source as a hex literal, so they must be exactly 16 hex digits.
+fn bits64(text: []const u8) bool {
+    if (text.len != 16) return false;
+    for (text) |c| if (!std.ascii.isHex(c)) return false;
+    return true;
 }
