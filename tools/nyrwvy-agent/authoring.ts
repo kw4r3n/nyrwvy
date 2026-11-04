@@ -25,7 +25,10 @@ const toolCodeCommit = (() => {
 export function staleToolWarning(loadedCommit: string | undefined, sessionBuild: unknown): string | undefined {
   const sessionCommit = typeof sessionBuild === "string" ? sessionBuild.split("+")[1]?.slice(0, 40) : undefined
   if (loadedCommit === undefined || sessionCommit === undefined || !/^[0-9a-f]{40}$/.test(sessionCommit) || sessionCommit === loadedCommit) return undefined
-  return `The session runs build ${sessionCommit.slice(0, 12)}, but this server loaded its tool descriptions and recipe reference from ${loadedCommit.slice(0, 12)}. Reconnect the MCP server to read the current ones; requests already use the session build.`
+  const mismatch = `The session runs build ${sessionCommit.slice(0, 12)}, but this server loaded its tool descriptions and recipe reference from ${loadedCommit.slice(0, 12)}.`
+  // The Zig host's commit comes from the build:host stamp, which a commit leaving host sources unchanged does not refresh.
+  if (typeof sessionBuild === "string" && sessionBuild.startsWith("nyrwvy-zig-host+")) return `${mismatch} Run \`npm run build:host\` if host sources changed since ${sessionCommit.slice(0, 12)} (it also refreshes the stamp when they did not); otherwise reconnect the MCP server to read the current tool descriptions.`
+  return `${mismatch} Reconnect the MCP server to read the current ones; requests already use the session build.`
 }
 
 /**
@@ -373,7 +376,7 @@ async function launchAuthoring(
       guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; compact result views are bounded to 16 KiB UTF-8. If projection.requiresDetailedReview is true, read the omitted impact/graph paths with nyrwvy_request op readProposal (proposalId,path,offset,limit; pages at most 8 KiB). Small reviews keep signature, node count, impact facts and fingerprints; detail \"full\" adds the proposed graph without a byte bound. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
     try { await client.close() } catch (cleanupError) {
-      if (!client.isReaped) throw new AggregateError([error, cleanupError], "Authoring open failed; unreaped child ownership is retained. Close the session before reopening.")
+      if (!client.isReaped) throw new AggregateError([error, cleanupError], `Authoring open failed; unreaped child ownership is retained. Close the session before reopening. Open: ${error instanceof Error ? error.message : String(error)} Cleanup: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`)
     } finally {
       if (client.isReaped && sessions.get(sessionKey) === client) sessions.delete(sessionKey)
     }

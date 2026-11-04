@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -36,7 +36,8 @@ const declared = existsSync(hostDir) ? readdirSync(hostDir).filter(name => name.
 // zig test starts the compiled test program as its own child, so killing zig alone leaves that program
 // running (once for hours at full CPU); run each command in its own process group and kill the group.
 const groups = new Set()
-const killGroup = pid => { try { process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL") } catch {} }
+// taskkill /T kills zig.exe's children too; process.kill(pid) on Windows would kill only zig.exe.
+const killGroup = pid => { try { process.platform === "win32" ? execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", timeout: 5000 }) : process.kill(-pid, "SIGKILL") } catch {} }
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { groups.forEach(killGroup); process.exit(1) })
 function run(args, host) {
   return new Promise(done => {
