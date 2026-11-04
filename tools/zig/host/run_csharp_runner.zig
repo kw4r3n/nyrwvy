@@ -21,6 +21,7 @@ const Generator = struct {
     r: *q.Request,
     pending: std.ArrayList(Type) = .empty,
     required: std.ArrayList(u8) = .empty,
+    helpers: std.ArrayList(struct { index: usize, mode: Mode }) = .empty,
     serial: usize = 0,
     const Mode = enum(u3) { decode = 1, key = 2, encode = 4 };
     fn fmt(s: *Generator, comptime f: []const u8, args: anytype) ![]const u8 {
@@ -64,11 +65,13 @@ const Generator = struct {
     }
     fn namedIndex(s: *Generator, t: Type, mode: Mode) !usize {
         for (s.pending.items, 0..) |p, i| if (infer.eqlType(p, t)) {
+            if (s.required.items[i] & @backingInt(mode) == 0) try s.helpers.append(s.r.a, .{ .index = i, .mode = mode });
             s.required.items[i] |= @backingInt(mode);
             return i;
         };
         try s.pending.append(s.r.a, t);
         try s.required.append(s.r.a, @backingInt(mode));
+        try s.helpers.append(s.r.a, .{ .index = s.pending.items.len - 1, .mode = mode });
         return s.pending.items.len - 1;
     }
     fn dec(s: *Generator, t: Type) Fail![]const u8 {
@@ -273,11 +276,11 @@ pub fn source(r: *q.Request, input: *v.Input, concurrent: bool) Fail![]const u8 
     const encoded = try s.enc(try infer.typeOf(r.a, input.fn_value.?.resultType()), "result", "0");
     var encoders: std.Io.Writer.Allocating = .init(r.a);
     var helpers: std.Io.Writer.Allocating = .init(r.a);
-    inline for (.{ Generator.Mode.encode, Generator.Mode.decode, Generator.Mode.key }) |mode| {
-        var next: usize = 0;
-        while (next < s.pending.items.len) : (next += 1) {
-            if (s.required.items[next] & @backingInt(mode) != 0) try s.namedHelper(next, mode, if (mode == .encode) &encoders.writer else &helpers.writer);
-        }
+    // A helper can require another mode for a type discovered earlier.
+    var next: usize = 0;
+    while (next < s.helpers.items.len) : (next += 1) {
+        const helper = s.helpers.items[next];
+        try s.namedHelper(helper.index, helper.mode, if (helper.mode == .encode) &encoders.writer else &helpers.writer);
     }
     const checks_text = std.mem.indexOf(u8, encoded, "CheckedString(") != null or std.mem.indexOf(u8, arms.written(), "CheckedString(") != null or std.mem.indexOf(u8, encoders.written(), "CheckedString(") != null;
     var out: std.Io.Writer.Allocating = .init(r.a);
@@ -322,4 +325,23 @@ test "C# runner keeps recursive codecs finite and argument values out of source"
     try std.testing.expect(std.mem.indexOf(u8, text, "object Encode0(NyT_4E6F6465 value, int depth)") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "depth >= 32") != null);
     try std.testing.expect(text.len < 20000);
+}
+
+test "C# runner emits transitive encoders for types first seen as arguments" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const declarations = try model.parseValue(a,
+        \\{"snapshotId":"s","types":[{"id":"Item","displayName":"Item","kind":"product","fields":[{"id":"n","displayName":"n","type":{"kind":"primitive","primitive":"int64"}}]},{"id":"Order","displayName":"Order","kind":"product","fields":[{"id":"item","displayName":"item","type":{"kind":"named","typeId":"Item"}}]}],"functions":[{"id":"wrap","displayName":"wrap","parameters":[{"id":"arg","displayName":"arg","type":{"kind":"named","typeId":"Item"}}],"resultType":{"kind":"named","typeId":"Order"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}]}
+    );
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, declarations, null);
+    const typed = model.typedRoot(a, &interner, &generation);
+    var r: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
+    var args = [_]v.RunValue{.{ .kind = .product, .type = .{ .named = .{ .id = "Item", .arguments = &.{} } } }};
+    var input: v.Input = .{ .function_id = "wrap", .declarations = typed, .fn_value = typed.functions()[0], .arguments = &args, .expected = null, .host_sources = &.{} };
+    const text = try source(&r, &input, false);
+    try std.testing.expect(std.mem.indexOf(u8, text, "object Encode0(NyT_4974656D value, int depth)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "object Encode1(NyT_4F72646572 value, int depth)") != null);
 }
