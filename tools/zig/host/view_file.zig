@@ -23,16 +23,6 @@ pub const Outcome = union(enum) {
     internal,
 };
 
-/// `String.IsNullOrWhiteSpace`: empty, or only Unicode white space.
-fn blank(text: []const u8) bool {
-    var it = std.unicode.Utf8View.initUnchecked(text).iterator();
-    while (it.nextCodepoint()) |c| switch (c) {
-        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => {},
-        else => return false,
-    };
-    return true;
-}
-
 fn endsWithIgnoringCase(text: []const u8, suffix: []const u8) bool {
     return text.len >= suffix.len and std.ascii.eqlIgnoreCase(text[text.len - suffix.len ..], suffix);
 }
@@ -133,6 +123,9 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
         current.renamePreserve(temporary, current, name, io) catch |err| return failure(a, err, "rename", name);
     } else current.rename(temporary, current, name, io) catch |err| return failure(a, err, "rename", name);
     renamed = true;
+    // The rename survives a crash only once the directory is synced (Windows has no directory fsync).
+    // Best effort: the snapshot is already replaced, so a sync failure must not report it unwritten.
+    if (snapshot and !windows) (std.Io.File{ .handle = current.handle, .flags = .{ .nonblocking = false } }).sync(io) catch {};
     return .{ .written = "" };
 }
 
@@ -194,7 +187,7 @@ pub fn replaceAtomic(a: Allocator, path: []const u8, content: []const u8) !Outco
 pub fn check(a: Allocator, snapshot_path: []const u8, requested: ?[]const u8, extension: []const u8, default_name: []const u8, header: []const u8) !Outcome {
     const directory = std.fs.path.dirname(snapshot_path) orelse "/";
     const path = if (requested) |given| blk: {
-        if (blank(given)) return .{ .refused = "output must not be blank." };
+        if (@import("managed_text.zig").blank(given)) return .{ .refused = "output must not be blank." };
         if (!endsWithIgnoringCase(given, extension)) return .{ .refused = try std.fmt.allocPrint(a, "output must name a {s} file.", .{extension}) };
         if (std.mem.indexOfScalar(u8, given, 0) != null) return .internal;
         const resolved = try std.fs.path.resolveAlloc(a, &.{ directory, given });

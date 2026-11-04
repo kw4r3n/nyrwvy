@@ -239,13 +239,7 @@ pub const Decoder = struct {
 
     /// `WireInput.stableId`: `StableId.tryCreate`'s two errors.
     pub fn stableId(self: *Decoder, label: []const u8, text: []const u8) Fail![]const u8 {
-        var it = std.unicode.Utf8View.initUnchecked(text).iterator();
-        var blank = true;
-        while (it.nextCodepoint()) |c| switch (c) {
-            0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => {},
-            else => blank = false,
-        };
-        if (blank) return self.fail("{s} is not a valid stable ID: BlankValue.", .{label});
+        if (@import("managed_text.zig").blank(text)) return self.fail("{s} is not a valid stable ID: BlankValue.", .{label});
         if (std.mem.indexOfAny(u8, text, "\r\n") != null) return self.fail("{s} is not a valid stable ID: ContainsLineBreak.", .{label});
         return text;
     }

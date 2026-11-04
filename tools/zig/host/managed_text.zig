@@ -53,6 +53,18 @@ pub fn decode(a: std.mem.Allocator, bytes: []const u8) ![]const u8 {
     return out.items;
 }
 
+/// `String.IsNullOrWhiteSpace`: empty, or only Unicode white space. An ill-formed byte decodes as
+/// U+FFFD, which is not white space.
+pub fn blank(text: []const u8) bool {
+    if (!std.unicode.utf8ValidateSlice(text)) return false;
+    var it = std.unicode.Utf8View.initUnchecked(text).iterator();
+    while (it.nextCodepoint()) |c| switch (c) {
+        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => {},
+        else => return false,
+    };
+    return true;
+}
+
 /// Text is valid UTF-8 after decode; .NET output limits and Substring count UTF-16 units.
 pub fn units(text: []const u8) usize {
     var count: usize = 0;

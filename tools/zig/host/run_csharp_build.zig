@@ -205,7 +205,11 @@ fn storedPath(a: A, key: [32]u8) ![]const u8 {
 fn load(a: A, io: std.Io, key: [32]u8) !?struct { pe: []u8, pdb: []u8 } {
     const entry = try storedPath(a, key);
     const pe = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.dll" }), a, .unlimited) catch return null;
-    const pdb = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.pdb" }), a, .unlimited) catch return null;
+    const pdb = std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(a, &.{ entry, "Generated.pdb" }), a, .unlimited) catch {
+        // A half-present entry (a crash before its files reached disk) is a miss; drop it so it is rebuilt.
+        std.Io.Dir.cwd().deleteTree(io, entry) catch {};
+        return null;
+    };
     return .{ .pe = pe, .pdb = pdb };
 }
 fn store(a: A, io: std.Io, key: [32]u8, pe: []const u8, pdb: []const u8) !void {
@@ -217,8 +221,13 @@ fn store(a: A, io: std.Io, key: [32]u8, pe: []const u8, pdb: []const u8) !void {
     const partial = try std.fmt.allocPrint(a, "{s}.{x}", .{ entry, random });
     defer std.Io.Dir.cwd().deleteTree(io, partial) catch {};
     try std.Io.Dir.cwd().createDir(io, partial, if (windows) .default_dir else .fromMode(0o700));
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ partial, "Generated.dll" }), .data = pe });
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ partial, "Generated.pdb" }), .data = pdb });
+    // Synced before the rename, so a crash cannot leave a renamed entry with truncated files.
+    for ([_]struct { []const u8, []const u8 }{ .{ "Generated.dll", pe }, .{ "Generated.pdb", pdb } }) |item| {
+        const file = try std.Io.Dir.cwd().createFile(io, try std.fs.path.join(a, &.{ partial, item[0] }), .{});
+        defer file.close(io);
+        try file.writeStreamingAll(io, item[1]);
+        try file.sync(io);
+    }
     // A concurrent host may have renamed the same entry into place first; either copy is identical.
     try std.Io.Dir.renameAbsolute(partial, entry, io);
 }

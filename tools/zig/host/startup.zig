@@ -5,6 +5,7 @@ const model = @import("model_reader");
 const records = @import("snapshot_reader");
 const planning = @import("dependency_upgrade.zig");
 const query = @import("query.zig");
+const managed_text = @import("managed_text.zig");
 const Allocator = std.mem.Allocator;
 const tm = model.session_model;
 const Json = std.json.Value;
@@ -14,14 +15,6 @@ const Mode = enum { open, read_only, create, pin, single, batch, selection };
 const Command = struct { mode: Mode, path: []const u8, sources: []const []const u8 = &.{}, payload: []const u8 = "", fingerprint: []const u8 = "", replaces: ?[]const u8 = null };
 fn same(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
-}
-fn blank(text: []const u8) bool {
-    var it = std.unicode.Utf8View.initUnchecked(text).iterator();
-    while (it.nextCodepoint()) |c| switch (c) {
-        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => {},
-        else => return false,
-    };
-    return true;
 }
 fn exact(root: Json, names: []const []const u8) bool {
     if (root != .object or root.object.count() != names.len) return false;
@@ -51,7 +44,7 @@ fn parse(a: Allocator, args: []const []const u8) !?Command {
             if (args.len != 7 and !(args.len == 9 and same(args[7], "--replaces"))) return null;
             return .{ .mode = .single, .path = path, .sources = try a.dupe([]const u8, &.{args[4]}), .fingerprint = args[6], .replaces = if (args.len == 9) args[8] else null };
         }
-        if (args.len != 7 or !same(args[5], "--review") or blank(args[6])) return null;
+        if (args.len != 7 or !same(args[5], "--review") or managed_text.blank(args[6])) return null;
         const batch = same(args[3], "--upgrades");
         if (!batch and !same(args[3], "--selection")) return null;
         // JsonDocument preserves duplicate field names; exact member lists reject them.
@@ -62,7 +55,7 @@ fn parse(a: Allocator, args: []const []const u8) !?Command {
                 if (!exact(item, &.{ "source", "replaces" })) return null;
                 for ([_][]const u8{ "source", "replaces" }) |name| {
                     const value = item.object.get(name).?;
-                    if (value != .string or blank(value.string)) return null;
+                    if (value != .string or managed_text.blank(value.string)) return null;
                 }
             }
         } else {

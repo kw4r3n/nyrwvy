@@ -33,7 +33,13 @@ const usage = @import("startup.zig").usage;
 /// A JSON string as `JsonSerializer` writes it with `JavaScriptEncoder.Default`: printable ASCII
 /// except `"&'+<>` and backtick, the short forms \b \t \n \f \r \\, and every other code point as
 /// uppercase UTF-16 \uXXXX escapes.
-pub fn writeString(out: *std.Io.Writer, text: []const u8) !void {
+pub fn writeString(out: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
+    // Ill-formed bytes (a path from the file system, say) become U+FFFD, as `readText` decodes them.
+    if (!std.unicode.utf8ValidateSlice(text)) {
+        const valid = std.fmt.allocPrint(std.heap.page_allocator, "{f}", .{std.unicode.fmtUtf8(text)}) catch return error.WriteFailed;
+        defer std.heap.page_allocator.free(valid);
+        return writeString(out, valid);
+    }
     try out.writeByte('"');
     var it = std.unicode.Utf8View.initUnchecked(text).iterator();
     while (it.nextCodepoint()) |c| switch (c) {
@@ -53,6 +59,14 @@ pub fn writeString(out: *std.Io.Writer, text: []const u8) !void {
         },
     };
     try out.writeByte('"');
+}
+
+test "writeString replaces ill-formed UTF-8 with U+FFFD" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try writeString(&out.writer, "caf\xE9/\xE2\x82");
+    try std.testing.expectEqualStrings("\"caf\\uFFFD/\\uFFFD\"", out.written());
+    try std.testing.expect(!@import("managed_text.zig").blank(" \xE9"));
 }
 
 fn failure(out: *std.Io.Writer, id: ?[]const u8, code: []const u8, message: []const u8) !void {
@@ -645,6 +659,20 @@ pub fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool
     return openUsing(io, a, given, read_only, false, null, true);
 }
 
+/// Abandoned `.nyrwvy-<hex>.tmp` viewer temporaries. Other snapshots in the directory share
+/// nyrwvy-views without this lock, so only those an hour old are taken as abandoned.
+fn sweepViewTemporaries(io: std.Io, a: std.mem.Allocator, directory_path: []const u8) void {
+    const views = std.Io.Dir.cwd().openDir(io, std.fs.path.join(a, &.{ directory_path, @import("view_file.zig").default_directory_name }) catch return, .{ .iterate = true, .follow_symlinks = false }) catch return;
+    defer views.close(io);
+    const cutoff = std.Io.Clock.real.now(io).toNanoseconds() - std.time.ns_per_hour;
+    var entries = views.iterate();
+    while (entries.next(io) catch null) |entry| {
+        if (entry.kind == .directory or !std.mem.startsWith(u8, entry.name, ".nyrwvy-") or !std.mem.endsWith(u8, entry.name, ".tmp")) continue;
+        const stat = views.statFile(io, entry.name, .{ .follow_symlinks = false }) catch continue;
+        if (stat.mtime.toNanoseconds() < cutoff) views.deleteFile(io, entry.name) catch {};
+    }
+}
+
 pub fn openUsing(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool, pin: bool, source_override: ?[]const u8, recovery: bool) !void {
     const path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), given });
     snapshot_path = path;
@@ -662,6 +690,7 @@ pub fn openUsing(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only:
                     if (entry.kind != .directory and isTemporaryOf(std.fs.path.basename(path), entry.name)) directory.deleteFile(io, entry.name) catch {};
                 }
             } else |_| {}
+            sweepViewTemporaries(io, a, directory_path);
         }
     }
     try loadUsing(io, a, path, source_override, !pin and recovery);
@@ -1050,6 +1079,8 @@ fn serve(io: std.Io) !void {
         try out.writeAll(response.written());
         try out.writeByte('\n');
         try out.flush();
+        // One huge request must not pin up to 48 MiB for the rest of the session.
+        if (line.capacity > 1 << 20) line.clearAndFree(std.heap.page_allocator);
     }
 }
 
