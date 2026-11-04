@@ -74,12 +74,14 @@ if (values.check) {
   report(text.split("\n").filter(Boolean).map(line => JSON.parse(line)))
 } else {
   const tasks = positionals.length ? positionals : (await readdir(join(here, "tasks"))).filter(name => name.endsWith(".json")).map(name => join(here, "tasks", name))
+  const runs = Number(values.runs)
+  if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a positive integer, got ${values.runs}`)
   const out = values.out ? resolve(values.out) : await mkdtemp(join(tmpdir(), "nyrwvy-agent-eval-"))
   const rows = []
   for (const path of tasks) {
     const task = JSON.parse(await readFile(path, "utf8"))
     if (!task.checks?.length) throw new Error(`${path} has no checks; a run could never fail`)
-    for (let i = 1; i <= Number(values.runs); i++) {
+    for (let i = 1; i <= runs; i++) {
       const dir = join(out, `${values.label}-${basename(path, ".json")}-${i}`)
       const workspace = join(dir, "ws")
       await mkdir(out, { recursive: true })
