@@ -84,6 +84,13 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const missing = await failed(first, "open", { mode: "open", snapshot: "missing.json" })
     assert.match(missing.content[0].text, /SnapshotFileNotFound: No snapshot file at .*missing\.json.*create/)
     assert.doesNotMatch(missing.content[0].text, /replay/)
+    // A sidecar without its snapshot is an interrupted create, for create as for open.
+    await writeFile(join(workspace, "orphan.json.dependency.json"), "{}")
+    for (const mode of ["create", "open"]) {
+      const orphan = await failed(first, "open", { mode, snapshot: "orphan.json" })
+      assert.match(orphan.content[0].text, /creating it with a dependency was interrupted\. Delete the sidecar/)
+    }
+    await rm(join(workspace, "orphan.json.dependency.json"))
     const noWorkspace = await failed(first, "open", { mode: "create", snapshot: "workspace.json", workspace: join(root, "absent") })
     assert.match(noWorkspace.content[0].text, /^workspace directory does not exist: /)
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })
@@ -296,6 +303,28 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
     const invalid = await failed(client, "request", { op: "runPure",
       arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
     assert.equal(invalid.structuredContent.error.code, "RunHostSourceInvalid")
+  } finally {
+    await client?.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("MCP runs a Product with fields parameter and value from plain JSON, not as a {parameter, value} pair", { timeout: 30000 }, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-setting-"))
+  let client
+  try {
+    client = await connect(workspace)
+    await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+    const int64 = { kind: "primitive", primitive: "int64" }
+    const type = await call(client, "create_type", { displayName: "Setting", typeKind: { kind: "product", fields: [
+      { displayName: "parameter", type: { kind: "primitive", primitive: "string" } }, { displayName: "value", type: int64 }] } })
+    await call(client, "commit", { proposalId: type.result.proposalId })
+    const created = await call(client, "create_function", { displayName: "settingValue", requiredEffects: [], resultType: int64,
+      parameters: [{ displayName: "setting", type: { kind: "named", name: "Setting" } }],
+      body: { kind: "fieldAccess", source: { kind: "parameter", name: "setting" }, type: "Setting", field: "value" } })
+    await call(client, "commit", { proposalId: created.result.proposalId })
+    const ran = await call(client, "request", { op: "runPureByName", arguments: { function: "settingValue", arguments: [{ parameter: "a", value: 1 }], expected: 1 } })
+    assert.equal(ran.result.matches, true, JSON.stringify(ran))
   } finally {
     await client?.close()
     await rm(workspace, { recursive: true, force: true })

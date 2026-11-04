@@ -578,17 +578,18 @@ const Decoder = struct {
     fn plain(self: *Decoder, path: []const u8, loc: []const u8, t: Type, item: Json, depth: usize) Fail!RunValue {
         var is_tagged = false;
         if (item == .object) {
-            if (item.object.get("kind")) |kind| {
-                is_tagged = kind == .string;
-                if (is_tagged and t == .named) if (find(self.r().typedModel().types(), t.named.id)) |owner| {
-                    if (product(owner)) for (owner.fields()) |field| {
-                        if (same(q.nameOf(field), "kind")) {
-                            is_tagged = false;
-                            break;
-                        }
-                    };
+            const kind = item.object.get("kind");
+            is_tagged = if (kind) |k| k == .string else item.object.count() == 2 and item.object.get("parameter") != null and item.object.get("value") != null;
+            // A Product with a field of that name is plain JSON, not a tagged value or a {parameter, value} pair.
+            const field_name: []const u8 = if (kind != null) "kind" else "parameter";
+            if (is_tagged and t == .named) if (find(self.r().typedModel().types(), t.named.id)) |owner| {
+                if (product(owner)) for (owner.fields()) |field| {
+                    if (same(q.nameOf(field), field_name)) {
+                        is_tagged = false;
+                        break;
+                    }
                 };
-            } else is_tagged = item.object.count() == 2 and item.object.get("parameter") != null and item.object.get("value") != null;
+            };
         }
         if (is_tagged) return self.tagged(path, loc, item, depth);
         try self.charge(1);

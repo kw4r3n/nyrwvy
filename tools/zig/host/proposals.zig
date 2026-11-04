@@ -234,13 +234,12 @@ pub fn persistedDocument(a: Allocator, p: *const Pending, dependency: ?@import("
         const imported_generation = d.generation.?;
         const imported_interner = d.interner.?;
         inline for (.{ .{ "types", typed.Type, typed.Domain.type }, .{ "effects", typed.Effect, typed.Domain.effect }, .{ "capabilities", typed.Capability, typed.Domain.capability }, .{ "functions", typed.Function, typed.Domain.function }, .{ "obligations", typed.Obligation, typed.Domain.obligation } }) |entry| {
+            // Keyed by the ID's UTF-16 bytes, so membership is the same as comparing the u16 texts.
+            var imported_ids: std.StringHashMapUnmanaged(void) = .empty;
+            for (@field(imported_generation, entry[0])) |other| try imported_ids.put(a, std.mem.sliceAsBytes(imported_interner.idText(entry[2], other.id)), {});
             var records: std.ArrayList(*const entry[1]) = .empty;
             for (@field(local, entry[0])) |record| {
-                const record_id = interner.idText(entry[2], record.id);
-                const is_imported = for (@field(imported_generation, entry[0])) |other| {
-                    if (std.mem.eql(u16, record_id, imported_interner.idText(entry[2], other.id))) break true;
-                } else false;
-                if (!is_imported) try records.append(a, record);
+                if (!imported_ids.contains(std.mem.sliceAsBytes(interner.idText(entry[2], record.id)))) try records.append(a, record);
             }
             @field(local, entry[0]) = records.items;
         }
