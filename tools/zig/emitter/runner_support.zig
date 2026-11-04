@@ -1,12 +1,10 @@
 
+/// The space-separated input file the host writes, since long arguments overflow argv.
 const NyTokens = struct {
-    items: []const [:0]const u8,
-    index: usize = 1,
+    it: std.mem.SplitIterator(u8, .scalar),
 
     fn next(self: *NyTokens) []const u8 {
-        const token = self.items[self.index];
-        self.index += 1;
-        return token;
+        return self.it.next().?;
     }
 };
 
@@ -184,7 +182,7 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) std.Io.Writer.Error
     switch (@typeInfo(T)) {
         .int => try nyToken(w, first, "{d}", .{value}),
         .bool => try nyToken(w, first, "{s}", .{if (value) "1" else "0"}),
-        .float => try nyToken(w, first, "{x:0>16}", .{@as(u64, @bitCast(value))}),
+        .float => try nyToken(w, first, "{x:0>16}", .{if (std.math.isNan(value)) @as(u64, 0x7ff8000000000000) else @as(u64, @bitCast(value))}),
         .optional => {
             if (value) |item| {
                 try nyToken(w, first, "1", .{});

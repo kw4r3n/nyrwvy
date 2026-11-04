@@ -434,6 +434,8 @@ module ZigBackendComparisonTests =
           for name in [ "\"\""; "\"wörld 😀\""; "\"a\\\"b\\nc\"" ] do
               true, "greet", [ name ]
               true, "size", [ name ]
+          // Its token is over Linux's 128 KiB argv string limit, so it must reach the runner by file.
+          true, "size", [ json (String('a', 60000)) ]
           for n in [ "-9223372036854775808"; "-1"; "0"; "42" ] do
               for name in [ "describe"; "positive"; "checked" ] do true, name, [ n ]
           for o in [ "null"; "7" ] do true, "orZero", [ o ]

@@ -2157,7 +2157,7 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\    if (@import("builtin").os.tag == .linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_PDEATHSIG), @intFromEnum(std.os.linux.SIG.KILL), 0, 0, 0);
         \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
         \\    const entry = args[1];
-        \\    var tokens = NyTokens{ .items = args, .index = 2 };
+        \\    var tokens = NyTokens{ .it = std.mem.splitScalar(u8, try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], init.arena.allocator(), .unlimited), ' ') };
         \\    _ = &tokens;
         \\    var buffer: [4096]u8 = undefined;
         \\    var writer = std.Io.File.stdout().writer(init.io, &buffer);
