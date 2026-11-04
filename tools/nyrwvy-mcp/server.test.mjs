@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
 import { Client } from "@modelcontextprotocol/client"
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio"
+import { recipeExamples } from "../nyrwvy-agent/recipe-reference.mjs"
 
 // The SDK passes the server only a few variables; the host selection must reach it too.
 const hostSelection = Object.fromEntries(["NYRWVY_HOST", "NYRWVY_HOST_EXECUTABLE", "NYRWVY_ZIG"].filter(name => process.env[name]).map(name => [name, process.env[name]]))
@@ -72,6 +73,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
       { kind: "conditional", condition: "<recipe>", whenTrue: "<recipe>", whenFalse: "<recipe>" })
     assert.deepEqual((await call(first, "recipe_reference", { kind: "fieldAccess" })).shape,
       { kind: "fieldAccess", source: "<recipe>", type: "<product type display name>", field: "<field display name>" })
+    assert.ok((await call(first, "request", { op: "help", arguments: {} })).topics.includes("runPure"))
     assert.deepEqual((await call(first, "recipe_reference", { kind: "matchUnion" })).shape,
       { kind: "matchUnion", type: "<union type display name>", input: "<recipe>", arms: [{ variant: "<variant display name>", body: "<recipe>" }, { variants: ["<variant>", "<variant>"], body: "<recipe>" }], otherwise: "<recipe>" })
     await failed(first, "open", { mode: "unexpected", snapshot: "workspace.json" })
@@ -277,9 +279,17 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
     client = await connect(workspace, undefined, undefined, ["--allow-host-sources"])
     const opened = await call(client, "open", { mode: "create", snapshot: "workspace.json" })
     assert.equal(opened.hostSourcesAllowed, true)
+    // A malformed nested recipe names its kind and path and carries that kind's reference shape.
+    const malformed = (await failed(client, "create_function", { displayName: "broken", parameters: [],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: { kind: "boolNot", value: { ...bool(true), extra: 1 } } })).structuredContent.error
+    assert.equal(malformed.code, "ProtocolError")
+    assert.deepEqual([malformed.details.recipeKind, malformed.details.byName, malformed.details.expectedShape.kind], ["boolLiteral", true, "boolLiteral"])
+    assert.match(malformed.details.recipePath, /value$/)
     const created = (await call(client, "create_function", { displayName: "value", parameters: [],
       resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(true) })).result
     await call(client, "commit", { proposalId: created.proposalId })
+    const replaced = (await failed(client, "replace", { function: "value", replacement: { kind: "boolNot", value: { ...bool(true), extra: 1 } } })).structuredContent.error
+    assert.deepEqual([replaced.details.recipeKind, replaced.details.expectedShape.kind], ["boolLiteral", "boolLiteral"])
     // Past the gate, request validation applies: sources without a hostCapability binding are invalid.
     const invalid = await failed(client, "request", { op: "runPure",
       arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
@@ -287,5 +297,20 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
   } finally {
     await client?.close()
     await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("MCP accepts and commits every recipe_reference worked example", { timeout: 30000 }, async () => {
+  for (const example of new Set(Object.values(recipeExamples))) {
+    const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-example-"))
+    let client
+    try {
+      client = await connect(workspace)
+      await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+      for (const step of example.steps) await call(client, "commit", { proposalId: (await call(client, step.tool, step.args)).result.proposalId })
+    } finally {
+      await client?.close()
+      await rm(workspace, { recursive: true, force: true })
+    }
   }
 })

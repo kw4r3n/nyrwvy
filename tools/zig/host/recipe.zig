@@ -588,6 +588,19 @@ pub const Decoder = struct {
     /// `WireRecipe.recipeIn` (after `WireRecipeNames.resolve`) of an exact-ID recipe, or
     /// `WireSymbolic.recipe` of a by-name one.
     pub fn recipe(self: *Decoder, path: []const u8, value: Json) Fail!*const Node {
+        return self.recipeIn(path, value) catch |err| {
+            // Name the innermost recipe a decoding error came from, so the adapter can attach its reference shape.
+            const r = self.r;
+            if (err == error.Rejected and std.mem.eql(u8, r.rejection.code, "ProtocolError") and r.rejection.details.len == 0 and value == .object) {
+                if (value.object.get("kind")) |kind| if (kind == .string) {
+                    r.rejection.details = try std.fmt.allocPrint(r.a, "{{\"recipeKind\":{s},\"recipePath\":{s},\"byName\":{}}}", .{ try query.stringOf(r.a, kind.string), try query.stringOf(r.a, path), self.owner != null });
+                };
+            }
+            return err;
+        };
+    }
+
+    fn recipeIn(self: *Decoder, path: []const u8, value: Json) Fail!*const Node {
         const kind_name = try self.requiredString(value, "kind");
         const eql = std.mem.eql;
         const kind = if (self.owner == null)

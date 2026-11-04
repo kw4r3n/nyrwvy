@@ -97,6 +97,12 @@ Examples of expected protocol transitions include E3's deliberate incomplete pub
 
 Use `unavailable` rather than estimating values that the runtime cannot measure reliably.
 
+A `codex exec --json` run reports its tokens in `turn.completed` events; save the JSONL before the temporary output is removed and sum them (cached input is part of `input_tokens`):
+
+```shell
+jq -s '[.[] | select(.type == "turn.completed") | .usage] | {input: (map(.input_tokens) | add), cachedInput: (map(.cached_input_tokens // 0) | add), output: (map(.output_tokens) | add)}' run.jsonl
+```
+
 | Metric | Value |
 | --- | ---: |
 | Semantic query count |  |
