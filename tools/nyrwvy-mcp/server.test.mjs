@@ -309,15 +309,20 @@ test("MCP accepts, commits and runs every recipe_reference worked example", { ti
     try {
       client = await connect(workspace)
       await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+      let functionId
       for (const step of example.steps) {
         const reply = await call(client, step.tool, step.args)
         if (step.tool === "request") assert.equal(reply.result.matches, true, JSON.stringify(reply))
         else await call(client, "commit", { proposalId: reply.result.proposalId })
+        functionId = reply.result.review?.createdFunction?.id ?? functionId
       }
       // The common first mistake, {parameter, value} pairs, is answered with the parameter order.
       const pairs = await failed(client, "request", { op: "runPureByName", arguments: { function: "scaledArea",
         arguments: [{ parameter: "shape", value: { Square: { side: 4 } } }, { parameter: "scale", value: null }] } })
       assert.match(pairs.structuredContent.error.message, /positional plain JSON values, one per parameter in the order \(shape, scale\)/)
+      const byId = await failed(client, "request", { op: "runPure", arguments: { functionId,
+        arguments: [{ parameter: "shape", value: { Square: { side: 4 } } }, { parameter: "scale", value: null }] } })
+      assert.match(byId.structuredContent.error.message, /^runPure arguments are positional plain JSON values, one per parameter in the order \(shape, scale\)/)
       const expectedPair = await failed(client, "request", { op: "runPureByName", arguments: { function: "scaledArea",
         arguments: [{ Square: { side: 4 } }, null], expected: { parameter: "result", value: 16 } } })
       assert.doesNotMatch(expectedPair.structuredContent.error.message, /in the order/)
