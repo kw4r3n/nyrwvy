@@ -1101,6 +1101,12 @@ fn instructionLine(body: *Body, instruction: Instruction) ?[]const u8 {
     return cat(&.{ v(instruction.result.id), " = ", expression, ";" });
 }
 
+/// Reports malformed IR as a problem; the placeholder is never emitted because problems stop emission.
+fn malformed(text: []const u8) []const u8 {
+    problem(text);
+    return "undefined";
+}
+
 fn labeled(text: []const u8) []const u8 {
     return cat(&.{ "blk: { ", text, " }" });
 }
@@ -1131,12 +1137,14 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
     }.of;
     return switch (kind) {
         .readParameter, .readPatternBinding => b.f("sourceValueId"),
-        .boolLiteral => if (b.o.get("value").?.bool) "true" else "false",
+        .boolLiteral => switch (b.o.get("value") orelse .null) {
+            .bool => |value| if (value) "true" else "false",
+            else => malformed("boolLiteral value"),
+        },
         .unitLiteral => "NyUnit{}",
-        .int64Literal => switch (b.o.get("value").?) {
+        .int64Literal => switch (b.o.get("value") orelse .null) {
             .integer => |value| std.fmt.allocPrint(a, "{d}", .{value}) catch oom(),
-            .number_string => |text| text,
-            else => @panic("int64Literal value"),
+            else => malformed("int64Literal value"),
         },
         .stringLiteral => cat(&.{ "nyStatic(", stringLiteral(str(b.o, "value")), ")" }),
         .boolNot => cat(&.{ "!", b.f("valueId") }),
@@ -2467,11 +2475,14 @@ fn bench(io: std.Io, runs: usize, path: []const u8) !void {
 
 /// The IR as `std.json.Value`, parsed directly: objects get their exact capacity and strings
 /// without escapes stay slices of the input, which `parseFromSliceLeaky` does not do for maps.
+const max_json_depth = 1000;
+
 const Reader = struct {
     s: []const u8,
     i: usize = 0,
     scratch: List(json.Value) = .empty,
     names: List([]const u8) = .empty,
+    depth: usize = 0,
 
     fn space(r: *Reader) void {
         while (r.i < r.s.len and (r.s[r.i] == ' ' or r.s[r.i] == '\t' or r.s[r.i] == '\n' or r.s[r.i] == '\r')) r.i += 1;
@@ -2493,6 +2504,9 @@ const Reader = struct {
         switch (try r.peek()) {
             '{' => {
                 r.i += 1;
+                if (r.depth == max_json_depth) return error.SyntaxError;
+                r.depth += 1;
+                defer r.depth -= 1;
                 const base = r.scratch.items.len;
                 if (try r.peek() == '}') r.i += 1 else while (true) {
                     if (try r.peek() != '"') return error.SyntaxError;
@@ -2520,6 +2534,9 @@ const Reader = struct {
             },
             '[' => {
                 r.i += 1;
+                if (r.depth == max_json_depth) return error.SyntaxError;
+                r.depth += 1;
+                defer r.depth -= 1;
                 const base = r.scratch.items.len;
                 if (try r.peek() == ']') r.i += 1 else while (true) {
                     const item = try r.value();
@@ -2596,4 +2613,25 @@ fn parseJson(source: []const u8) !json.Value {
     reader.space();
     if (reader.i != source.len) return error.SyntaxError;
     return root;
+}
+
+test "malformed literals and over-deep JSON are reported, not panicked on or pasted" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    problems = .empty;
+    var body = Body{ .values = .init(a) };
+    for ([_][]const u8{ "{\"value\":1.0}", "{\"value\":99999999999999999999}" }) |text| {
+        body.o = (try parseJson(text)).object;
+        try std.testing.expectEqualStrings("undefined", instructionExpression(&body, .int64Literal));
+    }
+    body.o = (try parseJson("{\"value\":0}")).object;
+    try std.testing.expectEqualStrings("undefined", instructionExpression(&body, .boolLiteral));
+    try std.testing.expectEqual(3, problems.items.len);
+    problems = .empty;
+    const open: [1001]u8 = @splat('[');
+    const close: [1001]u8 = @splat(']');
+    const nested = open ++ close;
+    try std.testing.expectError(error.SyntaxError, parseJson(&nested));
+    _ = try parseJson(nested[1..2001]);
 }
