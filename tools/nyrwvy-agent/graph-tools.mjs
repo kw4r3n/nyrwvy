@@ -18,8 +18,9 @@ async function requestAuthoring(payload, context) {
   const reply = await sendAuthoring(payload, context)
   if (!reply.includes("\"recipeKind\"")) return reply
   const parsed = JSON.parse(reply)
-  // One recipe error has details; a createFunctions batch lists one problem per failed item.
-  for (const item of [parsed?.error?.details, ...(parsed?.error?.problems ?? [])]) {
+  // One recipe error has details; a createFunctions batch lists one problem per failed item; nyrwvy_batch wraps either in stepError.
+  const error = parsed?.error
+  for (const item of [error?.details, ...(error?.problems ?? []), error?.stepError?.details, ...(error?.stepError?.problems ?? [])]) {
     if (item?.byName && recipeKinds.includes(item.recipeKind)) item.expectedShape = recipeReference({ kind: item.recipeKind })
   }
   return JSON.stringify(parsed)
@@ -140,14 +141,14 @@ export function createGraphTools(schema) {
       execute(args, context) {
         if (args.view !== "function" && args.view !== "scopes" && (args.function !== undefined || args.functionId !== undefined)) throw new Error("Function selectors require view=function or view=scopes.")
         if (args.view !== "scopes" && args.nodeId !== undefined) throw new Error("nodeId requires view=scopes.")
+        if (args.view !== "references" && args.target !== undefined) throw new Error("target requires view=references.")
+        if (args.view !== "function" && args.detail !== undefined) throw new Error("detail requires view=function.")
+        if (args.view !== "search" && args.text !== undefined) throw new Error("text requires view=search.")
         if (args.view === "scopes") {
           if (args.nodeId === undefined) throw new Error("view=scopes requires nodeId.")
           return requestAuthoring({ op: "bindingScopes", nodeId: args.nodeId, ...(args.function === undefined ? {} : { function: args.function }),
             ...(args.functionId === undefined ? {} : { functionId: args.functionId }) }, context)
         }
-        if (args.view !== "references" && args.target !== undefined) throw new Error("target requires view=references.")
-        if (args.view !== "function" && args.detail !== undefined) throw new Error("detail requires view=function.")
-        if (args.view !== "search" && args.text !== undefined) throw new Error("text requires view=search.")
         if (args.view === "search") {
           if (args.text === undefined) throw new Error("view=search requires text.")
           return requestAuthoring({ op: "search", text: args.text }, context)
@@ -228,7 +229,7 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "reject", ...args }, context),
     }),
     request: defineTool({
-      description: "Call any maintained AuthoringSession operation using a structured object: exact-ID editing, renames and removals, effects and capabilities, visibility, wait markers, Union variants, migrations, readiness, emitCSharp, commit with allowIncomplete, verifyChange and runPure. Argument shapes are read on demand: op 'help' with empty arguments returns the topic index, and arguments {topic} returns one topic (capabilities, visibility, waitMarkers, capabilityOperations, unionVariants, renamesAndRemovals, references, migrations, emission, commit, verifyChange, runPure, unreferenced, general). Simulations never auto-commit; the bridge supplies the request id.",
+      description: `Call any maintained AuthoringSession operation using a structured object: exact-ID editing, renames and removals, effects and capabilities, visibility, wait markers, Union variants, migrations, readiness, emitCSharp, commit with allowIncomplete, verifyChange and runPure. Argument shapes are read on demand: op 'help' with empty arguments returns the topic index, and arguments {topic} returns one topic (${Object.keys(requestTopics).join(", ")}). Simulations never auto-commit; the bridge supplies the request id.`,
       args: { op: schema.string(), arguments: object },
       /** @param {{ op: string; arguments: Record<string, unknown> }} args */
       execute(args, context) {

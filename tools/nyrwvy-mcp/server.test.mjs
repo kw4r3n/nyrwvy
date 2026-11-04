@@ -292,6 +292,8 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
     assert.deepEqual([replaced.details.recipeKind, replaced.details.expectedShape.kind], ["boolLiteral", "boolLiteral"])
     const batch = (await failed(client, "create_functions", { functions: [{ displayName: "broken", parameters: [], resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: { kind: "boolNot", value: { ...bool(true), extra: 1 } } }] })).structuredContent.error
     assert.deepEqual([batch.problems[0].recipeKind, batch.problems[0].byName, batch.problems[0].expectedShape.kind], ["boolLiteral", true, "boolLiteral"])
+    const mixed = (await failed(client, "batch", { steps: [{ kind: "createFunction", displayName: "broken", parameters: [], resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: { kind: "boolNot", value: { ...bool(true), extra: 1 } } }] })).structuredContent.error
+    assert.deepEqual([mixed.stepError.details.recipeKind, mixed.stepError.details.expectedShape.kind], ["boolLiteral", "boolLiteral"], JSON.stringify(mixed))
     // Past the gate, request validation applies: sources without a hostCapability binding are invalid.
     const invalid = await failed(client, "request", { op: "runPure",
       arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
