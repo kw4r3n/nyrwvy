@@ -1,6 +1,6 @@
 # Backend-neutral semantics and generated library bindings (design note)
 
-**Status:** §§2–9 accepted by the owner on 2026-10-27, one question at a time. §1 is a proposed shape, not yet decided. Implemented parts are listed under Order. Each part becomes a decision record when its slice is implemented.
+**Status:** §§2–9 accepted by the owner on 2026-10-27, one question at a time; §10's two library kinds accepted on 2026-11-06, with its details still to be checked against the Zig emitter. §1 is a proposed shape, not yet decided. Implemented parts are listed under Order. Each part becomes a decision record when its slice is implemented.
 
 **Date:** 2026-10-27
 
@@ -114,6 +114,30 @@ The owner may move the tools themselves off .NET later (to Zig, for fewer depend
 - **Escape-hatch host sources** accept the backend's own language, disabled by default as today. Other backends get a facade only when hand-written host code needs one.
 - **First tools in Zig:** the Zig backend's emitter (`tools/zig/emitter`), used by runPure's Zig route and checked against the F# emitter, and the first slice of the snapshot reader (`tools/zig/snapshot-reader`, record text to JSON) ([decision](../decisions/zig-tools.md)).
 
+## 10. Backend-specific libraries
+
+The specification stays common. What a backend must specialize goes into a library, so optimization is something an author chooses explicitly, not something a compiler infers. An optimization no program can observe and every program benefits from (reusing dead storage, for example) stays in the emitter or runtime instead. There are two kinds:
+
+| | A. Faster implementation of the same specification | B. Ability only one backend has |
+| --- | --- | --- |
+| Examples | SIMD search, UTF-8 validation, hashing, sorting | Reusable buffers, arenas, SDL, a library's own types |
+| In the graph | A pure function with an ordinary Nyr body | A capability and handles |
+| Other backends | Run the Nyr body, only slower | Cannot use it |
+| Equivalence | Saved cases, compared with the Nyr body | Outside the common specification |
+| Mechanism | New: a table entry replaces the function's body | Existing tables, plus a declaration of supported backends |
+
+**Why A is not a capability.** Invoking a capability keeps its effect even when the implementation is pure ([program capability implementations](../specs/program-capability-implementations.md)), so a pure routine bound that way would make its callers effectful and unusable from pure callbacks.
+
+**Kind A.** The Nyr body is the reference implementation and the meaning of the function. The table only names a faster target for one backend, so the graph and other backends do not change. Nothing can verify that a target is pure and agrees with the body, so the table's author is responsible for it, under the same trust boundary as host sources; saved cases are the check.
+
+**Kind B.** A library declares the backends it supports. Emitting a program that reaches an operation with no binding on that backend is rejected at emit time. `"unavailable": true` keeps its current meaning, a host failure at run time, for operations that are deliberately absent. Using a kind B library ties the application to that backend, and the application should say so by its declared targets.
+
+**Limits for both kinds:**
+
+- Values do not leave a library by borrowing. An arena-allocated value escaping would break immutability and reference counting, so a result is a copy or an opaque handle.
+- Libraries use §8's conversions (slices, pointers), not the runtime's value representation, so that representation does not become a compatibility contract.
+- Each addition is justified by a measurement that includes the cost of crossing the boundary. There is no catalogue of expected patterns: the first candidates come from Rhifill's `layoutFrame` bench.
+
 ## Backend notes
 
 **JavaScript.** Int64 wraps in 64 bits; whether that is `BigInt` or a pair of 32-bit numbers is measured when the backend starts. Strings port directly. `ParallelAll` runs concurrently but not in parallel. Map and Set need structural hashing. The virtual clock needs its own scheduler, because microtask order cannot express "advance only when every task is blocked".
@@ -135,10 +159,18 @@ Found by the 2026-10-27 study; only some lines were checked by hand.
 - JS Int64 representation (measure first).
 - Which Unicode version to pin.
 - Whether mapping tables become tool-only.
+- §10: the table form of a kind A entry, how a saved case runs against the Nyr body with the target switched off, whether generic functions can be replaced, and where a library declares its backends.
 
 ## Order
 
 Owner choice (2026-10-27): steps 2 and 3 follow the Zig backend; the order is 1, 4, 5, then 2 and 3.
+
+Owner direction (2026-11-06): **Zig is the primary backend.** New binding features land on Zig first; other backends drop in priority but stay a goal and should eventually reach equivalent features.
+
+- "Equivalent" means the same semantics and binding abilities, checked by saved cases, not the same speed. A backend that has not caught up reports `RunBackendUnsupported`.
+- A backend for code written quickly that still runs reasonably fast stays necessary (C# today, not necessarily C#). Making plain Nyrwvy fast on its own would turn the project into an optimizing compiler, which is not the goal.
+- Zig tuning stays in the emitter, the runtime and the tables, never in the graph, so other backends do not inherit its meaning.
+- Step 3's remaining C# items (callbacks, `Option` for null, out-structs, .NET targets) wait until Zig has the equivalent, apart from any an application needs sooner. Tables and host implementations stay per backend; shared code is extracted only once two backends show the overlap.
 
 1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend. Done: §4 ([decision](../decisions/string-scalar-values.md)) and §2 ([decision](../decisions/host-failure-kinds.md); the explicit token argument moves to the binding ABI).
 2. The waiting and task-binding properties (§3, §7) in the graph and validator. Done: `mayWait`, `mustNotWait` and `taskBound` as snapshot schema 24, with the derived "may wait" fact and `libraries/host` marked ([decision](../decisions/wait-and-task-bound-attributes.md)); the JS lowering and the mapping-table report come with those steps.
@@ -147,4 +179,5 @@ Owner choice (2026-10-27): steps 2 and 3 follow the Zig backend; the order is 1,
    - 3b. Done (the Nyrwvy half): the conversions snap's libghostty `Native.cs` needs that 3a left out (out-parameters, constants and enums, structs by value and by address, Bytes results through caller buffers, floats, `bits64` references), `bind-c --spec` for what a header cannot say, and `New<Name>()` facade constructors; every function `Native.cs` imports is bound and run against the real `libghostty-vt.so` in the extended suite ([decision](../decisions/csharp-mapping-tables-libghostty.md)). Callbacks, `Option` for null and out-structs remain.
    - 3c. The snap half: a `libraries/ghostty` library graph generated by `bind-c`, imported by snap, replacing `Native.cs` except callbacks and out-structs (steps in the decision).
 4. `runPure` with a backend parameter, the parity command, and the saved cases as the conformance suite. Done: `runPure` takes `backend`, workspaces declare targets in `<snapshot>.backends.json` (no default; `create` writes `["csharp"]`), and the saved-fixture client checks parity ([decision](../decisions/backend-targets-and-parity.md)).
-5. A second backend: Zig (owner choice). Started with Int64, Bool and Unit functions, direct calls and tail self calls (`src/Nyrwvy.Backend.Zig`), then Strings (UTF-8), Option, Result and Products and Unions (boxed in a process arena for now), then Lists (copying slices for now), list callbacks and generic functions and types (monomorphized), then Float64 arithmetic and conversions, insertion-ordered Maps and Sets (linear lookups for now), Bytes and scripted fake capabilities, then every String and text operation, sorting, function values, host failures with exception boundaries and resources, and tasks under a port of the virtual clock. Left: Bits32, program-defined and host capabilities, and the shortcuts (arena memory, copying collections) before production use; each slice is checked against the C# backend and widened step by step. The first milestone of [memory ownership](../decisions/zig-backend-memory-ownership.md) has its Nyrwvy half: library mode (`emitZigLibrary`, exports listed in the backends sidecar, results copied into caller buffers and the arena reset per call); the Rhifill half (more `layoutFrame` saved cases, the C# P/Invoke switch, the p50/p99 and one-hour RSS bench) remains.
+5. A second backend: Zig (owner choice). Started with Int64, Bool and Unit functions, direct calls and tail self calls (`src/Nyrwvy.Backend.Zig`), then Strings (UTF-8), Option, Result and Products and Unions (boxed in a process arena for now), then Lists (copying slices for now), list callbacks and generic functions and types (monomorphized), then Float64 arithmetic and conversions, insertion-ordered Maps and Sets (linear lookups for now), Bytes and scripted fake capabilities, then every String and text operation, sorting, function values, host failures with exception boundaries and resources, and tasks under a port of the virtual clock. Left: Bits32, program-defined and host capabilities, and the shortcuts (arena memory, copying collections) before production use; each slice is checked against the C# backend and widened step by step. Proposed order for capabilities: real capability dispatch in the emitter, `<graph>.zig.json` tables for C functions and Zig declarations, `libraries/host` on Zig, then callbacks and out-structs. The first milestone of [memory ownership](../decisions/zig-backend-memory-ownership.md) has its Nyrwvy half: library mode (`emitZigLibrary`, exports listed in the backends sidecar, results copied into caller buffers and the arena reset per call); the Rhifill half (more `layoutFrame` saved cases, the C# P/Invoke switch, the p50/p99 and one-hour RSS bench) remains.
+6. Backend-specific libraries (§10), after step 5's Zig tables, which they build on: kind B needs the supported-backends declaration, kind A the replaced function body. Not started.
