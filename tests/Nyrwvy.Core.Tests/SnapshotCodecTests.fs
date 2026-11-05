@@ -84,10 +84,7 @@ module SnapshotCodecTests =
         let other = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
         Assert.NotSame(merged, SnapshotCodec.resolveDependency other local)
 
-    [<Theory>]
-    [<InlineData(20)>]
-    [<InlineData(331)>]
-    let ``deep conditional snapshots roundtrip standalone and dependency resolved codecs`` depth =
+    let private deepRoundtrip depth =
         let snapshot = deepSnapshot depth
         let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
         let encoded = SnapshotCodec.serialize snapshot |> unwrap
@@ -96,6 +93,17 @@ module SnapshotCodecTests =
         let resolved = SnapshotCodec.serializeResolved dependency snapshot |> unwrap
         let restoredResolved = SnapshotCodec.deserializeResolved dependency resolved |> unwrap
         Assert.Equal(resolved, SnapshotCodec.serializeResolved dependency restoredResolved |> unwrap)
+
+    [<Theory>]
+    [<InlineData(20)>]
+    [<InlineData(331)>]
+    let ``deep conditional snapshots roundtrip standalone and dependency resolved codecs`` depth =
+        // Debug-build frames of the recursive codec are large; the default stack overflows at depth 331.
+        let mutable failure: exn = null
+        let worker = System.Threading.Thread((fun () -> try deepRoundtrip depth with error -> failure <- error), 256 * 1024 * 1024)
+        worker.Start()
+        worker.Join()
+        if not (isNull failure) then System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw()
 
     [<Fact>]
     let ``a graph nested beyond the JSON depth limit is a codec error, not an exception`` () =
