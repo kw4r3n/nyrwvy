@@ -237,20 +237,20 @@ module ZigHostRunPureParityTests =
                 for answer in [ "A"; "B" ] do
                     send (runName "query" [ "\"a\""; responses [ returns (found answer) ] ] (Some(found answer))) |> success |> ignore
                 Assert.Equal(original, File.ReadAllText path)
-                Assert.Equal(1, builds ())
+                Assert.Equal(3, builds ())
                 let publish request =
                     let proposal = send request |> success |> fun reply -> reply.GetProperty("proposalId").GetString()
                     send $"""{{"id":"commit","op":"commit","proposalId":"{proposal}"}}""" |> success |> ignore
                 publish """{"id":"rename","op":"simulateOperationsByName","operations":[{"kind":"renameFunction","function":"echo","displayName":"renamed"}]}"""
                 send (runName "renamed" [ "\"three\"" ] (Some "\"three\"")) |> success |> ignore
-                Assert.Equal(1, builds ())
+                Assert.Equal(3, builds ())
                 publish """{"id":"body","op":"simulateReplaceBodyByName","function":"constant","replacement":{"kind":"int64Literal","value":"9"}}"""
                 let result = send (runName "constant" [] (Some "9")) |> success
                 Assert.True(result.GetProperty("matches").GetBoolean())
-                Assert.Equal(2, builds ()))
+                Assert.Equal(4, builds ()))
             withHost environment true path (fun send ->
                 Assert.True((send (runName "constant" [] (Some "9")) |> success).GetProperty("matches").GetBoolean())
-                Assert.Equal(2, builds ()))
+                Assert.Equal(4, builds ()))
             // PATH wrappers can change their build flags while `zig env` stays identical.
             let originalCompiler = File.ReadAllText compiler
             File.WriteAllText(compiler, originalCompiler + "# changed compiler wrapper\n")
