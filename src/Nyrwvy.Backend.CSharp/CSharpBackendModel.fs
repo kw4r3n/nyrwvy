@@ -124,6 +124,7 @@ type CSharpBackendError =
     | UnsupportedCapabilityFailure of CapabilityOperationId
     | UnknownCallTarget of FunctionId
     | UnknownCapabilityOperation of CapabilityOperationId
+    | MalformedExecutionIr of reason: string
 
 [<RequireQualifiedAccess>]
 module CSharpBackendProfile =

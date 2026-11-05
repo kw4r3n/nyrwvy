@@ -50,7 +50,7 @@ fn hostSources(r: *q.Request, input: *values.Input) !void {
         if (!std.ascii.eqlIgnoreCase(std.fs.path.extension(full), ".cs") or stat == null or stat.?.kind != .file)
             return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' is not an existing .cs file.", .{path}));
         if (stat.?.size > 1048576) return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' exceeds 1 MiB.", .{path}));
-        const bytes = std.Io.Dir.cwd().readFileAlloc(root.host_io, full, r.a, .limited(1048576)) catch return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' cannot be read.", .{path}));
+        const bytes = std.Io.Dir.cwd().readFileAlloc(root.host_io, full, r.a, .limited(1048577)) catch return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' cannot be read.", .{path}));
         text.* = try @import("managed_text.zig").decode(r.a, bytes);
     }
     input.host_source_texts = texts;

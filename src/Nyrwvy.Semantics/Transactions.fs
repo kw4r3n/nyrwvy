@@ -610,6 +610,8 @@ module Transaction =
         else
             match snapshot.Functions |> List.tryFind (fun item -> item.Id = request.TargetFunctionId) with
             | None -> Error("TargetNotFound", "The target function was not found.")
+            | Some targetFunction when targetFunction.Parameters |> List.exists (fun parameter -> parameter.DisplayName = request.NewParameterDisplayName) ->
+                Error("DuplicateParameterDisplayName", "The function already has a parameter with this display name.")
             | Some targetFunction ->
                 match nonCallUses request.TargetFunctionId snapshot with
                 | _ :: _ as uses ->
@@ -1382,10 +1384,10 @@ module Transaction =
                                 |> List.map (fun item ->
                                     if item.Id = owner.Id then { item with Kind = SemanticTypeKind.Union remaining } else item)
                             Functions =
+                                let resolverFor = SemanticFacts.createNodeTypeResolverFactory snapshot
                                 snapshot.Functions
                                 |> List.map (fun fn ->
-                                    let inputType = SemanticFacts.createNodeTypeResolver snapshot fn
-                                    { fn with Body = ValueGraph.mapNodes (pruneMatch inputType) fn.Body }) }
+                                    { fn with Body = ValueGraph.mapNodes (pruneMatch (resolverFor fn)) fn.Body }) }
                     ensureDeletionSafe "UnionVariantStillReferenced" "Union variant" [] None snapshot candidate
                     |> Result.map (fun safe ->
                         let removed: UnionVariantRemoved =
@@ -1427,10 +1429,11 @@ module Transaction =
             let fieldIds = variant.Fields |> List.map (fun field -> field.Id)
             // Every exhaustive match over the Union, with its owner and its input's type arguments.
             // Each arm names variants of exactly one Union, so one arm identifies the matched Union.
+            let resolverFor = SemanticFacts.createNodeTypeResolverFactory snapshot
             let affected =
                 snapshot.Functions
                 |> List.collect (fun fn ->
-                    let inputType = SemanticFacts.createNodeTypeResolver snapshot fn
+                    let inputType = resolverFor fn
                     ValueGraph.collectNodes fn.Body
                     |> List.choose (fun node ->
                         match node.Kind with

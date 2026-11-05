@@ -254,6 +254,48 @@ module internal CSharpBackendValidation =
                 elif not failureFits then Some $"failure {call.Failure} does not apply to result {call.Returns}"
                 else None
 
+    /// The shapes the emitter reads without a fallback, which the Zig emitter refuses the same way.
+    let private malformedExecutionIr
+        (program: ExecutionProgram)
+        (functionsById: Map<FunctionId, ExecutionFunction>)
+        (capabilitiesById: Map<CapabilityId, ExecutionCapability>)
+        : string option =
+        let implementationProblem capabilityId (implementations: (CapabilityOperationId * FunctionId) list) =
+            match Map.tryFind capabilityId capabilitiesById with
+            | None -> Some $"An implementation names unknown capability '{StableId.value capabilityId}'."
+            | Some capability ->
+                capability.Operations
+                |> List.tryPick (fun operation ->
+                    let target =
+                        implementations
+                        |> List.tryFind (fun (id, _) -> id = operation.Id)
+                        |> Option.bind (fun (_, functionId) -> Map.tryFind functionId functionsById)
+                    match target with
+                    | Some fn when fn.Parameters.Length = operation.Parameters.Length -> None
+                    | Some _ -> Some $"The implementation of operation '{StableId.value operation.Id}' has a different parameter count."
+                    | None -> Some $"Operation '{StableId.value operation.Id}' has no implementing function.")
+        let instructionProblem =
+            program.Functions
+            |> List.collect ExecutionCallGraph.instructions
+            |> List.collect (fun instruction -> ExecutionInstructionKind.uses instruction.Kind)
+            |> List.tryPick (function
+                | ExecutionInstructionUse.CapabilityImplementationClass(capabilityId, implementations) ->
+                    implementationProblem capabilityId implementations
+                | _ -> None)
+        let tailCallProblem () =
+            program.Functions
+            |> List.tryPick (fun fn ->
+                fn.Blocks
+                |> List.tryPick (fun block ->
+                    match block.Terminator with
+                    | ExecutionTerminator.TailCall(_, arguments) ->
+                        arguments
+                        |> List.tryFind (fun argument ->
+                            not (fn.Parameters |> List.exists (fun parameter -> parameter.SemanticParameterId = argument.TargetParameterId)))
+                        |> Option.map (fun argument -> $"A tail call binds unknown parameter '{StableId.value argument.TargetParameterId}'.")
+                    | _ -> None))
+        instructionProblem |> Option.orElseWith tailCallProblem
+
     let prepare
         (program: ExecutionProgram)
         (profile: CSharpBackendProfile)
@@ -389,8 +431,11 @@ module internal CSharpBackendValidation =
                                             match concurrentHandle |> Option.map CSharpBackendError.ConcurrentNativeHandle |> Option.orElse (concurrentBindingProblem program profile operationsById) with
                                             | Some error -> Error error
                                             | None ->
-                                                Ok
-                                                    { FunctionsById = functionsById
-                                                      CapabilitiesById = capabilitiesById
-                                                      OperationsById = operationsById
-                                                      BindingsByOperation = bindingsByOperation }
+                                                match malformedExecutionIr program functionsById capabilitiesById with
+                                                | Some reason -> Error(CSharpBackendError.MalformedExecutionIr reason)
+                                                | None ->
+                                                    Ok
+                                                        { FunctionsById = functionsById
+                                                          CapabilitiesById = capabilitiesById
+                                                          OperationsById = operationsById
+                                                          BindingsByOperation = bindingsByOperation }

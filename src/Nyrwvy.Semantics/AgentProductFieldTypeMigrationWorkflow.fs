@@ -156,10 +156,11 @@ module AgentProductFieldTypeMigrationWorkflow =
                             { baseSnapshot with
                                 Types = baseSnapshot.Types |> List.map (fun item -> if item.Id = ownerType.Id then updatedType else item) }
                         let rewrites = request.FunctionRewrites |> List.map (fun rewrite -> rewrite.FunctionId, rewrite.Replacement) |> Map.ofList
+                        let candidateIndex = ExpressionRecipeSupport.buildSnapshotIndex candidate
                         let materialized =
                             affected
                             |> List.map (fun fn ->
-                                AgentExpressionStructuralWorkflow.materializeReplacementBody candidate fn (Map.find fn.Id rewrites)
+                                AgentExpressionStructuralWorkflow.materializeReplacementBody candidate candidateIndex fn (Map.find fn.Id rewrites)
                                 |> Result.map (fun body -> fn.Id, body)
                                 |> Result.mapError (fun error -> fn, error))
                         match materialized |> List.tryPick (function Error failure -> Some failure | Ok _ -> None) with

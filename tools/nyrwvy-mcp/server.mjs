@@ -31,7 +31,7 @@ if (values.help) {
 
   function createServer() {
     const server = new McpServer({ name: "nyrwvy", version: manifest.version }, {
-      instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Use nyrwvy_recipe_reference when an ExpressionRecipe shape is unfamiliar. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
+      instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Set a client tool-call timeout of at least 900 seconds: a cold runPure can take that long, and a cancelled call ends the host session. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Use nyrwvy_recipe_reference when an ExpressionRecipe shape is unfamiliar. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
     })
     /**
      * Explicit unknowns matter: omitted generic slots in JSDoc become any.
