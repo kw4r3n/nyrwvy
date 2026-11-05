@@ -79,13 +79,16 @@ let private hostExecutable () =
 
 /// The Function Focus page from the host's `viewFunction`, on a private copy of the snapshot so the
 /// host writes nothing beside the input: the suggested file name and the page's content.
-let private focusPage (encoding: ViewerSourceEncoding) (source: string) (selector: FunctionSelector) : Result<string * string, string> =
+let private focusPage (encoding: ViewerSourceEncoding) (inputPath: string) (source: string) (selector: FunctionSelector) : Result<string * string, string> =
     hostExecutable ()
     |> Result.bind (fun executable ->
         let directory = Directory.CreateTempSubdirectory("nyrwvy-viewer-export-").FullName
         try
             let snapshot = Path.Combine(directory, (match encoding with ViewerSourceEncoding.Json -> "snapshot.json" | ViewerSourceEncoding.Record -> "snapshot.nyrec"))
             File.WriteAllText(snapshot, source, UTF8Encoding false)
+            // The host refuses a snapshot with dependencies when its sidecar is not beside it.
+            let sidecar = inputPath + ".dependency.json"
+            if File.Exists sidecar then File.Copy(sidecar, snapshot + ".dependency.json")
             let request = JsonObject()
             request["id"] <- JsonValue.Create "view"
             request["op"] <- JsonValue.Create "viewFunction"
@@ -141,7 +144,7 @@ let private runFocus (arguments: string list): Result<string, string> =
 
         source
         |> Result.bind (fun source ->
-            match focusPage parsed.Encoding source parsed.Function with
+            match focusPage parsed.Encoding parsed.InputPath source parsed.Function with
             | Error error -> Error $"Viewer export failed: {error}"
             | Ok(suggested, content) ->
                 let outputPath = parsed.OutputPath |> Option.defaultValue suggested

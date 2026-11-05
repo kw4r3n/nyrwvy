@@ -93,6 +93,25 @@ module TransactionTests =
         requireReadiness (SemanticReadiness.Incomplete [ obligationId ]) simulation.ProposedSnapshot
 
     [<Fact>]
+    let ``adding a parameter rejects a display name the function already has`` () =
+        let fixture = TestGraph.create ()
+        let target = fixture.Snapshot.Functions |> List.find (fun item -> item.Id = fixture.ValidateFunctionId)
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-add-duplicate"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-duplicate"
+              Operations =
+                [ AddFunctionParameter
+                    { TargetFunctionId = fixture.ValidateFunctionId
+                      NewParameterId = StableId.createForTesting<ParameterTag> "parameter-validate-duplicate"
+                      NewParameterDisplayName = target.Parameters.Head.DisplayName
+                      NewParameterType = target.Parameters.Head.Type
+                      CallSitePlans = [] } ] }
+        match Transaction.simulate fixture.Snapshot request with
+        | Rejected diagnostics -> Assert.Equal("DuplicateParameterDisplayName", diagnostics.Head.Code)
+        | Proposed _ -> failwith "A duplicate parameter display name must be rejected."
+
+    [<Fact>]
     let ``resolving missing argument updates the same authoritative call node`` () =
         let fixture = TestGraph.create ()
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"

@@ -456,6 +456,7 @@ fn addParameter(s: *State, p: Prepared) !void {
     if (try recipe.isBlank(a, request.field.name)) return s.fail("InvalidDisplayName", "A parameter display name cannot be blank.");
     if (subject(s.root, .parameter, query.idOf(p.member.?)) != null) return s.fail("DuplicateParameterId", "The new parameter ID already exists.");
     const function = edit.find(s.root, .functions, request.function) orelse return s.fail("TargetNotFound", "The target function was not found.");
+    for (function.parameters()) |existing| if (m.same(query.nameOf(existing), request.field.name)) return s.fail("DuplicateParameterDisplayName", "The function already has a parameter with this display name.");
     const users = try nonCallUses(s, request.function);
     if (users.len > 0) return s.fail("ParameterAdditionNonCallUse", try std.fmt.allocPrint(a, "Function {s} is used other than as a direct call by {s}. Those uses fix its signature, so only direct calls can supply a new parameter; replace those uses before adding a parameter to this function.", .{ try ownedDescription(s, function), try std.mem.join(a, "; ", users) }));
     var affected: std.ArrayList(OwnedNode) = .empty;

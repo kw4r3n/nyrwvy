@@ -11,4 +11,6 @@ npm --prefix tools/nyrwvy-mcp test        # the MCP wire and shutdown contracts
 node --experimental-strip-types tools/nyrwvy-mcp/server.mjs --help
 ```
 
+Clients must set a tool-call timeout of at least 900 seconds; the SDK default of 60 seconds can cancel a cold `runPure` and end the session.
+
 See the [MCP graph-tools guide](../../docs/specs/mcp-graph-tools.md) for prerequisites and override path rules.

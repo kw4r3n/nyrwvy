@@ -72,9 +72,8 @@ module AgentExpressionStructuralWorkflow =
     /// Materializes a complete replacement body for an existing function against a candidate
     /// snapshot that a multi-function migration is still completing. The recipe is bound and
     /// type-checked against the candidate; the caller validates the final snapshot as a whole.
-    let internal materializeReplacementBody (snapshot: Snapshot) (target: SemanticFunction) recipe
+    let internal materializeReplacementBody (snapshot: Snapshot) index (target: SemanticFunction) recipe
         : Result<ValueGraph, TransactionDiagnostic> =
-        let index = buildSnapshotIndex snapshot
         match validateRecipeBounds recipeChildren recipe with
         | Error error -> Error error
         | Ok() ->

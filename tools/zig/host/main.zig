@@ -347,7 +347,9 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request
 }
 
 pub fn readText(a: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const bytes = try std.Io.Dir.cwd().readFileAlloc(host_io, path, a, .unlimited);
+    return decodeText(a, try std.Io.Dir.cwd().readFileAlloc(host_io, path, a, .unlimited));
+}
+fn decodeText(a: std.mem.Allocator, bytes: []const u8) ![]const u8 {
     const text = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
     return if (std.unicode.utf8ValidateSlice(text)) text else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(text)});
 }
@@ -408,9 +410,11 @@ fn replaceDependencyPairUsing(a: std.mem.Allocator, next_source: []const u8, nex
     const sidecar = try std.mem.concat(a, u8, &.{ snapshot_path, ".dependency.json" });
     const previous = try std.mem.concat(a, u8, &.{ sidecar, ".previous" });
     const source = readText(a, snapshot_path) catch |err| return .{ .code = "IoFailure", .message = @errorName(err) };
-    const manifest = readText(a, sidecar) catch |err| return .{ .code = "IoFailure", .message = @errorName(err) };
+    // The backup and the rollback keep the sidecar's exact bytes (a BOM, ill-formed UTF-8).
+    const manifest_bytes = std.Io.Dir.cwd().readFileAlloc(host_io, sidecar, a, .unlimited) catch |err| return .{ .code = "IoFailure", .message = @errorName(err) };
+    const manifest = try decodeText(a, manifest_bytes);
     if (!std.mem.eql(u8, source, persisted_source) or !std.mem.eql(u8, manifest, dependency_manifest.?)) return .{ .code = "ExternalModification", .message = "The snapshot file changed outside this session." };
-    if (try replace(a, previous, manifest)) |problem| return problem;
+    if (try replace(a, previous, manifest_bytes)) |problem| return problem;
     var consistent = true;
     defer if (consistent) std.Io.Dir.cwd().deleteFile(host_io, previous) catch {};
     if (try replace(a, sidecar, next_manifest)) |problem| return problem;
@@ -418,7 +422,7 @@ fn replaceDependencyPairUsing(a: std.mem.Allocator, next_source: []const u8, nex
     // A thrown write error needs the same rollback as an ordinary storage rejection.
     const snapshot_problem: ?query.Rejection = replace(a, snapshot_path, next_source) catch |err| .{ .code = "IoFailure", .message = @errorName(err) };
     if (snapshot_problem) |problem| {
-        const rollback_problem: ?query.Rejection = replace(a, sidecar, manifest) catch |err| .{ .code = "IoFailure", .message = @errorName(err) };
+        const rollback_problem: ?query.Rejection = replace(a, sidecar, manifest_bytes) catch |err| .{ .code = "IoFailure", .message = @errorName(err) };
         if (rollback_problem) |rollback| return .{ .code = "IoFailure", .message = try std.fmt.allocPrint(a, "{s} Restoring the previous dependency selection also failed: {s} The previous sidecar is kept at '{s}'.", .{ problem.message, rollback.message, previous }) };
         consistent = true;
         return problem;
@@ -1160,6 +1164,14 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
             return replaceAtomically(allocator, path, content);
         }
     };
+    {
+        // The rollback restores the sidecar's exact bytes, not their decoded text.
+        const with_bom = "\xEF\xBB\xBFold-manifest";
+        try std.testing.expect((try replaceAtomically(a, snapshot_path, persisted_source)) == null);
+        try std.testing.expect((try replaceAtomically(a, sidecar, with_bom)) == null);
+        _ = (try replaceDependencyPairUsing(a, "new-source", "new-manifest", Fault.replace)).?;
+        try std.testing.expectEqualStrings(with_bom, try std.Io.Dir.cwd().readFileAlloc(host_io, sidecar, a, .unlimited));
+    }
     for ([_]u8{ 0, 1, 2, 3 }) |phase| {
         invalidated = false;
         Fault.sidecar_failure = phase == 0;

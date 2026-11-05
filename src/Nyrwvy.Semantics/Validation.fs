@@ -383,16 +383,20 @@ module SnapshotValidator =
                 | TypeRef.Capability _
                 | TypeRef.TypeParameter _ -> []
             fieldsOf typeEntity |> List.collect (fun field -> named field.Type) |> Set.ofList
-        let reaches =
-            let direct = snapshot.Types |> List.map (fun item -> item.Id, directlyReferenced item) |> Map.ofList
-            let closure (start: TypeId) =
+        let direct = snapshot.Types |> List.map (fun item -> item.Id, directlyReferenced item) |> Map.ofList
+        let reachable = System.Collections.Generic.Dictionary<TypeId, System.Collections.Generic.HashSet<TypeId>>()
+        // Computed only for a generic reference and kept per target; an explicit stack bears long type chains.
+        let reaches (start: TypeId) =
+            match reachable.TryGetValue start with
+            | true, known -> known
+            | _ ->
                 let visited = System.Collections.Generic.HashSet<TypeId>()
-                let rec visit typeId =
-                    for next in Map.tryFind typeId direct |> Option.defaultValue Set.empty do
-                        if visited.Add next then visit next
-                visit start
-                Set.ofSeq visited
-            snapshot.Types |> List.map (fun item -> item.Id, closure item.Id) |> Map.ofList
+                let pending = System.Collections.Generic.Stack<TypeId>([ start ])
+                while pending.Count > 0 do
+                    for next in Map.tryFind (pending.Pop()) direct |> Option.defaultValue Set.empty do
+                        if visited.Add next then pending.Push next
+                reachable[start] <- visited
+                visited
         for typeEntity in snapshot.Types do
             let declared = typeEntity.TypeParameters |> List.map fst |> Set.ofList
             for _, displayName in typeEntity.TypeParameters do
@@ -414,9 +418,9 @@ module SnapshotValidator =
                 let rec checkRecursion typeRef =
                     match typeRef with
                     | TypeRef.Named(targetId, arguments) ->
-                        let cyclic = Map.tryFind targetId reaches |> Option.exists (Set.contains typeEntity.Id)
-                        if cyclic && not (List.isEmpty arguments)
-                           && not (arguments |> List.forall (function TypeRef.TypeParameter _ -> true | _ -> false)) then
+                        if not (List.isEmpty arguments)
+                           && not (arguments |> List.forall (function TypeRef.TypeParameter _ -> true | _ -> false))
+                           && (reaches targetId).Contains typeEntity.Id then
                             add
                                 "IrregularRecursiveType"
                                 $"Field {StableId.describe field.DisplayName field.Id} refers back to its recursive type group with type arguments other than plain type parameters."

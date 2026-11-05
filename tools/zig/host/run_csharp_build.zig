@@ -205,7 +205,7 @@ fn remember(key: [32]u8, pe: []const u8, pdb: []const u8) !void {
     try entries.append(std.heap.page_allocator, .{ .key = key, .pe = owned_pe, .pdb = owned_pdb, .last = serial });
     bytes += size;
 }
-/// Assemblies persist per user across host sessions, like the Zig runners, and are never pruned.
+/// shortcut: assemblies persist per user across host sessions, like the Zig runners, and are never pruned (SECURITY.md gives the manual cleanup); prune by age if the cache becomes a practical problem.
 fn storedPath(a: A, key: [32]u8) ![]const u8 {
     return std.fs.path.join(a, &.{ p.cache_root, "csharp-runners", &std.fmt.bytesToHex(key, .lower) });
 }

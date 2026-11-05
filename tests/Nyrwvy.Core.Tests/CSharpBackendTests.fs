@@ -325,6 +325,22 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
             | result -> failwithf "%s should reject its unknown callback target, got %A" label result
 
     [<Fact>]
+    let ``C# backend rejects a tail call binding an unknown parameter`` () =
+        let fixture, execution = lowerRepresentative ()
+        let functionEntity = List.head execution.Functions
+        let block = List.head functionEntity.Blocks
+        let instruction = List.head block.Instructions
+        let argument: ExecutionCallArgument =
+            { TargetParameterId = StableId.createForTesting<ParameterTag> "parameter-unknown-tail"
+              ValueId = instruction.Result.Id }
+        let poisoned =
+            { functionEntity with
+                Blocks = { block with Terminator = ExecutionTerminator.TailCall(instruction.OriginNodeId, [ argument ]) } :: List.tail functionEntity.Blocks }
+        match CSharpBackend.emit { execution with Functions = poisoned :: List.tail execution.Functions } (CSharpBackendProfile.systemConsoleWriteLine fixture.ConsoleWriteLineOperationId) with
+        | Error(CSharpBackendError.MalformedExecutionIr _) -> ()
+        | result -> failwithf "Expected MalformedExecutionIr, got %A" result
+
+    [<Fact>]
     let ``generated C# does not recover semantic identity from display names`` () =
         let _, _, artifact = emitRepresentative ()
         for forbidden in [ "validate_user"; "report_validation"; "RawUserInput" ] do

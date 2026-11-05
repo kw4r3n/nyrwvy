@@ -106,6 +106,7 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
         current.close(io);
         current = next;
     }
+    // shortcut: a host killed mid-write leaves this temporary, and the startup sweep covers only nyrwvy-views; sweep explicit output directories too if strays show up in practice.
     var random: [16]u8 = undefined;
     io.randomSecure(&random) catch return .{ .refused = "I/O error: no random bytes for a temporary name." };
     const temporary = if (snapshot) try std.fmt.allocPrint(a, ".{s}.{x}.tmp", .{ name, random }) else try std.fmt.allocPrint(a, ".nyrwvy-{x}.tmp", .{random});

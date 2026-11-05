@@ -303,6 +303,18 @@ test("MCP --allow-host-sources starts the session with host sources enabled", { 
     const invalid = await failed(client, "request", { op: "runPure",
       arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
     assert.equal(invalid.structuredContent.error.code, "RunHostSourceInvalid")
+    // A source of exactly the documented 1 MiB limit is read; one byte more is refused by size.
+    await writeFile(join(workspace, "Limit.cs"), "/".repeat(1048576))
+    await writeFile(join(workspace, "Over.cs"), "/".repeat(1048577))
+    const sourceMessage = async file => (await failed(client, "request", { op: "runPure", arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: [file] } })).structuredContent.error.message
+    assert.doesNotMatch(await sourceMessage("Limit.cs"), /cannot be read|exceeds/)
+    assert.match(await sourceMessage("Over.cs"), /exceeds 1 MiB/)
+    // A function cannot gain a second parameter with a display name it already has.
+    const parameterized = (await call(client, "create_function", { displayName: "named", parameters: [{ displayName: "x", type: { kind: "primitive", primitive: "bool" } }],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(true) })).result
+    await call(client, "commit", { proposalId: parameterized.proposalId })
+    const duplicate = await failed(client, "request", { op: "simulateOperationsByName", arguments: { operations: [{ kind: "addFunctionParameter", function: "named", displayName: "x", type: { kind: "primitive", primitive: "bool" }, callSites: [] }] } })
+    assert.equal(duplicate.structuredContent.error.details.diagnostics[0].code, "DuplicateParameterDisplayName")
   } finally {
     await client?.close()
     await rm(workspace, { recursive: true, force: true })
