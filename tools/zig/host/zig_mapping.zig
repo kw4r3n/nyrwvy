@@ -45,20 +45,22 @@ fn operationEntry(d: *recipe.Decoder, table: []const u8, path: []const u8, name:
     return declaration;
 }
 
-pub fn bindings(r: *q.Request, tables: []const []const u8, output: ?[]const u8) ![]const emitter.HostBinding {
+pub fn bindings(r: *q.Request, tables: []const []const u8, output: ?[]const u8) !emitter.Host {
     const a = r.a;
     var out: std.ArrayList(emitter.HostBinding) = .empty;
+    var replaced: std.ArrayList(emitter.HostFunction) = .empty;
     const capabilities = try q.typedVisible(r, "capability");
     for (tables) |table| {
         var d: recipe.Decoder = .{ .r = r, .duplicates = .empty };
         const value = (try @import("recipe_file.zig").load(&d, table, "zigTables", "")).value;
         const context = try std.fmt.allocPrint(a, "mapping table {s}", .{table});
-        try d.ensureFields("", value, context, &.{ "format", "version", "source", "capabilities" }, &.{ "format", "version", "source", "capabilities" });
+        try d.ensureFields("", value, context, &.{ "format", "version", "source", "capabilities", "functions" }, &.{ "format", "version", "source" });
         if (!eql(u8, try d.requiredString(value, "format"), "nyrwvy.zig-mapping")) return r.fail("{s}: format must be 'nyrwvy.zig-mapping'.", .{context});
         const version = value.object.get("version").?;
         if (version != .integer or version.integer != 1) return r.fail("{s}: only version 1 is supported.", .{context});
         const source = try importPath(r, table, try d.requiredString(value, "source"), output);
-        const listed = value.object.get("capabilities").?;
+        if (value.object.get("functions")) |entries| try functionEntries(r, &d, table, source, entries, &replaced);
+        const listed = value.object.get("capabilities") orelse continue;
         if (listed != .object) return r.fail("{s}: capabilities must be an object.", .{context});
         for (listed.object.keys(), listed.object.values()) |name, item| {
             const at = try std.fmt.allocPrint(a, "/capabilities/{s}", .{name});
@@ -90,11 +92,35 @@ pub fn bindings(r: *q.Request, tables: []const []const u8, output: ?[]const u8) 
             }
         }
     }
-    return out.items;
+    return .{ .operations = out.items, .products = try products(r), .functions = replaced.items };
+}
+
+/// Pure, non-generic functions a declaration replaces. Its author answers for it agreeing with the body.
+fn functionEntries(r: *q.Request, d: *recipe.Decoder, table: []const u8, source: []const u8, entries: std.json.Value, out: *std.ArrayList(emitter.HostFunction)) !void {
+    const a = r.a;
+    const context = try std.fmt.allocPrint(a, "mapping table {s}", .{table});
+    if (entries != .object) return r.fail("{s}: functions must be an object.", .{context});
+    const visible = try q.typedVisible(r, "function");
+    for (entries.object.keys(), entries.object.values()) |name, item| {
+        const label = try std.fmt.allocPrint(a, "{s}: function {s}", .{ context, name });
+        try d.ensureFields(try std.fmt.allocPrint(a, "/functions/{s}", .{name}), item, label, &.{"declaration"}, &.{"declaration"});
+        const declaration = try d.requiredString(item, "declaration");
+        if (!isIdentifier(declaration)) return r.fail("{s}: declaration must be an identifier.", .{label});
+        var found: ?model.Model = null;
+        for (visible) |candidate| if (eql(u8, q.nameOf(candidate), name)) {
+            if (found != null) return r.fail("{s}: several functions have this name.", .{label});
+            found = candidate;
+        };
+        const function = found orelse return r.fail("{s}: no function has this name.", .{label});
+        if (function.requiredEffects().len > 0) return r.fail("{s}: only a pure function can be replaced; bind an effectful one through a capability.", .{label});
+        if (function.typeParameters().len > 0) return r.fail("{s}: a generic function cannot be replaced.", .{label});
+        for (out.items) |prior| if (eql(u8, prior.function, q.idOf(function))) return r.fail("{s}: it is bound twice.", .{label});
+        try out.append(a, .{ .function = q.idOf(function), .source = source, .declaration = declaration });
+    }
 }
 
 /// The field names of every visible Product, for declarations that return one.
-pub fn products(r: *q.Request) ![]const emitter.HostProduct {
+fn products(r: *q.Request) ![]const emitter.HostProduct {
     var out: std.ArrayList(emitter.HostProduct) = .empty;
     for (try q.typedVisible(r, "type")) |item| {
         var fields: std.ArrayList(emitter.HostField) = .empty;

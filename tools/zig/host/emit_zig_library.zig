@@ -73,11 +73,10 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
         item.* = .{ .id = q.idOf(function), .symbol = symbol };
     }
     const bound = try mapping.bindings(r, try tablePaths(r), output);
-    const products = try mapping.products(r);
-    var emitted = try emitter.library(r.a, try run_pure.lowered(r, null), exports, bound, products);
+    var emitted = try emitter.library(r.a, try run_pure.lowered(r, null), exports, bound);
     // shortcut: a whole program the emitter cannot translate falls back to one export's reach only;
     // lower each export's reach and merge them when a library needs several.
-    if (emitted == .unsupported and exports.len == 1) emitted = try emitter.library(r.a, try run_pure.lowered(r, exports[0].id), exports, bound, products);
+    if (emitted == .unsupported and exports.len == 1) emitted = try emitter.library(r.a, try run_pure.lowered(r, exports[0].id), exports, bound);
     const source = switch (emitted) {
         .source => |source| source,
         .unsupported => |problems| return unsupported(r, problems),
