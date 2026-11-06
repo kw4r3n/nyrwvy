@@ -813,6 +813,11 @@ const Kind = enum {
     resultOkValue,
     resultErrValue,
     optionOkOr,
+    optionMap,
+    optionAndThen,
+    resultMap,
+    resultMapErr,
+    resultAndThen,
     listEmpty,
     listConstruct,
     listRange,
@@ -1220,6 +1225,27 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .resultOkValue => cat(&.{ "nyShare(@as(", zig(b.result), ", switch (", b.f("valueId"), ") { .ok => |item| item, .err => null }))" }),
         .resultErrValue => cat(&.{ "nyShare(@as(", zig(b.result), ", switch (", b.f("valueId"), ") { .ok => null, .err => |item| item }))" }),
         .optionOkOr => cat(&.{ "nyShare(@as(", zig(b.result), ", if (", b.f("optionValueId"), ") |item| .{ .ok = item } else .{ .err = ", b.f("errorValueId"), " }))" }),
+        .optionMap, .optionAndThen => blk: {
+            const source = "sourceOptionValueId";
+            const text = if (kind == .optionMap)
+                b.callback("mapperFunctionId", "context", &.{role("item", argumentOf(b.typeAt(source), 0))}, argumentOf(b.result, 0))
+            else
+                b.callback("binderFunctionId", "context", &.{role("item", argumentOf(b.typeAt(source), 0))}, b.result);
+            break :blk cat(&.{ "@as(", zig(b.result), ", if (", b.f(source), ") |item| ", text, " else null)" });
+        },
+        .resultMap, .resultAndThen => blk: {
+            const source = "sourceResultValueId";
+            const text = if (kind == .resultMap)
+                cat(&.{ ".{ .ok = ", b.callback("mapperFunctionId", "context", &.{role("item", argumentOf(b.typeAt(source), 0))}, argumentOf(b.result, 0)), " }" })
+            else
+                b.callback("binderFunctionId", "context", &.{role("item", argumentOf(b.typeAt(source), 0))}, b.result);
+            break :blk cat(&.{ "@as(", zig(b.result), ", switch (", b.f(source), ") { .ok => |item| ", text, ", .err => |item| .{ .err = nyShare(item) } })" });
+        },
+        .resultMapErr => blk: {
+            const source = "sourceResultValueId";
+            const text = b.callback("mapperFunctionId", "context", &.{role("item", argumentOf(b.typeAt(source), 1))}, argumentOf(b.result, 1));
+            break :blk cat(&.{ "@as(", zig(b.result), ", switch (", b.f(source), ") { .ok => |item| .{ .ok = nyShare(item) }, .err => |item| .{ .err = ", text, " } })" });
+        },
         .listEmpty => "&.{}",
         .listConstruct => blk: {
             var items: List([]const u8) = .empty;
