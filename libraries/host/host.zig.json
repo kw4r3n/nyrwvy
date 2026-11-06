@@ -1,0 +1,16 @@
+{
+  "format": "nyrwvy.zig-mapping",
+  "version": 1,
+  "source": "host.zig",
+  "capabilities": {
+    "Fs": { "operations": {
+      "readText": { "declaration": "readText" },
+      "readBytes": { "declaration": "readBytes" },
+      "writeBytes": { "declaration": "writeBytes" } } },
+    "Env": { "operations": {
+      "get": { "declaration": "envGet" } } },
+    "Process": { "operations": {
+      "spawn": { "declaration": "processSpawn" },
+      "run": { "declaration": "processRun" } } }
+  }
+}

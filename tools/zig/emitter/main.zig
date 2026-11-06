@@ -2148,8 +2148,46 @@ fn hostValue(t: *const Type, argument: bool) bool {
     return switch (t.*) {
         .primitive => |kind| !argument or !(eql(kind, "primitiveBytes") or eql(kind, "primitiveUnit")),
         .builtin => |builtin| (eql(builtin.kind, "option") or eql(builtin.kind, "list")) and hostValue(builtin.args[0], argument),
+        // A declaration returns a Product as a struct with the type's display names.
+        .named => |named| {
+            if (argument or named.args.len > 0) return false;
+            for (host_products_used.items) |id| if (eql(id, named.id)) return true;
+            const fields = (declarations.get(named.id) orelse return false).product orelse return false;
+            if (hostProduct(named.id) == null) return false;
+            push([]const u8, &host_products_used, named.id);
+            for (fields) |field| if (!hostValue(field.type, false)) return false;
+            return true;
+        },
         else => false,
     };
+}
+
+fn hostProduct(id: []const u8) ?HostProduct {
+    for (host_products) |product| if (eql(product.id, id)) return product;
+    return null;
+}
+
+/// Builds the Products that host declarations return.
+fn hostProductBuilder() []const u8 {
+    var out: List(u8) = .empty;
+    line(&out, "fn nyHostProduct(comptime P: type, value: anytype) NyError!*const P {");
+    line(&out, "    _ = .{value};");
+    out.appendSlice(a, if (host_products_used.items.len > 0) "    return " else "    ") catch oom();
+    for (host_products_used.items) |id| {
+        const name = typeName(id, &.{});
+        var fields: List([]const u8) = .empty;
+        for (declarations.get(id).?.product.?) |field| {
+            const display = for (hostProduct(id).?.fields) |item| {
+                if (eql(item.id, field.id)) break item.name;
+            } else std.debug.panic("Product field {s} has no name.", .{field.id});
+            push([]const u8, &fields, cat(&.{ ".", fieldName(field.id), " = try nyHostValue(@FieldType(", name, ", \"", fieldName(field.id), "\"), value.@\"", display, "\")" }));
+        }
+        out.appendSlice(a, cat(&.{ "if (P == ", name, ") nyBox(", name, ", .{ ", join(", ", fields.items), " }) else " })) catch oom();
+    }
+    line(&out, "@compileError(\"A host declaration returned a Product no table operation names.\");");
+    line(&out, "}");
+    line(&out, "");
+    return out.items;
 }
 
 /// The switch arm's body calling an operation's host declaration.
@@ -2394,6 +2432,11 @@ var library_exports: ?[]const Export = null;
 /// A capability operation bound by a `<graph>.zig.json` table; no declaration means unavailable.
 pub const HostBinding = struct { capability: []const u8, operation: []const u8, source: []const u8, declaration: ?[]const u8 };
 var host_bindings: []const HostBinding = &.{};
+/// A Product's field names as a host declaration spells them.
+pub const HostProduct = struct { id: []const u8, fields: []const HostField };
+pub const HostField = struct { id: []const u8, name: []const u8 };
+var host_products: []const HostProduct = &.{};
+var host_products_used: List([]const u8) = .empty;
 
 fn abiScalar(t: *const Type) ?[]const u8 {
     if (t.* != .primitive) return null;
@@ -2432,6 +2475,7 @@ fn libraryExports(exports: []const Export) []const u8 {
     out.appendSlice(a, library_support) catch oom();
     // Exports take no capability, so functions that do are never analysed; Zig still resolves their names.
     out.appendSlice(a, capabilityTypes(false) orelse return "") catch oom();
+    out.appendSlice(a, hostProductBuilder()) catch oom();
     for (capabilities) |capability| {
         if (!capability_instances.contains(capability.id) or !implemented(capability.id)) lineCat(&out, &.{ "const ", identifier("C_", capability.id), " = struct {};" });
     }
@@ -2596,12 +2640,15 @@ pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8
 /// Library mode (docs/decisions/zig-backend-memory-ownership.md, first milestone): the program without
 /// the runner `main`, plus one C export per entry. runPure never takes this path, so the runner output
 /// the emitter check compares is unchanged.
-pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export, bindings: []const HostBinding) !Runner {
+pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export, bindings: []const HostBinding, products: []const HostProduct) !Runner {
     library_exports = exports;
     host_bindings = bindings;
+    host_products = products;
+    host_products_used = .empty;
     defer {
         library_exports = null;
         host_bindings = &.{};
+        host_products = &.{};
     }
     return emitRequest(allocator, text, null);
 }

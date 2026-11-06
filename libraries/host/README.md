@@ -31,6 +31,16 @@ Not provided yet: directory operations, file deletion, a working directory for `
 2. Emit C# with `profile: { kind: "externalImplementations", operationIds: [...] }` listing the library operations (with the program's own host operations). The IDs are in `host.json`. The facade then has a base class (`FsBase`, `PtysBase`, ...) for every capability with a listed operation.
 3. Copy `NyHost.cs` into the program's project (it needs `AllowUnsafeBlocks`) and pass `new NyrHost.FsHost()`, `new NyrHost.PtysHost()` and so on where the generated functions take the capabilities. List every library operation in step 2, or remove the classes of unlisted capabilities from the copy.
 
+## Using it on Zig
+
+Zig's [library mode](../../docs/decisions/zig-backend-memory-ownership.md#library-mode-as-built) binds `Fs`, `Env` and `Process`; `Ptys` and `Pty` are C# only for now.
+
+1. Import the workspace as above.
+2. Copy `host.zig` and `host.zig.json` beside the snapshot and add `"zigTables": ["host.zig.json"]` to `<snapshot>.backends.json`, next to `"exports"`.
+3. Emit with `emitZigLibrary` into the same directory and build with `zig build-lib -dynamic -lc`. An export's `Fs`, `Env` or `Process` parameter is not part of its C signature.
+
+The behaviour matches the table above, except that an `Err` holds the Zig error's name (`FileNotFound`) instead of the OS's message.
+
 ## Check
 
-`node libraries/host/check/run.mjs` (Linux, needs `dotnet`, the Zig session host built by `npm run build:host`, `sh` and `cat`) builds a program that imports the library, emits its C#, and runs [`check/Program.cs`](check/Program.cs) against the real OS: files in a temporary directory, environment variables, process start, and `Process.run` output and exit codes, and a pty driven both from C# and from a Nyrwvy function (`ptyEcho`: open `cat` with `TERM` set by the program, write, read the echo, close), including closing while another thread reads and a child that ignores the hangup. It is not part of the Node suite.
+`node libraries/host/check/run-zig.mjs` (Linux, needs `zig` and `sh`) does the same for `host.zig`, except for the pty. `node libraries/host/check/run.mjs` (Linux, needs `dotnet`, the Zig session host built by `npm run build:host`, `sh` and `cat`) builds a program that imports the library, emits its C#, and runs [`check/Program.cs`](check/Program.cs) against the real OS: files in a temporary directory, environment variables, process start, and `Process.run` output and exit codes, and a pty driven both from C# and from a Nyrwvy function (`ptyEcho`: open `cat` with `TERM` set by the program, write, read the echo, close), including closing while another thread reads and a child that ignores the hangup. It is not part of the Node suite.
