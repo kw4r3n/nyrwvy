@@ -77,7 +77,8 @@ references, including implementations of operations not invoked by that entry.
 C# emits a stateless implementation of the existing capability interface per
 construction node. It invokes generated Nyrwvy methods using the semantic
 parameter correspondence; generated parameter-name ordering cannot reorder the
-arguments.
+arguments. Zig emits one capability value type with a selector per construction
+node, dispatching beside a runner's scripted fakes.
 
 The backend profile still declares the realization of callable capability
 interfaces. `ExternalImplementation` permits values implementing that interface;
