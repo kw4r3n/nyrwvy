@@ -91,6 +91,16 @@ pub fn env(_: std.mem.Allocator, name: []const u8) ?[]const u8 {
 pub fn size(_: std.mem.Allocator, data: []const u8) i64 {
     return @intCast(data.len);
 }
+// Deliberately not the Nyr bodies, so the test can tell which one ran.
+pub fn doubled(_: std.mem.Allocator, value: i64) i64 {
+    return value * 2 + 1;
+}
+pub fn minus(_: std.mem.Allocator, left: i64, right: i64) i64 {
+    return left - right;
+}
+pub fn tagged(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator, "{s}?", .{text});
+}
 pub fn boom(_: std.mem.Allocator) !i64 {
     return error.Boom;
 }
@@ -102,6 +112,9 @@ extern fn ny_envOr(name: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_
 extern fn ny_sizeOf(text: ?[*]const u8, len: usize, out: *i64) c_int;
 extern fn ny_callBoom(out: *i64) c_int;
 extern fn ny_callGone(out: *i64) c_int;
+extern fn ny_minusOf(left: i64, right: i64, out: *i64) c_int;
+extern fn ny_taggedText(text: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
+extern fn ny_doubledAll(items: ?[*]const i64, len: usize, out: ?[*]i64, cap: usize, out_len: *usize) c_int;
 extern fn ny_last_failure(len: *usize) [*]const u8;
 fn text(call: anytype, input: []const u8, buffer: []u8) ![]const u8 {
     var n: usize = 0;
@@ -116,6 +129,15 @@ test "table-bound capabilities" {
     try std.testing.expectEqualStrings("none", try text(ny_readError, "a", &buffer));
     try std.testing.expectEqualStrings("/home", try text(ny_envOr, "HOME", &buffer));
     try std.testing.expectEqualStrings("none", try text(ny_envOr, "NOPE", &buffer));
+    try std.testing.expectEqualStrings("hi?", try text(ny_taggedText, "hi", &buffer));
+    var difference: i64 = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_minusOf(9, 2, &difference));
+    try std.testing.expectEqual(@as(i64, 7), difference);
+    var list: [4]i64 = undefined;
+    var list_len: usize = 0;
+    // A replaced function called from a pure list callback.
+    try std.testing.expectEqual(@as(c_int, 0), ny_doubledAll(&[_]i64{ 1, 2 }, 2, &list, list.len, &list_len));
+    try std.testing.expectEqualSlices(i64, &.{ 3, 5 }, list[0..list_len]);
     var out: i64 = 0;
     try std.testing.expectEqual(@as(c_int, 0), ny_sizeOf("abc", 3, &out));
     try std.testing.expectEqual(@as(i64, 3), out);
@@ -169,11 +191,21 @@ test("library mode binds capabilities to Zig declarations through a table", { ti
     await exported("callBoom", int64, [], invoke("boom", []))
     await exported("callGone", int64, [], invoke("gone", []))
 
-    const sidecar = { targets: ["csharp"], exports: ["callBoom", "callGone", "envOr", "readError", "readOr", "sizeOf"], zigTables: ["host.zig.json"] }
+    const pure = (displayName, parameters, resultType, body, typeParameters = []) => publish(context, { op: "simulateCreateFunctionByName", displayName, resultType, requiredEffects: [], typeParameters, parameters, body })
+    const numbers = list(int64)
+    await pure("doubled", [{ displayName: "n", type: int64 }], int64, { kind: "int64WrappingAdd", left: parameter("n"), right: parameter("n") })
+    await pure("doubledAll", [{ displayName: "items", type: numbers }], numbers, { kind: "listMap", source: parameter("items"), function: "doubled" })
+    await pure("tagged", [{ displayName: "text", type: string }], string, { kind: "stringConcat", left: parameter("text"), right: literal("!") })
+    await pure("taggedText", [{ displayName: "text", type: string }], string, { kind: "directCall", function: "tagged", arguments: [{ parameter: "text", value: parameter("text") }] })
+    await pure("minus", [{ displayName: "left", type: int64 }, { displayName: "right", type: int64 }], int64, { kind: "int64WrappingSubtract", left: parameter("left"), right: parameter("right") })
+    await pure("minusOf", [{ displayName: "left", type: int64 }, { displayName: "right", type: int64 }], int64, { kind: "directCall", function: "minus", arguments: [{ parameter: "left", value: parameter("left") }, { parameter: "right", value: parameter("right") }] })
+    await pure("same", [{ displayName: "value", type: { kind: "typeParameter", name: "T" } }], { kind: "typeParameter", name: "T" }, parameter("value"), ["T"])
+    const sidecar = { targets: ["csharp"], exports: ["callBoom", "callGone", "doubledAll", "envOr", "minusOf", "readError", "readOr", "sizeOf", "taggedText"], zigTables: ["host.zig.json"] }
     await writeFile(snapshot + ".backends.json", JSON.stringify(sidecar))
     await writeFile(join(directory, "host.zig"), hostSource)
     const operations = { readText: { declaration: "readText" }, env: { declaration: "env" }, size: { declaration: "size" }, boom: { declaration: "boom" }, gone: { unavailable: true } }
-    const table = (changes = {}) => JSON.stringify({ format: "nyrwvy.zig-mapping", version: 1, source: "host.zig", capabilities: { Fs: { operations } }, ...changes })
+    const functions = { doubled: { declaration: "doubled" }, minus: { declaration: "minus" }, tagged: { declaration: "tagged" } }
+    const table = (changes = {}) => JSON.stringify({ format: "nyrwvy.zig-mapping", version: 1, source: "host.zig", capabilities: { Fs: { operations } }, functions, ...changes })
     const refused = async (text, pattern) => {
       await writeFile(join(directory, "host.zig.json"), text)
       const reply = JSON.parse(await requestAuthoring({ op: "emitZigLibrary" }, context))
@@ -186,12 +218,20 @@ test("library mode binds capabilities to Zig declarations through a table", { ti
     await refused(table({ source: "absent.zig" }), /existing Zig file/)
     await refused(table({ capabilities: { Fs: { operations: { ...operations, boom: { declaration: "a.b" } } } } }), /declaration must be an identifier/)
 
+    // Kind B: a program that reaches a capability with no binding on this backend is rejected at emission.
+    await refused(table({ capabilities: {} }), /export parameter type/)
+    await refused(table({ functions: { nope: { declaration: "x" } } }), /function nope: no function has this name/)
+    await refused(table({ functions: { same: { declaration: "x" } } }), /a generic function cannot be replaced/)
+    await refused(table({ functions: { callBoom: { declaration: "x" } } }), /only a pure function can be replaced/)
     await writeFile(join(directory, "host.zig.json"), table())
     const emitted = await request(context, { op: "emitZigLibrary", output: "library.zig" })
     const library = join(directory, "liblibrary.so")
     zig(["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", emitted.path, `-femit-bin=${library}`])
     await writeFile(join(directory, "harness.zig"), hostHarness)
     zig(["test", join(directory, "harness.zig"), library, "-lc", "-rpath", directory])
+    // runPure never loads a table, so saved cases keep checking the Nyr body.
+    const ran = await request(context, { op: "runPureByName", function: "tagged", backend: "zig", arguments: ["hi"], expected: "hi!" })
+    assert.equal(ran.matches, true, JSON.stringify(ran))
   } finally {
     await closeAuthoring(context).catch(() => undefined)
     await rm(directory, { recursive: true, force: true })

@@ -2099,6 +2099,13 @@ fn emit(ordered: []const Function) ?[]const u8 {
     while (head < pending.items.len) : (head += 1) {
         const instance = pending.items[head];
         const generic = functions.get(instance.id).?;
+        // A generic callee of its body is not instantiated for it; a non-generic one is emitted anyway.
+        if (for (host_functions) |bound| {
+            if (eql(bound.function, instance.id)) break bound;
+        } else null) |bound| {
+            emitHostFunction(&bodies, instanceName(instance.id, instance.args), generic, bound);
+            continue;
+        }
         var map = Bindings.init(a);
         for (generic.type_parameters, instance.args) |id, arg| map.put(id, arg) catch oom();
         var fn_ = substituteFunction(&map, generic);
@@ -2216,6 +2223,38 @@ fn hostProductBuilder() []const u8 {
     return out.items;
 }
 
+fn checkHostResult(r: *const Type) void {
+    const is_result = r.* == .builtin and eql(r.builtin.kind, "result");
+    if (!(if (is_result) hostValue(r.builtin.args[0], false) and isString(r.builtin.args[1]) else hostValue(r, false))) problem(cat(&.{ "host binding result type ", typeDisplay(r) }));
+}
+
+fn hostArgument(t: *const Type, argument: []const u8) []const u8 {
+    const is_bytes = t.* == .primitive and eql(t.primitive, "primitiveBytes");
+    if (!is_bytes and !hostValue(t, true)) problem(cat(&.{ "host binding parameter type ", typeDisplay(t) }));
+    return if (is_bytes) cat(&.{ argument, ".data" }) else argument;
+}
+
+/// A function that calls its declaration instead of its body. The declaration borrows the arguments,
+/// and a pure function's callers do not expect a failure, so one stops the process.
+fn emitHostFunction(out: *List(u8), name: []const u8, fn_: Function, bound: HostFunction) void {
+    checkHostResult(fn_.result);
+    var parameters: List([]const u8) = .empty;
+    var passed: List([]const u8) = .empty;
+    push([]const u8, &passed, "nyAllocator()");
+    for (fn_.parameters) |parameter| {
+        const argument = identifier("p_", parameter.id);
+        push([]const u8, &parameters, cat(&.{ argument, ": ", zigOf(parameter.value.type) orelse return }));
+        push([]const u8, &passed, hostArgument(parameter.value.type, argument));
+    }
+    const result = zigOf(fn_.result) orelse return;
+    lineCat(out, &.{ "fn ", name, "(", join(", ", parameters.items), ") ", if (failing(fn_.id)) "NyError!" else "", result, " {" });
+    lineCat(out, &.{ "    const result = nyHost(", result, ", @import(\"", bound.source, "\").", bound.declaration, "(", join(", ", passed.items), ")) catch @panic(\"The host declaration ", bound.declaration, " failed.\");" });
+    for (fn_.parameters) |parameter| lineCat(out, &.{ "    nyRelease(", identifier("p_", parameter.id), ");" });
+    line(out, "    return result;");
+    line(out, "}");
+    line(out, "");
+}
+
 /// The switch arm's body calling an operation's host declaration.
 fn hostCall(operation: Operation, arguments: []const []const u8) []const u8 {
     const binding = for (host_bindings) |item| {
@@ -2223,16 +2262,10 @@ fn hostCall(operation: Operation, arguments: []const []const u8) []const u8 {
     } else std.debug.panic("Capability operation {s} has no binding.", .{operation.id});
     const declaration = binding.declaration orelse return cat(&.{ "{ _ = .{ ", join(", ", arguments), " }; return nyFail(\"NotSupportedException\", \"This capability operation is unavailable on this backend.\", false); }," });
     const r = operation.result;
-    const is_result = r.* == .builtin and eql(r.builtin.kind, "result");
-    if (!(if (is_result) hostValue(r.builtin.args[0], false) and isString(r.builtin.args[1]) else hostValue(r, false))) problem(cat(&.{ "host binding result type ", typeDisplay(r) }));
+    checkHostResult(r);
     var passed: List([]const u8) = .empty;
     push([]const u8, &passed, "nyAllocator()");
-    for (operation.parameters, arguments) |parameter, argument| {
-        const t = parameter.type;
-        const is_bytes = t.* == .primitive and eql(t.primitive, "primitiveBytes");
-        if (!is_bytes and !hostValue(t, true)) problem(cat(&.{ "host binding parameter type ", typeDisplay(t) }));
-        push([]const u8, &passed, if (is_bytes) cat(&.{ argument, ".data" }) else argument);
-    }
+    for (operation.parameters, arguments) |parameter, argument| push([]const u8, &passed, hostArgument(parameter.type, argument));
     return cat(&.{ "return nyHost(", zigType(r, false).?, ", @import(\"", binding.source, "\").", declaration, "(", join(", ", passed.items), "))," });
 }
 
@@ -2462,6 +2495,10 @@ var host_bindings: []const HostBinding = &.{};
 pub const HostProduct = struct { id: []const u8, fields: []const HostField };
 pub const HostField = struct { id: []const u8, name: []const u8 };
 var host_products: []const HostProduct = &.{};
+/// A pure function whose body a declaration replaces in library mode (kind A in the plan's section 10).
+/// The Nyr body stays its meaning: runPure runs the body, and saved cases compare the two.
+pub const HostFunction = struct { function: []const u8, source: []const u8, declaration: []const u8 };
+var host_functions: []const HostFunction = &.{};
 var host_products_used: List([]const u8) = .empty;
 
 fn abiScalar(t: *const Type) ?[]const u8 {
@@ -2666,15 +2703,19 @@ pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8
 /// Library mode (docs/decisions/zig-backend-memory-ownership.md, first milestone): the program without
 /// the runner `main`, plus one C export per entry. runPure never takes this path, so the runner output
 /// the emitter check compares is unchanged.
-pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export, bindings: []const HostBinding, products: []const HostProduct) !Runner {
+pub const Host = struct { operations: []const HostBinding = &.{}, products: []const HostProduct = &.{}, functions: []const HostFunction = &.{} };
+
+pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export, host: Host) !Runner {
     library_exports = exports;
-    host_bindings = bindings;
-    host_products = products;
+    host_bindings = host.operations;
+    host_products = host.products;
+    host_functions = host.functions;
     host_products_used = .empty;
     defer {
         library_exports = null;
         host_bindings = &.{};
         host_products = &.{};
+        host_functions = &.{};
     }
     return emitRequest(allocator, text, null);
 }
