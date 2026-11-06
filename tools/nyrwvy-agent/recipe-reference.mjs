@@ -480,7 +480,7 @@ const references = {
   },
   productUpdate: {
     shape: { kind: "productUpdate", source: recipe, type: "<product type display name>", fields: [{ field: "<field display name>", value: recipe }] },
-    notes: "A copy of source (which must have the named product type) with the listed fields replaced and every other field kept, like Python dataclasses.replace. List at least one field, each once; field order is not semantic. Field values may read source, which is unchanged. Never fails.",
+    notes: "A copy of source (which must have the named product type) with the listed fields replaced and every other field kept, like Python dataclasses.replace. List at least one field, each once; field order is not semantic. Field values may read source, which is unchanged. Never fails. Prefer it to a productConstruct that copies fields from a value of the same type: it stores 2c-1 fewer nodes for c copied fields.",
   },
   unionConstruct: {
     shape: { kind: "unionConstruct", type: "<union type display name>", variant: "<variant display name>", fields: [{ field: "<field display name>", value: recipe }] },
@@ -512,8 +512,8 @@ const references = {
     notes: "Invokes a pure function value with positional arguments in signature order; arity and types must match exactly.",
   },
   directCall: {
-    shape: { kind: "directCall", function: "<function display name>", arguments: [{ parameter: "<callee parameter display name>", value: recipe }], keepUnlisted: "optional true, self calls only" },
-    notes: "arguments must cover the callee parameters exactly; argument order is not semantic. Naming the function being created or replaced makes a self call (recursion): arguments then use the owner's parameter names, cover each exactly once with its declared type, and the result has the owner's result type. On a self call, keepUnlisted: true passes every parameter the arguments do not name through unchanged (as if each were written with a parameter recipe naming itself), so a loop lists only what changes; it is rejected on a call to another function. A self call in tail position (the body's result, a bind body, a conditional branch, a match arm or otherwise, the right operand of boolAnd/boolOr) runs as a loop in constant stack; other recursion is limited to a few thousand nested calls. Mutual recursion still needs an existing placeholder callee and is not a loop.",
+    shape: { kind: "directCall", function: "<function display name>", arguments: [{ parameter: "<callee parameter display name>", value: recipe }], keepUnlisted: "optional true: unnamed parameters come from the caller's parameters of the same names" },
+    notes: "arguments must cover the callee parameters exactly; argument order is not semantic. Naming the function being created or replaced makes a self call (recursion): arguments then use the owner's parameter names, cover each exactly once with its declared type, and the result has the owner's result type. keepUnlisted: true passes every callee parameter the arguments do not name from the caller's parameter of the same display name (as if each were written with a parameter recipe naming it); a name the caller lacks is rejected and the types are checked as usual. On a self call this passes them through unchanged, so a loop lists only what changes. A self call in tail position (the body's result, a bind body, a conditional branch, a match arm or otherwise, the right operand of boolAnd/boolOr) runs as a loop in constant stack; other recursion is limited to a few thousand nested calls. Mutual recursion still needs an existing placeholder callee and is not a loop.",
   },
   capabilityConstruct: {
     shape: { kind: "capabilityConstruct", capability: "<capability display name>", implementations: [{ operation: "<operation display name>", function: "<monomorphic pure function display name>" }] },

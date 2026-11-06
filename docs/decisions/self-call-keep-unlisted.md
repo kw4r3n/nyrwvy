@@ -10,7 +10,7 @@ A loop written as a tail self-call (order 49) carries its state in its parameter
 
 In the name-resolved recipe form, a `directCall` that names the function being created or replaced may set `"keepUnlisted": true`. Every owner parameter that its `arguments` do not name is then bound to that same parameter. It is a reading shorthand, like `MatchUnion`'s `otherwise`: the recipe reader expands it into the full `SelfCall`, so the preflight, the stored `DirectCall`, the review and the node count are those of the call written in full. No semantic, IR or schema change.
 
-- `keepUnlisted` on a call to any other function is rejected, since only a self call has parameters of the same names in scope.
+- `keepUnlisted` on a call to another function binds each callee parameter that `arguments` do not name to the caller's parameter of the same display name (extended 2026-11-06, reversing the original rejection; the owner wants less to write for calls that pass arguments along, 299 such arguments in rrawrlet). A name the caller lacks is rejected, and a mismatched type fails the usual preflight. Matching by name can pass the wrong same-named, same-typed value, so it stays opt-in per call and the review shows the full call.
 - Without it, an omitted argument is still `PureExpressionCallArgumentMissing`, so a forgotten argument is never silently filled.
 - The ID-keyed `selfCall` recipe has no such field; it is not the AI-facing form.
 
@@ -27,5 +27,5 @@ Both were accepted first time, and the rewritten components matched probe 23's r
 
 ## Consequences
 
-- `WireSymbolic` reads the field; the [expression-authoring](../specs/expression-authoring.md#selfcall) and [session](../specs/agent-authoring-session.md#self-calls) specifications and the recipe reference describe it. `SelfCallTests` covers creation and body replacement by name, the full call that results, the missing-argument error without the field, and the rejection on another function.
+- `WireSymbolic` reads the field; the [expression-authoring](../specs/expression-authoring.md#selfcall) and [session](../specs/agent-authoring-session.md#self-calls) specifications and the recipe reference describe it. `SelfCallTests` covers creation and body replacement by name, the full call that results, and the missing-argument error without the field; `libraries/core/check/run.mjs` covers calls of other functions.
 - The saving is in what an author writes and reads, not in the graph: a structural read of the function shows every argument.

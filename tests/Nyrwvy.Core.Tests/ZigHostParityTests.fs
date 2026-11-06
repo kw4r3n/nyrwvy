@@ -29,6 +29,9 @@ module ZigHostParityTests =
         // The Zig host adds recipe error details (2026-11-04) that the recorded F# host never wrote.
         let masked = Regex.Replace(masked, ",\"details\":[{]\"recipeKind\":\"[^\"]*\",\"recipePath\":\"[^\"]*\",\"byName\":(?:true|false)[}]", "")
         let masked = Regex.Replace(masked, ",\"recipeKind\":\"[^\"]*\",\"recipePath\":\"[^\"]*\",\"byName\":(?:true|false)", "")
+        // keepUnlisted reaches every call since 2026-11-06, and a parameter the caller lacks has its own message.
+        let masked = Regex.Replace(masked, "keepUnlisted applies only to a call[^\"]*", "keepUnlisted …")
+        let masked = Regex.Replace(masked, "keepUnlisted: the caller has no parameter[^\"]*", "keepUnlisted …")
         // The Zig usage text drops the F# host's migrate command (2026-11-05); it is always the last stderr block.
         let masked = Regex.Replace(masked, "(?s)Usage: Nyrwvy\\.AuthoringSession .*", "Usage: …")
         Regex.Replace(masked, "(Invalid JSON: |not valid JSON: ).*", "$1…")
@@ -447,6 +450,8 @@ module ZigHostParityTests =
         use reply = parseDocument fsharp
         match reply.RootElement.TryGetProperty "error" with
         | true, error when error.GetProperty("code").GetString() = "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
+        // The rejection the F# host gave any keepUnlisted call of another function came before the callee was resolved, so the Zig host can reject the same request for its callee.
+        | true, error when error.GetProperty("message").GetString() = "keepUnlisted …" -> zig.Contains "\"code\":\"ProtocolError\""
         | _ -> fsharp = zig
 
     [<Fact>]
@@ -1666,7 +1671,7 @@ module ZigHostCreateByNameTests =
             let shownText = answered.ToString().Replace("\\u0027", "'")
             // Of the preflight, a blank type-parameter name, a taken display name and an unknown effect, type or capability ID are decode rejections by name.
             let preflightShown = Set.toList (Set.difference preflightCodes (set [ "FunctionCreationTypeParameterNameBlank"; "FunctionCreationRequiredEffectNotFound"; "FunctionCreationDuplicateDisplayName" ]))
-            for shown in [ "Unknown function '"; "Unknown type '"; "Unknown capability '"; "Unknown effect '"; "Unknown field on "; "Unknown variant on "; "Unknown field on variant "; "Unknown operation on "; "Unknown parameter on operation "; "Unknown parameter on "; "Unknown new function parameter"; " Available: "; "is not a product type"; "is not a union type"; "is the function being created"; "keepUnlisted applies only"; "No current function matches the explicit declaration selector"; "Selector ownership must be local or imported."; "Unsupported symbolic expression recipe kind"; "Unsupported symbolic type kind"; "already exists. Choose a unique name"; "Pass exactly one of body and bodyFile."; "Ambiguous new function parameter 'x'."; "Ambiguous parameter on made 'x'."; "Current candidates (advice only)"; "SimulationRejected"; "Largest subtrees within the limit" ] @ preflightShown do
+            for shown in [ "Unknown function '"; "Unknown type '"; "Unknown capability '"; "Unknown effect '"; "Unknown field on "; "Unknown variant on "; "Unknown field on variant "; "Unknown operation on "; "Unknown parameter on operation "; "Unknown parameter on "; "Unknown new function parameter"; " Available: "; "is not a product type"; "is not a union type"; "is the function being created"; "keepUnlisted …"; "No current function matches the explicit declaration selector"; "Selector ownership must be local or imported."; "Unsupported symbolic expression recipe kind"; "Unsupported symbolic type kind"; "already exists. Choose a unique name"; "Pass exactly one of body and bodyFile."; "Ambiguous new function parameter 'x'."; "Ambiguous parameter on made 'x'."; "Current candidates (advice only)"; "SimulationRejected"; "Largest subtrees within the limit" ] @ preflightShown do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the by-name parity test does not cover it.")
             Assert.True((mismatches.Count = 0), $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections.")
@@ -2371,7 +2376,7 @@ module ZigHostReplaceBodyTests =
         for wanted, found in List.zip expected actual do
             // Existing accepted difference: .NET's lone-surrogate exception text is not ported.
             if wanted.Contains "\"code\":\"SessionError\"" then Assert.Equal(sessionErrorCode wanted, sessionErrorCode found)
-            else Assert.Equal(wanted, found)
+            elif not (wanted.Contains "keepUnlisted …") then Assert.Equal(wanted, found)
         expected
 
     let private mutations (f: SemanticFunction) =

@@ -138,6 +138,14 @@ The specification stays common. What a backend must specialize goes into a libra
 - Libraries use §8's conversions (slices, pointers), not the runtime's value representation, so that representation does not become a compatibility contract.
 - Each addition is justified by a measurement that includes the cost of crossing the boundary. There is no catalogue of expected patterns: the first candidates come from Rhifill's `layoutFrame` bench.
 
+## 11. Fewer nodes for common operations
+
+Measured 2026-11-06 on rhifill (2002 nodes), rrawrlet (7804) and prompt-desk (13309), counting static shapes. No shape is above 9% of a program, and the eight largest of each add up to about 12 to 26%. References alone are 36% of rhifill.
+
+- **Done:** `libraries/core`, functions that use existing nodes (a call of `n` strings takes `n + 1` nodes instead of `2n - 1`), and `keepUnlisted` on any call, which shortens what is written and leaves the graph unchanged.
+- **Not now:** a new node costs about 50 files. `StringConcatMany` saves no more than the `concat` functions, and `MapConstruct` about 80 nodes more than a `mapOf` library would (prompt-desk). Revisit a switch node (rhifill's `actionCode`) and a propagate-Err node (prompt-desk) when a program needs them. Folding references into their readers would save the most but touches ownership, migration and the viewer, so it needs its own decision.
+- **Kept:** the derived Int64 comparisons stay out of the agent reference ([decision](../decisions/retired-authoring-kinds.md)), although each costs one `boolNot` node.
+
 ## Backend notes
 
 **JavaScript.** Int64 wraps in 64 bits; whether that is `BigInt` or a pair of 32-bit numbers is measured when the backend starts. Strings port directly. `ParallelAll` runs concurrently but not in parallel. Map and Set need structural hashing. The virtual clock needs its own scheduler, because microtask order cannot express "advance only when every task is blocked".

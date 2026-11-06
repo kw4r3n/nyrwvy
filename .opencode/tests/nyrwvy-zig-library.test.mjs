@@ -132,6 +132,11 @@ test("the host library runs on Zig against the real OS", { timeout: 300000, skip
   assert.equal(check.status, 0, check.stdout + check.stderr)
 })
 
+test("the core library runs on both backends through an import", { timeout: 300000, skip }, () => {
+  const check = spawnSync(process.execPath, ["libraries/core/check/run.mjs"], { cwd: process.cwd(), encoding: "utf8", timeout: 280_000, env: { ...process.env, NYRWVY_ZIG_RUNNER_OPTIMIZE: "Debug" } })
+  assert.equal(check.status, 0, check.stdout + check.stderr)
+})
+
 test("library mode binds capabilities to Zig declarations through a table", { timeout: 300000, skip }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "nyrwvy-zig-table-"))
   const context = { sessionID: randomUUID(), worktree: process.cwd() }
