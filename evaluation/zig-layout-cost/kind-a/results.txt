@@ -1,0 +1,12 @@
+saved cases matching expected on A, B and C: 8
+random and pattern frames identical on A, B and C: 18029
+median over 5 processes of per-process p50 / p99, microseconds
+case                       A: p50 / p99         B: p50 / p99         C: p50 / p99
+80x24 narrow            11.1 /     15.1      11.2 /     13.4       6.3 /      8.7
+80x24 wide              12.3 /     15.8      12.4 /     15.8       6.7 /      9.0
+80x24 frame             23.3 /     26.1      23.4 /     26.2       7.8 /      9.8
+80x24 table             62.9 /     88.1      63.0 /     67.2      10.3 /     13.0
+300x100 narrow         121.2 /    158.6     121.8 /    160.2      58.8 /    117.7
+300x100 wide           152.8 /    189.9     153.9 /    188.6      62.8 /    122.8
+300x100 frame          309.2 /    368.1     312.5 /    358.5      76.7 /    127.8
+300x100 table          641.3 /    693.9     641.9 /    686.5     100.3 /    146.2
