@@ -135,6 +135,19 @@ module ZigBackendComparisonTests =
           for handler in [ "recover"; "rethrowCancellation"; "rethrowAll" ] do
               effectful ("guarded_" + handler) [ "files", filesType ] (resultOf stringType)
                   $"""{{"kind":"exceptionCatch","body":"attempt","bodyContext":[{{"parameter":"files","value":{p "files"}}}],"handler":"{handler}","handlerContext":[]}}"""
+          // Program capability implementations, chosen at run time, beside a scripted fake of the same capability.
+          $"""{{"id":"k","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Calc","operations":[{{"displayName":"scale","parameters":[{declare [ "n", int64Type ]}],"resultType":{int64Type},"effect":"io"}},{{"displayName":"label","parameters":[{declare [ "text", stringType ]}],"resultType":{stringType},"effect":"io"}}]}}"""
+          fn "calcTwice" [ "n", int64Type ] int64Type $"""{{"kind":"int64WrappingAdd","left":{p "n"},"right":{p "n"}}}"""
+          fn "calcThrice" [ "n", int64Type ] int64Type $"""{{"kind":"int64WrappingMultiply","left":{p "n"},"right":{lit 3}}}"""
+          fn "calcLabel" [ "text", stringType ] stringType $"""{{"kind":"stringConcat","left":{p "text"},"right":{p "text"}}}"""
+          let calcType = """{"kind":"capability","name":"Calc"}"""
+          let calcOf scale = $"""{{"kind":"capabilityConstruct","capability":"Calc","implementations":[{{"operation":"scale","function":"{scale}"}},{{"operation":"label","function":"calcLabel"}}]}}"""
+          let calc operation parameter value = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "calc"},"capability":"Calc","operation":"{operation}","arguments":[{{"parameter":"{parameter}","value":{value}}}]}}"""
+          fn "pickCalc" [ "double", boolType ] calcType $"""{{"kind":"conditional","condition":{p "double"},"whenTrue":{calcOf "calcTwice"},"whenFalse":{calcOf "calcThrice"}}}"""
+          effectful "useCalc" [ "calc", calcType; "n", int64Type ] int64Type (calc "scale" "n" (p "n"))
+          effectful "useLabel" [ "calc", calcType; "text", stringType ] stringType (bind (calc "label" "text" (p "text")) (calc "label" "text" (value 0)))
+          effectful "programCalc" [ "double", boolType; "n", int64Type ] int64Type (call "useCalc" [ "calc", call "pickCalc" [ "double", p "double" ]; "n", p "n" ])
+          effectful "programLabel" [ "text", stringType ] stringType (call "useLabel" [ "calc", call "pickCalc" [ "double", """{"kind":"boolLiteral","value":true}""" ]; "text", p "text" ])
           // Tasks under the virtual clock.
           $"""{{"id":"k","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Svc","operations":[{{"displayName":"work","parameters":[{declare [ "n", int64Type ]}],"resultType":{int64Type},"effect":"io"}},{{"displayName":"hold","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}"""
           effectful "job" [ "svc", svcType; "n", int64Type ] outcome (bind (work (p "n")) (ok (value 0)))
@@ -351,6 +364,9 @@ module ZigBackendComparisonTests =
           for name, result, body in listCases do fn name [ "xs", ints ] result body
           fn "okOr" [ "n", int64Type ] int64Type $"""{{"kind":"resultGetOrDefault","result":{checkedOf},"default":{lit -1}}}"""
           fn "isOk" [ "n", int64Type ] boolType $"""{{"kind":"resultIsOk","value":{checkedOf}}}"""
+          fn "okValue" [ "n", int64Type ] optionInt $"""{{"kind":"resultOkValue","value":{checkedOf}}}"""
+          fn "errValue" [ "n", int64Type ] (generic "option" [ stringType ]) $"""{{"kind":"resultErrValue","value":{checkedOf}}}"""
+          fn "okOrError" [ "n", int64Type ] (resultOf int64Type) $"""{{"kind":"optionOkOr","option":{{"kind":"resultOkValue","value":{checkedOf}}},"error":{{"kind":"stringLiteral","value":"none"}}}}"""
           yield! effectfulDeclarations ]
 
     /// The exception boundary, resource, abort and task calls, with scripted Files and Svc fakes.
@@ -380,10 +396,15 @@ module ZigBackendComparisonTests =
         let fake (work: string list) (hold: string list) =
             $"""{{"kind":"fakeCapability","capability":"Svc","operations":[{{"operation":"work","responses":[{String.Join(",", work)}]}},{{"operation":"hold","responses":[{String.Join(",", hold)}]}}]}}"""
         let awaiting = $"""{{"kind":"awaitCancellation","value":{int64 100L}}}"""
+        let calcFake = $"""{{"kind":"fakeCapability","capability":"Calc","operations":[{{"operation":"scale","responses":[{{"kind":"return","value":{int64 9L}}}]}},{{"operation":"label","responses":[]}}]}}"""
         let throws = throw "task ✗"
         [ for script, succeeds in scripts do
             for name, succeeds in List.zip [ "withFile"; "guarded_recover"; "guarded_rethrowCancellation"; "guarded_rethrowAll"; "abortFile" ] succeeds do
                 succeeds, name, [ script ]
+          true, "programCalc", [ "true"; "21" ]
+          true, "programCalc", [ "false"; "21" ]
+          true, "programLabel", [ "\"ab✓\"" ]
+          true, "useCalc", [ calcFake; "5" ]
           true, "fanOut", [ fake [ response 10 (Some 30); response 20 (Some 10); response 30 None ] []; "[1,2,3]" ]
           false, "fanOut", [ fake [ response 10 (Some 5) ] []; "[1,2]" ]
           true, "race", [ fake [ response 10 (Some 40); response 20 (Some 20) ] [] ]
@@ -533,6 +554,9 @@ module ZigBackendComparisonTests =
           for n in [ "7"; "-2" ] do
               true, "okOr", [ n ]
               true, "isOk", [ n ]
+              true, "okValue", [ n ]
+              true, "errValue", [ n ]
+              true, "okOrError", [ n ]
           yield! effectfulCases ]
 
     /// The calls made: successful cases that share a function and all but the last argument run as
@@ -586,18 +610,23 @@ module ZigBackendComparisonTests =
         withDirectory (fun directory ->
             let path = Path.Combine(directory, "workspace.json")
             publishWithZigHost "create" path (declarations @ batchDeclarations)
-            // One host per backend, side by side.
+            // A host handles its requests in turn and nearly every call builds its own runner (about 15 s
+            // in ReleaseSafe), so each backend splits the calls over several read-only hosts.
             let replies backend =
-                Threading.Tasks.Task.Run(fun () ->
-                    let requests = calls |> List.map (fun (_, name, arguments) -> request backend name arguments)
-                    let code, errors, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
-                    Assert.Equal(0, code)
-                    Assert.Equal("", errors)
-                    Assert.Equal(requests.Length, replies.Length)
-                    replies)
+                calls
+                |> List.map (fun (_, name, arguments) -> request backend name arguments)
+                |> List.splitInto 8
+                |> List.map (fun requests ->
+                    Threading.Tasks.Task.Run(fun () ->
+                        let code, errors, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
+                        Assert.Equal(0, code)
+                        Assert.Equal("", errors)
+                        Assert.Equal(requests.Length, replies.Length)
+                        replies))
+            let collect (shards: Threading.Tasks.Task<_> list) = shards |> List.collect (fun shard -> shard.Result)
             let csharp, zig = replies "csharp", replies "zig"
             let disagreements =
-                [ for (succeeds, name, arguments), csharp, zig in List.zip3 calls csharp.Result zig.Result do
+                [ for (succeeds, name, arguments), csharp, zig in List.zip3 calls (collect csharp) (collect zig) do
                     let ok (reply: string) = (JsonNode.Parse reply).["ok"].GetValue<bool>()
                     if ok csharp <> succeeds || ok zig <> succeeds || comparable csharp <> comparable zig then
                         let call = String.Join(", ", arguments)

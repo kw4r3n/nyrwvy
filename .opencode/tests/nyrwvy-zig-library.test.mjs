@@ -32,12 +32,17 @@ function zig(args) {
 const harness = (narrowFirst) => `const std = @import("std");
 extern fn ny_frame(rows: ?[*]const i64, row_lens: ?[*]const usize, row_count: usize, f0: i64, f1: i64, out: ?[*]i64, cap: usize, out_len: *usize, out_row_lens: ?[*]usize, row_cap: usize, out_rows: *usize) c_int;
 extern fn ny_greet(name: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
+extern fn ny_doubled(text: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
 extern fn ny_arena_capacity() usize;
 extern fn ny_last_failure(len: *usize) [*]const u8;
 fn frame(rows: []const i64, lens: []const usize, out: []i64, out_lens: []usize, n: *usize, r: *usize) c_int {
     return ny_frame(rows.ptr, lens.ptr, lens.len, ${narrowFirst ? "7, 9" : "9, 7"}, out.ptr, out.len, n, out_lens.ptr, out_lens.len, r);
 }
 test "exports" {
+    var doubled: [16]u8 = undefined;
+    var doubled_len: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_doubled("ab", 2, &doubled, doubled.len, &doubled_len));
+    try std.testing.expectEqualStrings("abab", doubled[0..doubled_len]);
     var out: [8]i64 = undefined;
     var out_lens: [4]usize = undefined;
     var n: usize = 0;
@@ -75,7 +80,115 @@ test "exports" {
 const skip = process.platform !== "linux" ? "the harness links a Linux .so with -rpath"
   : /\.dll$/i.test(process.env.NYRWVY_HOST_EXECUTABLE ?? "") ? "emitZigLibrary exists only in the Zig session host" : false
 
-test("library mode exports listed functions through the C ABI with bounded memory", { timeout: 300000, skip }, async () => {
+const hostSource = `const std = @import("std");
+pub fn readText(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, path, "missing")) return error.FileNotFound;
+    return std.fmt.allocPrint(allocator, "read {s}", .{path});
+}
+pub fn env(_: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    return if (std.mem.eql(u8, name, "HOME")) "/home" else null;
+}
+pub fn size(_: std.mem.Allocator, data: []const u8) i64 {
+    return @intCast(data.len);
+}
+pub fn boom(_: std.mem.Allocator) !i64 {
+    return error.Boom;
+}
+`
+const hostHarness = `const std = @import("std");
+extern fn ny_readOr(path: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
+extern fn ny_readError(path: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
+extern fn ny_envOr(name: ?[*]const u8, len: usize, out: ?[*]u8, cap: usize, out_len: *usize) c_int;
+extern fn ny_sizeOf(text: ?[*]const u8, len: usize, out: *i64) c_int;
+extern fn ny_callBoom(out: *i64) c_int;
+extern fn ny_callGone(out: *i64) c_int;
+extern fn ny_last_failure(len: *usize) [*]const u8;
+fn text(call: anytype, input: []const u8, buffer: []u8) ![]const u8 {
+    var n: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 0), call(input.ptr, input.len, buffer.ptr, buffer.len, &n));
+    return buffer[0..n];
+}
+test "table-bound capabilities" {
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("read a", try text(ny_readOr, "a", &buffer));
+    try std.testing.expectEqualStrings("unused", try text(ny_readOr, "missing", &buffer));
+    try std.testing.expectEqualStrings("FileNotFound", try text(ny_readError, "missing", &buffer));
+    try std.testing.expectEqualStrings("none", try text(ny_readError, "a", &buffer));
+    try std.testing.expectEqualStrings("/home", try text(ny_envOr, "HOME", &buffer));
+    try std.testing.expectEqualStrings("none", try text(ny_envOr, "NOPE", &buffer));
+    var out: i64 = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_sizeOf("abc", 3, &out));
+    try std.testing.expectEqual(@as(i64, 3), out);
+    var failure_len: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 1), ny_callBoom(&out));
+    try std.testing.expectEqualStrings("Boom", ny_last_failure(&failure_len)[0..failure_len]);
+    try std.testing.expectEqual(@as(c_int, 1), ny_callGone(&out));
+    try std.testing.expectEqualStrings("This capability operation is unavailable on this backend.", ny_last_failure(&failure_len)[0..failure_len]);
+}
+`
+
+test("library mode binds capabilities to Zig declarations through a table", { timeout: 300000, skip }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nyrwvy-zig-table-"))
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const snapshot = join(directory, "workspace.json")
+  const fsType = { kind: "capability", name: "Fs" }
+  const fsParameter = { displayName: "fs", type: fsType }
+  const invoke = (operation, arguments_) => ({ kind: "capabilityInvoke", capability: "Fs", operation, arguments: arguments_, capabilityValue: parameter("fs") })
+  const textArgument = (name, value) => [{ parameter: name, value: parameter(value) }]
+  const literal = value => ({ kind: "stringLiteral", value })
+  const resultString = { kind: "builtinGeneric", generic: "result", arguments: [string, string] }
+  const optionString = { kind: "builtinGeneric", generic: "option", arguments: [string] }
+  const exported = (displayName, resultType, parameters, body) => publish(context, { op: "simulateCreateFunctionByName", displayName, resultType, requiredEffects: ["io"], parameters: [fsParameter, ...parameters], body })
+  try {
+    await openAuthoring("create", snapshot, context)
+    await publish(context, { op: "simulateCreateEffect", displayName: "io" })
+    await publish(context, { op: "simulateCreateCapabilityByName", displayName: "Fs", operations: [
+      { displayName: "readText", parameters: [{ displayName: "path", type: string }], resultType: resultString, effect: "io" },
+      { displayName: "env", parameters: [{ displayName: "name", type: string }], resultType: optionString, effect: "io" },
+      { displayName: "size", parameters: [{ displayName: "data", type: { kind: "primitive", primitive: "bytes" } }], resultType: int64, effect: "io" },
+      { displayName: "boom", parameters: [], resultType: int64, effect: "io" },
+      { displayName: "gone", parameters: [], resultType: int64, effect: "io" }] })
+    await exported("readOr", string, [{ displayName: "path", type: string }],
+      { kind: "resultGetOrDefault", result: invoke("readText", textArgument("path", "path")), default: literal("unused") })
+    await exported("readError", string, [{ displayName: "path", type: string }],
+      { kind: "optionGetOrDefault", option: { kind: "resultErrValue", value: invoke("readText", textArgument("path", "path")) }, default: literal("none") })
+    await exported("envOr", string, [{ displayName: "name", type: string }],
+      { kind: "optionGetOrDefault", option: invoke("env", textArgument("name", "name")), default: literal("none") })
+    await exported("sizeOf", int64, [{ displayName: "text", type: string }],
+      invoke("size", [{ parameter: "data", value: { kind: "bytesFromLatin1", value: parameter("text") } }]))
+    await exported("callBoom", int64, [], invoke("boom", []))
+    await exported("callGone", int64, [], invoke("gone", []))
+
+    const sidecar = { targets: ["csharp"], exports: ["callBoom", "callGone", "envOr", "readError", "readOr", "sizeOf"], zigTables: ["host.zig.json"] }
+    await writeFile(snapshot + ".backends.json", JSON.stringify(sidecar))
+    await writeFile(join(directory, "host.zig"), hostSource)
+    const operations = { readText: { declaration: "readText" }, env: { declaration: "env" }, size: { declaration: "size" }, boom: { declaration: "boom" }, gone: { unavailable: true } }
+    const table = (changes = {}) => JSON.stringify({ format: "nyrwvy.zig-mapping", version: 1, source: "host.zig", capabilities: { Fs: { operations } }, ...changes })
+    const refused = async (text, pattern) => {
+      await writeFile(join(directory, "host.zig.json"), text)
+      const reply = JSON.parse(await requestAuthoring({ op: "emitZigLibrary" }, context))
+      assert.equal(reply.ok, false)
+      assert.match(reply.error.message, pattern)
+    }
+    await refused(table({ capabilities: { Fs: { operations: { readText: operations.readText } } } }), /Fs\.\w+ is neither bound nor marked unavailable/)
+    await refused(table({ capabilities: { Nope: { operations: {} } } }), /no capability is named 'Nope'/)
+    await refused(table({ source: "../host.zig" }), /at or below the emitted file's directory/)
+    await refused(table({ source: "absent.zig" }), /existing Zig file/)
+    await refused(table({ capabilities: { Fs: { operations: { ...operations, boom: { declaration: "a.b" } } } } }), /declaration must be an identifier/)
+
+    await writeFile(join(directory, "host.zig.json"), table())
+    const emitted = await request(context, { op: "emitZigLibrary", output: "library.zig" })
+    const library = join(directory, "liblibrary.so")
+    zig(["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", emitted.path, `-femit-bin=${library}`])
+    await writeFile(join(directory, "harness.zig"), hostHarness)
+    zig(["test", join(directory, "harness.zig"), library, "-lc", "-rpath", directory])
+  } finally {
+    await closeAuthoring(context).catch(() => undefined)
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("library mode exports listed functions through the C ABI with bounded memory",{ timeout: 300000, skip }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "nyrwvy-zig-library-"))
   const context = { sessionID: randomUUID(), worktree: process.cwd() }
   const snapshot = join(directory, "workspace.json")
@@ -90,13 +203,24 @@ test("library mode exports listed functions through the C ABI with bounded memor
     await publish(context, { op: "simulateCreateFunctionByName", displayName: "greet", resultType: string, requiredEffects: [],
       parameters: [{ displayName: "name", type: string }],
       body: { kind: "stringConcat", left: { kind: "stringLiteral", value: "hi " }, right: parameter("name") } })
+    // A program capability implementation works without a runner's fakes.
+    await publish(context, { op: "simulateCreateEffect", displayName: "io" })
+    await publish(context, { op: "simulateCreateCapabilityByName", displayName: "Text", operations: [
+      { displayName: "double", parameters: [{ displayName: "text", type: string }], resultType: string, effect: "io" }] })
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "twice", resultType: string, requiredEffects: [],
+      parameters: [{ displayName: "text", type: string }],
+      body: { kind: "stringConcat", left: parameter("text"), right: parameter("text") } })
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "doubled", resultType: string, requiredEffects: ["io"],
+      parameters: [{ displayName: "text", type: string }],
+      body: { kind: "capabilityInvoke", capability: "Text", operation: "double", arguments: [{ parameter: "text", value: parameter("text") }],
+        capabilityValue: { kind: "capabilityConstruct", capability: "Text", implementations: [{ operation: "double", function: "twice" }] } } })
 
     const missing = JSON.parse(await requestAuthoring({ op: "emitZigLibrary" }, context))
     assert.equal(missing.ok, false)
     assert.match(missing.error.message, /exports/)
-    await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], exports: ["frame", "greet"] }))
+    await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], exports: ["doubled", "frame", "greet"] }))
     const emitted = await request(context, { op: "emitZigLibrary", output: "frame.zig" })
-    assert.deepEqual(emitted.exports.map(item => item.symbol), ["ny_frame", "ny_greet"])
+    assert.deepEqual(emitted.exports.map(item => item.symbol), ["ny_doubled", "ny_frame", "ny_greet"])
     const source = await readFile(emitted.path, "utf8")
     assert.ok(source.startsWith("// Generated by the Nyrwvy Zig backend."))
     assert.ok(!source.includes("pub fn main"))

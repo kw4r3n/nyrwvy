@@ -39,6 +39,37 @@ export fn ny_arena_capacity() usize {
     return ny_arena.queryCapacity();
 }
 
+// Host declarations (`<graph>.zig.json`) take the arena and plain Zig values and know no runtime type.
+// Their results are copied to counted storage; the arena is reset when the export returns.
+fn nyHostValue(comptime T: type, value: anytype) NyError!T {
+    if (T == NyUnit) return .{};
+    if (T == NyBytes) return .{ .data = nyListMove(u8, value) };
+    if (T == []const u8) {
+        if (!std.unicode.utf8ValidateSlice(value)) return nyFail("HostFailureException", "A host declaration returned text that is not UTF-8.", false);
+        return nyListMove(u8, value);
+    }
+    switch (@typeInfo(T)) {
+        .optional => |info| return if (value) |item| try nyHostValue(info.child, item) else null,
+        .pointer => |info| {
+            const out = nyAlloc(info.child, value.len);
+            for (out, value) |*slot, item| slot.* = try nyHostValue(info.child, item);
+            return out;
+        },
+        else => return value,
+    }
+}
+
+// An error is `Err` with its name for a `Result<_, String>` operation, otherwise a host failure.
+fn nyHost(comptime R: type, outcome: anytype) NyError!R {
+    if (@typeInfo(R) == .@"union") {
+        const value = outcome catch |failure| return .{ .err = nyListMove(u8, @errorName(failure)) };
+        return .{ .ok = try nyHostValue(@FieldType(R, "ok"), value) };
+    }
+    if (@typeInfo(@TypeOf(outcome)) != .error_union) return nyHostValue(R, outcome);
+    const value = outcome catch |failure| return nyFail("HostFailureException", @errorName(failure), false);
+    return nyHostValue(R, value);
+}
+
 fn nySlice(comptime T: type, ptr: ?[*]const T, len: usize) []const T {
     return if (len == 0) &.{} else nyListMove(T, ptr.?[0..len]);
 }

@@ -610,6 +610,7 @@ var functions: std.StringHashMap(Function) = undefined;
 var capabilities: []Capability = undefined;
 var capability_instances: std.StringHashMap(void) = undefined;
 var capability_order: List([]const u8) = .empty;
+var implementations: []Implementation = &.{};
 var may_fail: std.StringHashMap(void) = undefined;
 var problems: List([]const u8) = .empty;
 var type_instances: std.StringHashMap(void) = undefined;
@@ -809,6 +810,9 @@ const Kind = enum {
     resultIsOk,
     optionGetOrDefault,
     resultGetOrDefault,
+    resultOkValue,
+    resultErrValue,
+    optionOkOr,
     listEmpty,
     listConstruct,
     listRange,
@@ -905,6 +909,7 @@ const Kind = enum {
     bytesSlice,
     bytesFromLatin1,
     bytesToLatin1,
+    capabilityConstruct,
     capabilityInvoke,
     exceptionCatch,
     exceptionRethrow,
@@ -1212,6 +1217,9 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .resultIsOk => cat(&.{ b.f("valueId"), " == .ok" }),
         .optionGetOrDefault => cat(&.{ "nyShare(", b.f("optionValueId"), " orelse ", b.f("defaultValueId"), ")" }),
         .resultGetOrDefault => cat(&.{ "nyShare(switch (", b.f("resultValueId"), ") { .ok => |item| item, .err => ", b.f("defaultValueId"), " })" }),
+        .resultOkValue => cat(&.{ "nyShare(@as(", zig(b.result), ", switch (", b.f("valueId"), ") { .ok => |item| item, .err => null }))" }),
+        .resultErrValue => cat(&.{ "nyShare(@as(", zig(b.result), ", switch (", b.f("valueId"), ") { .ok => null, .err => |item| item }))" }),
+        .optionOkOr => cat(&.{ "nyShare(@as(", zig(b.result), ", if (", b.f("optionValueId"), ") |item| .{ .ok = item } else .{ .err = ", b.f("errorValueId"), " }))" }),
         .listEmpty => "&.{}",
         .listConstruct => blk: {
             var items: List([]const u8) = .empty;
@@ -1379,6 +1387,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .bytesSlice => cat(&.{ ".{ .data = nyListSlice(u8, ", b.f("bytesId"), ".data, ", b.f("startId"), ", ", b.f("endId"), ") }" }),
         .bytesFromLatin1 => unary(b, "nyBytesFromLatin1"),
         .bytesToLatin1 => unary(b, "nyBytesToLatin1"),
+        .capabilityConstruct => cat(&.{ identifier("C_", str(b.o, "capabilityId")), "{ .fake = 0, .site = 0, .implementation = ", std.fmt.allocPrint(a, "{d}", .{implementationIndex(str(b.o, "originNodeId"))}) catch oom(), " }" }),
         .capabilityInvoke => blk: {
             const operation = findOperation(str(b.o, "operationId"));
             var rendered: List([]const u8) = .empty;
@@ -2105,8 +2114,77 @@ fn emit(ordered: []const Function) ?[]const u8 {
     return builder.items;
 }
 
-/// `ZigBackend.fakeCapabilities`: scripted fake capabilities for a runPure runner.
-fn fakeCapabilities() ?[]const u8 {
+/// A `capabilityConstruct`. A capability value selects one by its position, counted from 1 in origin
+/// order; 0 is a value the runner scripted.
+const Implementation = struct { origin: []const u8, capability: []const u8, targets: []const json.Value, hosted: bool = false };
+
+fn implementationKey(item: Implementation) []const u8 {
+    return item.origin;
+}
+
+fn collectImplementations(ordered: []const Function) void {
+    var found: List(Implementation) = .empty;
+    for (ordered) |fn_| for (fn_.blocks) |b| for (b.instructions) |instruction| {
+        if (eql(str(instruction.o, "kind"), "capabilityConstruct")) push(Implementation, &found, .{ .origin = str(instruction.o, "originNodeId"), .capability = str(instruction.o, "capabilityId"), .targets = arr(instruction.o, "implementations") });
+    };
+    byId(Implementation, found.items, implementationKey);
+    // Table-bound capabilities follow, one selector each.
+    for (host_bindings) |binding| {
+        for (found.items) |item| {
+            if (item.hosted and eql(item.capability, binding.capability)) break;
+        } else push(Implementation, &found, .{ .origin = "", .capability = binding.capability, .targets = &.{}, .hosted = true });
+    }
+    implementations = found.items;
+}
+
+fn hostSelector(capability_id: []const u8) ?usize {
+    for (implementations, 1..) |item, index| if (item.hosted and eql(item.capability, capability_id)) return index;
+    return null;
+}
+
+/// The types a host declaration can name without the runtime's: scalars, String, and Option or List of them.
+/// An argument cannot convert a nested Bytes (a direct one passes `.data`) or Unit, which it could not name.
+fn hostValue(t: *const Type, argument: bool) bool {
+    return switch (t.*) {
+        .primitive => |kind| !argument or !(eql(kind, "primitiveBytes") or eql(kind, "primitiveUnit")),
+        .builtin => |builtin| (eql(builtin.kind, "option") or eql(builtin.kind, "list")) and hostValue(builtin.args[0], argument),
+        else => false,
+    };
+}
+
+/// The switch arm's body calling an operation's host declaration.
+fn hostCall(operation: Operation, arguments: []const []const u8) []const u8 {
+    const binding = for (host_bindings) |item| {
+        if (eql(item.operation, operation.id)) break item;
+    } else std.debug.panic("Capability operation {s} has no binding.", .{operation.id});
+    const declaration = binding.declaration orelse return cat(&.{ "{ _ = .{ ", join(", ", arguments), " }; return nyFail(\"NotSupportedException\", \"This capability operation is unavailable on this backend.\", false); }," });
+    const r = operation.result;
+    const is_result = r.* == .builtin and eql(r.builtin.kind, "result");
+    if (!(if (is_result) hostValue(r.builtin.args[0], false) and isString(r.builtin.args[1]) else hostValue(r, false))) problem(cat(&.{ "host binding result type ", typeDisplay(r) }));
+    var passed: List([]const u8) = .empty;
+    push([]const u8, &passed, "nyAllocator()");
+    for (operation.parameters, arguments) |parameter, argument| {
+        const t = parameter.type;
+        const is_bytes = t.* == .primitive and eql(t.primitive, "primitiveBytes");
+        if (!is_bytes and !hostValue(t, true)) problem(cat(&.{ "host binding parameter type ", typeDisplay(t) }));
+        push([]const u8, &passed, if (is_bytes) cat(&.{ argument, ".data" }) else argument);
+    }
+    return cat(&.{ "return nyHost(", zigType(r, false).?, ", @import(\"", binding.source, "\").", declaration, "(", join(", ", passed.items), "))," });
+}
+
+fn implementationIndex(origin: []const u8) usize {
+    for (implementations, 1..) |item, index| if (eql(item.origin, origin)) return index;
+    std.debug.panic("Unknown capability implementation {s}.", .{origin});
+}
+
+fn implemented(capability_id: []const u8) bool {
+    for (implementations) |item| if (eql(item.capability, capability_id)) return true;
+    return false;
+}
+
+/// The capability value types: one method per operation, dispatching to a program implementation or,
+/// in a runner, to the scripted fake. A library has no fakes, so only implemented capabilities appear.
+fn capabilityTypes(scripted: bool) ?[]const u8 {
     var seen = std.StringHashMap(void).init(a);
     var slots: usize = 16;
     var entries = functions.valueIterator();
@@ -2118,7 +2196,7 @@ fn fakeCapabilities() ?[]const u8 {
         slots = @max(slots, count);
     }
     for (capabilities) |capability| {
-        if (!capability_instances.contains(capability.id)) continue;
+        if (!capability_instances.contains(capability.id) or !(scripted or implemented(capability.id))) continue;
         for (capability.operations) |operation| {
             var types: List(*const Type) = .empty;
             push(*const Type, &types, operation.result);
@@ -2135,10 +2213,11 @@ fn fakeCapabilities() ?[]const u8 {
     if (problems.items.len > 0) return null;
     var out: List(u8) = .empty;
     for (capabilities) |capability| {
-        if (!capability_instances.contains(capability.id)) continue;
+        if (!capability_instances.contains(capability.id) or !(scripted or implemented(capability.id))) continue;
         line(&out, cat(&.{ "const ", identifier("C_", capability.id), " = struct {" }));
         line(&out, "    fake: usize,");
         line(&out, "    site: usize,");
+        if (implemented(capability.id)) line(&out, "    implementation: usize = 0,");
         for (capability.operations, 0..) |operation, index| {
             const result = zigType(operation.result, false).?;
             var parameters: List([]const u8) = .empty;
@@ -2153,14 +2232,37 @@ fn fakeCapabilities() ?[]const u8 {
             for (keyed_fields) |parameter| push([]const u8, &keyed, identifier("a_", parameter.id));
             const scripts = identifier("ny_scripts_", operation.id);
             line(&out, cat(&.{ "    pub fn ", operationName(operation.id), "(self: @This()", cat(parameters.items), ") NyError!", result, " {" }));
+            if (implemented(capability.id)) {
+                line(&out, "        switch (self.implementation) {");
+                for (implementations, 1..) |item, selector| {
+                    if (!eql(item.capability, capability.id)) continue;
+                    if (item.hosted) {
+                        line(&out, cat(&.{ "            ", std.fmt.allocPrint(a, "{d}", .{selector}) catch oom(), " => ", hostCall(operation, recorded.items) }));
+                        continue;
+                    }
+                    const target = for (item.targets) |entry| {
+                        if (eql(str(entry.object, "operationId"), operation.id)) break str(entry.object, "functionId");
+                    } else std.debug.panic("Capability implementation {s} omits operation {s}.", .{ item.origin, operation.id });
+                    // Operation arguments are borrowed for the call; a function's parameters are owned.
+                    var owned: List([]const u8) = .empty;
+                    for (recorded.items) |argument| push([]const u8, &owned, cat(&.{ "nyShare(", argument, ")" }));
+                    line(&out, cat(&.{ "            ", std.fmt.allocPrint(a, "{d}", .{selector}) catch oom(), " => return ", instanceName(target, &.{}), "(", join(", ", owned.items), "),"}));
+                }
+                line(&out, if (scripted) "            else => {}," else "            else => unreachable,");
+                line(&out, "        }");
+            }
+            if (!scripted) {
+                line(&out, "    }");
+                continue;
+            }
             line(&out, cat(&.{ "        nyRecordCall(self.site + ", std.fmt.allocPrint(a, "{d}", .{index}) catch oom(), ", .{ ", join(", ", recorded.items), " });" }));
             line(&out, cat(&.{ "        return nyRespond(", result, ", &", scripts, "[self.fake], .{ ", join(", ", keyed.items), " });" }));
             line(&out, "    }");
         }
         line(&out, "};");
-        for (capability.operations) |operation| {
+        if (scripted) for (capability.operations) |operation| {
             line(&out, cat(&.{ "var ", identifier("ny_scripts_", operation.id), ": [", std.fmt.allocPrint(a, "{d}", .{slots}) catch oom(), "]NyScript(", zigType(operation.result, false).?, ") = undefined;" }));
-        }
+        };
         line(&out, "");
     }
     return out.items;
@@ -2289,6 +2391,9 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
 /// A function the library exports, and its C symbol.
 pub const Export = struct { id: []const u8, symbol: []const u8 };
 var library_exports: ?[]const Export = null;
+/// A capability operation bound by a `<graph>.zig.json` table; no declaration means unavailable.
+pub const HostBinding = struct { capability: []const u8, operation: []const u8, source: []const u8, declaration: ?[]const u8 };
+var host_bindings: []const HostBinding = &.{};
 
 fn abiScalar(t: *const Type) ?[]const u8 {
     if (t.* != .primitive) return null;
@@ -2326,7 +2431,10 @@ fn libraryExports(exports: []const Export) []const u8 {
     var out: List(u8) = .empty;
     out.appendSlice(a, library_support) catch oom();
     // Exports take no capability, so functions that do are never analysed; Zig still resolves their names.
-    for (capabilities) |capability| lineCat(&out, &.{ "const ", identifier("C_", capability.id), " = struct {};" });
+    out.appendSlice(a, capabilityTypes(false) orelse return "") catch oom();
+    for (capabilities) |capability| {
+        if (!capability_instances.contains(capability.id) or !implemented(capability.id)) lineCat(&out, &.{ "const ", identifier("C_", capability.id), " = struct {};" });
+    }
     line(&out, "");
     for (exports) |item| {
         const fn_ = functions.get(item.id) orelse {
@@ -2368,6 +2476,9 @@ fn libraryExports(exports: []const Export) []const u8 {
                 }
                 push([]const u8, &doc, cat(&.{ p, " fields in this order: ", join(", ", names.items) }));
                 push([]const u8, &arguments, cat(&.{ "nyBox(", typeName(t.named.id, &.{}), ", .{ ", join(", ", inits.items), " })" }));
+            } else if (t.* == .capability and hostSelector(t.capability) != null) {
+                // A table-bound capability has no state, so the export binds it itself.
+                push([]const u8, &arguments, cat(&.{ identifier("C_", t.capability), "{ .fake = 0, .site = 0, .implementation = ", std.fmt.allocPrint(a, "{d}", .{hostSelector(t.capability).?}) catch oom(), " }" }));
             } else problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
         }
         const r = fn_.result;
@@ -2463,13 +2574,14 @@ fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
     type_instances = .init(a);
     function_instances = .init(a);
     computeMayFail();
+    collectImplementations(ordered);
     const source = emit(ordered) orelse return null;
     if (library_exports) |exports| {
         const tail = libraryExports(exports);
         if (problems.items.len > 0) return null;
         return std.mem.concat(a, u8, &.{ source, tail }) catch oom();
     }
-    const fakes = fakeCapabilities() orelse return null;
+    const fakes = capabilityTypes(true) orelse return null;
     return std.mem.concat(a, u8, &.{ source, fakes, runnerMain(ordered, entry) }) catch oom();
 }
 
@@ -2484,9 +2596,13 @@ pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8
 /// Library mode (docs/decisions/zig-backend-memory-ownership.md, first milestone): the program without
 /// the runner `main`, plus one C export per entry. runPure never takes this path, so the runner output
 /// the emitter check compares is unchanged.
-pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export) !Runner {
+pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export, bindings: []const HostBinding) !Runner {
     library_exports = exports;
-    defer library_exports = null;
+    host_bindings = bindings;
+    defer {
+        library_exports = null;
+        host_bindings = &.{};
+    }
     return emitRequest(allocator, text, null);
 }
 
