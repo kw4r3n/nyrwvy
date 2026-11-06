@@ -17,7 +17,7 @@ Library mode cannot hold a handle: values live in an arena that is reset when an
 | A Zig host duplicates Nyr logic over a value it cannot flatten, and the duplicate caused a defect or real change pain (Rhifill's native pane tree is the candidate) | [Counted library](#slice-1-counted-library), then [value handles](#slice-3-value-handles) |
 | A second kind B library ([plan §10](../plans/multi-backend-and-bindings.md#10-backend-specific-libraries)) has handles | As the first row |
 
-The ABI gap that has actually been hit is smaller and unrelated to state: `Option` and record results (see [Result types](#result-types-come-first)).
+The ABI gap that had actually been hit was smaller and unrelated to state: `Option` and record results. It is closed (see [Result types](#result-types-come-first)).
 
 ## Demand
 
@@ -169,13 +169,10 @@ void ny_release(ny_value *value);     /* takes the lock; NULL does nothing */
 
 ### Result types come first
 
-`Pty.read` returns `Option<Bytes>` and `Ptys.open` a `Result`, and an export result can be neither today, nor can it take or return Bytes (`abiListItem` covers Int64 and Float64). Slice 2 needs these or Nyr wrappers around them:
+`Option` and Product export results landed in [kw4r3n/nyrwvy#637](https://github.com/kw4r3n/nyrwvy/pull/637), which answers `configLine` and `parseCellRatio` (`docs/native-host-probe.md:110`). `Pty.read` returns `Option<Bytes>` and `Ptys.open` a `Result`, so slice 2 still needs these or Nyr wrappers around them:
 
 - `Bytes` as `ptr, len` and `out, out_cap, out_len`, like a String without the UTF-8 check;
-- `Option<T>` as the same out parameters plus `bool *out_some`;
 - `Result<T, String>` as status 4.
-
-These answer `parseCellRatio` (`docs/native-host-probe.md:110`), need no state and touch one function. A record of strings (`configLine`) is the out-struct work the plan lists after handles; the demand above says the order could flip.
 
 ## What C# needs for parity
 
