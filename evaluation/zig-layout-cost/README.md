@@ -106,3 +106,34 @@ versus optimized compiler comparison requires separate checkouts of the parent
 emitter and this change; merely running both graph variants with the current host
 does not recreate a no-constructor-reuse baseline. The rejected later unchanged-field
 optimization is not part of this directory or the accepted emitter.
+
+## Kind A: a hand-written `layoutFrame` through a mapping table (2026-11-06)
+
+Question: is a `"functions"` table entry ([plan §10](../../docs/plans/multi-backend-and-bindings.md)) worth it for Rhifill's `layoutFrame`? Reproduce with `kind-a/` (`build.mjs` builds two libraries from a scratch copy of `app/nyr`, `check_bench.py` checks and times them; raw output in `kind-a/results.txt`). Base `ffaec3b4`, Zig 0.17.0, ReleaseSafe, host built from the same commit. The Rhifill repository was only read. The retained copy in `workspace.json.dependency.json` was enough; the sidecar's stale `host.json` path was not needed.
+
+**Finding 1: `layoutFrame` itself cannot be bound.** Its second parameter is the `CellGrid` Product, and a host declaration takes no Product argument (`hostValue(..., argument = true)` refuses it). `emitZigLibrary` rejects the table with `The Zig library mode does not yet support: host binding parameter type Named (StableId "01a17734-…", [])`. The probe therefore adds a scratch-only wrapper `layoutFrameFlat(rows, narrow, wide) = layoutFrame(rows, CellGrid{narrow, wide})` and binds that. A real use would need the same wrapper in the Rhifill graph (and a changed export), so this is a cost of kind A, not of the probe.
+
+**Declaration** (`kind-a/layoutframe.zig`, 95 lines, returns `error{OutOfMemory}![]const []const i64`): written from the Nyr graph (segment widths between code-3 separators, column-wise max over a block's rows that have the first row's segment count, alignment of separators, running positions for other rows, wrapping adds). Nothing in the compiler or the Rhifill graph was changed.
+
+**Agreement.** All 8 saved `layoutFrame-*.json` cases give the expected positions on the Nyr body (both `ny_layoutFrame` and the wrapper) and on the declaration. A further 18,029 comparisons are identical on all three: seeded random frames (empty rows, separator densities 0 to 100 %, unequal segment counts, odd codes, grids including `(0,0)`, `(-1,4)` and `2^62` for wrap-around) and the eight timing frames. This is parity with the Nyr body, not an independent oracle. `runPure` was not used (it always runs the Nyr body).
+
+**Timing.** Through the C export with ctypes: frame buffers built outside the timed region, 100 warm-up calls, 150 to 3,000 individual calls per case, a fresh process per run, median over 5 processes of each process's p50 and p99, in µs. Codes: `narrow` is all 1; `wide` repeats `1,2,0,1,1,2,0,1`; `frame` is that wide text with one five-row table block in every twenty rows; `table` repeats `1,2,0,1,3,1,1,1` in every row. Grid is 2:3. ctypes adds roughly 1 µs per call. A is `ny_layoutFrame` (Nyr body), B the wrapper (Nyr body, showing the wrapper costs nothing), C the declaration.
+
+| case | A p50 / p99 | B p50 / p99 | C p50 / p99 | A / C (p50) |
+| --- | ---: | ---: | ---: | ---: |
+| 80×24 narrow | 11.1 / 15.1 | 11.2 / 13.4 | 6.3 / 8.7 | 1.8× |
+| 80×24 wide | 12.3 / 15.8 | 12.4 / 15.8 | 6.7 / 9.0 | 1.8× |
+| 80×24 frame | 23.3 / 26.1 | 23.4 / 26.2 | 7.8 / 9.8 | 3.0× |
+| 80×24 table | 62.9 / 88.1 | 63.0 / 67.2 | 10.3 / 13.0 | 6.1× |
+| 300×100 narrow | 121.2 / 158.6 | 121.8 / 160.2 | 58.8 / 117.7 | 2.1× |
+| 300×100 wide | 152.8 / 189.9 | 153.9 / 188.6 | 62.8 / 122.8 | 2.4× |
+| 300×100 frame | 309.2 / 368.1 | 312.5 / 358.5 | 76.7 / 127.8 | 4.0× |
+| 300×100 table | 641.3 / 693.9 | 641.9 / 686.5 | 100.3 / 146.2 | 6.4× |
+
+The narrow rows agree with the runner numbers above (11 µs, 131 µs). C keeps a floor of about 6 µs and 59 µs: it still copies the input rows into counted values, the declaration's result into counted storage, and that into the caller's buffers. How the floor splits was not measured.
+
+**Frame budget.** 60 Hz is 16.7 ms (Rhifill's own budget is 6.25 ms at 160 Hz). The native pane (`spikes/native-pane/src/main.zig`, `layout` at line 259, called at line 992) lays out one whole pane per drawn frame, only when `host_frame_dirty` reports changed cells or the geometry key changed; it does not lay out per row, and there are up to eight panes. The worst measured Nyr-body case, a 300×100 pane made only of table rows, takes 0.64 ms, 3.8 % of 16.7 ms. The `frame` mix takes 0.31 ms (1.9 %) and 80×24 takes 12 to 23 µs (0.1 %). Kind A saves 0.23 ms in the 300×100 `frame` case (1.4 % of a 60 Hz frame) and 15 µs at 80×24. Eight dirty 300×100 `frame` panes in one frame would be about 2.5 ms on the Nyr body and 0.6 ms on the declaration; that sum is arithmetic from one pane's number, not a measurement.
+
+**Verdict: not a first candidate.** Kind A works on this function and is large in relative terms (2× to 6×), but the absolute saving is at most about 0.5 ms for one large table-heavy pane, under 3 % of a 60 Hz frame. The price is a second 95-line implementation kept in step with the graph by hand, a wrapper function and export change in the Rhifill graph, and a table only the Zig backend honors. Rule of thumb for a first candidate: a pure function whose Nyr-body time in its real workload exceeds about 10 % of the frame (about 1.7 ms at 60 Hz) after graph-level fixes (the cached-width change already took the table path from about 2.4 ms to 0.64 ms), whose arguments are already lists and scalars, and whose cost is not dominated by copying at the boundary. Revisit `layoutFrame` if several large table-heavy panes are dirty in the same frame.
+
+Not checked: the C# P/Invoke path, p99 under CPU load or with other panes drawing, one-hour RSS, arena capacity growth, ReleaseFast, other machines, and how the floor splits between input copy, declaration and output copy.
