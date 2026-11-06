@@ -364,6 +364,17 @@ module ZigBackendComparisonTests =
           for name, result, body in listCases do fn name [ "xs", ints ] result body
           fn "okOr" [ "n", int64Type ] int64Type $"""{{"kind":"resultGetOrDefault","result":{checkedOf},"default":{lit -1}}}"""
           fn "isOk" [ "n", int64Type ] boolType $"""{{"kind":"resultIsOk","value":{checkedOf}}}"""
+          fn "bumpBy" [ "by", int64Type; "n", int64Type ] int64Type $"""{{"kind":"int64WrappingAdd","left":{p "n"},"right":{p "by"}}}"""
+          fn "shout" [ "text", stringType ] stringType $"""{{"kind":"stringConcat","left":{p "text"},"right":{{"kind":"stringLiteral","value":"!"}}}}"""
+          fn "keepSmall" [ "n", int64Type ] optionInt $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{lit 5}}},"whenTrue":{{"kind":"optionSome","value":{p "n"}}},"whenFalse":{{"kind":"optionNone","itemType":{int64Type}}}}}"""
+          fn "okIfSmall" [ "n", int64Type ] (resultOf int64Type) $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{lit 5}}},"whenTrue":{{"kind":"resultOk","errorType":{stringType},"value":{p "n"}}},"whenFalse":{{"kind":"resultErr","okType":{int64Type},"error":{{"kind":"stringLiteral","value":"large"}}}}}}"""
+          let bumpOne = $"""[{{"parameter":"by","value":{lit 1}}}]"""
+          let okOption = $"""{{"kind":"resultOkValue","value":{checkedOf}}}"""
+          fn "optionMapped" [ "n", int64Type ] optionInt $"""{{"kind":"optionMap","option":{okOption},"function":"bumpBy","context":{bumpOne}}}"""
+          fn "optionBound" [ "n", int64Type ] optionInt $"""{{"kind":"optionAndThen","option":{okOption},"function":"keepSmall"}}"""
+          fn "resultMapped" [ "n", int64Type ] (resultOf int64Type) $"""{{"kind":"resultMap","result":{checkedOf},"function":"bumpBy","context":{bumpOne}}}"""
+          fn "errorMapped" [ "n", int64Type ] (resultOf int64Type) $"""{{"kind":"resultMapErr","result":{checkedOf},"function":"shout"}}"""
+          fn "resultBound" [ "n", int64Type ] (resultOf int64Type) $"""{{"kind":"resultAndThen","result":{checkedOf},"function":"okIfSmall"}}"""
           fn "okValue" [ "n", int64Type ] optionInt $"""{{"kind":"resultOkValue","value":{checkedOf}}}"""
           fn "errValue" [ "n", int64Type ] (generic "option" [ stringType ]) $"""{{"kind":"resultErrValue","value":{checkedOf}}}"""
           fn "okOrError" [ "n", int64Type ] (resultOf int64Type) $"""{{"kind":"optionOkOr","option":{{"kind":"resultOkValue","value":{checkedOf}}},"error":{{"kind":"stringLiteral","value":"none"}}}}"""
@@ -557,6 +568,7 @@ module ZigBackendComparisonTests =
               true, "okValue", [ n ]
               true, "errValue", [ n ]
               true, "okOrError", [ n ]
+              for name in [ "optionMapped"; "optionBound"; "resultMapped"; "errorMapped"; "resultBound" ] do true, name, [ n ]
           yield! effectfulCases ]
 
     /// The calls made: successful cases that share a function and all but the last argument run as

@@ -336,11 +336,21 @@ module ZigHostRunPureParityTests =
     let ``native Zig host preserves emitter limits and reachable fallback includes fake signature types`` () =
         withDirectory (fun directory ->
             let path, _ = fixture directory
-            publishWithZigHost "open" path [ """{"id":"same","op":"simulateCreateFunctionByName","displayName":"bitsSame","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"bits32"}}],"resultType":{"kind":"primitive","primitive":"bits32"},"requiredEffects":[],"body":{"kind":"parameter","name":"value"}}"""
-                                             """{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"bits32"}}],"resultType":{"kind":"primitive","primitive":"bits32"},"requiredEffects":[],"body":{"kind":"optionGetOrDefault","option":{"kind":"optionMap","option":{"kind":"optionSome","value":{"kind":"parameter","name":"value"}},"function":"bitsSame"},"default":{"kind":"parameter","name":"value"}}}""" ]
+            let declared name kind = $"""{{"displayName":"{name}","type":{kind}}}"""
+            let pairType = """{"kind":"capability","name":"Pair"}"""
+            let bits = """{"kind":"primitive","primitive":"bits32"}"""
+            let operation name parameters result = $"""{{"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"effect":"held"}}"""
+            let construct = """{"kind":"capabilityConstruct","capability":"Holder","implementations":[{"operation":"use","function":"holderUse"}]}"""
+            publishWithZigHost "open" path
+                [ """{"id":"held","op":"simulateCreateEffect","displayName":"held"}"""
+                  $"""{{"id":"pair","op":"simulateCreateCapabilityByName","displayName":"Pair","operations":[{operation "get" "" bits}]}}"""
+                  $"""{{"id":"holder","op":"simulateCreateCapabilityByName","displayName":"Holder","operations":[{operation "use" (declared "pair" pairType) bits}]}}"""
+                  $"""{{"id":"use","op":"simulateCreateFunctionByName","displayName":"holderUse","parameters":[{declared "pair" pairType}],"resultType":{bits},"requiredEffects":[],"body":{{"kind":"bits32FromInt64","value":{{"kind":"int64Literal","value":"1"}}}}}}"""
+                  $"""{{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{declared "value" bits}],"resultType":{bits},"requiredEffects":[],"body":{{"kind":"bind","value":{construct},"body":{{"kind":"parameter","name":"value"}}}}}}""" ]
             let requests = [ runName "bits" [ "4294967295" ] None; runName "constant" [] (Some "7"); runName "query" [ "\"a\""; responses [ returns (found "ok") ] ] (Some(found "ok")) ]
             // The F# host recorded Bits32 as the unsupported construct; Bits32 is emitted now, so the
-            // body uses an instruction the Zig emitter still lacks and only the code is compared. Its
+            // body holds a capability whose operation takes a capability, which the Zig emitter still
+            // rejects, and only the code is compared. Its
             // extra nodes take seeded IDs, so the snapshot ID differs from the recorded one and nothing else.
             let replies, zig = pairExcept [ 0; 1; 2 ] path requests
             Assert.Equal("RunBackendUnsupported", code replies[0])
