@@ -92,3 +92,16 @@ pub fn bindings(r: *q.Request, tables: []const []const u8, output: ?[]const u8) 
     }
     return out.items;
 }
+
+/// The field names of every visible Product, for declarations that return one.
+pub fn products(r: *q.Request) ![]const emitter.HostProduct {
+    var out: std.ArrayList(emitter.HostProduct) = .empty;
+    for (try q.typedVisible(r, "type")) |item| {
+        var fields: std.ArrayList(emitter.HostField) = .empty;
+        for (item.fields()) |field| {
+            if (!isIdentifier(q.nameOf(field))) break;
+            try fields.append(r.a, .{ .id = q.idOf(field), .name = q.nameOf(field) });
+        } else try out.append(r.a, .{ .id = q.idOf(item), .fields = fields.items });
+    }
+    return out.items;
+}

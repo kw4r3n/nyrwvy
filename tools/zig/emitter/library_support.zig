@@ -51,6 +51,7 @@ fn nyHostValue(comptime T: type, value: anytype) NyError!T {
     switch (@typeInfo(T)) {
         .optional => |info| return if (value) |item| try nyHostValue(info.child, item) else null,
         .pointer => |info| {
+            if (info.size == .one) return nyHostProduct(info.child, value);
             const out = nyAlloc(info.child, value.len);
             for (out, value) |*slot, item| slot.* = try nyHostValue(info.child, item);
             return out;
