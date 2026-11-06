@@ -238,6 +238,111 @@ test("library mode binds capabilities to Zig declarations through a table", { ti
   }
 })
 
+test("library mode returns Options and Products through out parameters", { timeout: 300000, skip }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nyrwvy-zig-library-"))
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const snapshot = join(directory, "workspace.json")
+  const named = name => ({ kind: "named", name })
+  try {
+    await openAuthoring("create", snapshot, context)
+    await publish(context, { op: "simulateCreateTypeByName", displayName: "Entry", typeKind: { kind: "product", fields: [
+      { displayName: "key", type: string }, { displayName: "size", type: int64 }] } })
+    const entry = { kind: "productConstruct", type: "Entry", fields: [
+      { field: "key", value: parameter("text") }, { field: "size", value: { kind: "stringLength", value: parameter("text") } }] }
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "entry", resultType: named("Entry"), requiredEffects: [],
+      parameters: [{ displayName: "text", type: string }], body: entry })
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "nonEmpty", requiredEffects: [],
+      resultType: { kind: "builtinGeneric", generic: "option", arguments: [named("Entry")] },
+      parameters: [{ displayName: "text", type: string }],
+      body: { kind: "conditional", condition: { kind: "stringIsEmpty", value: parameter("text") },
+        whenTrue: { kind: "optionNone", itemType: named("Entry") }, whenFalse: { kind: "optionSome", value: entry } } })
+    await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], exports: ["entry", "nonEmpty"] }))
+    const emitted = await request(context, { op: "emitZigLibrary", output: "entry.zig" })
+    const library = join(directory, "libentry.so")
+    zig(["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", emitted.path, `-femit-bin=${library}`])
+    const types = (await request(context, { op: "declarations" })).types
+    const fields = types.find(type => type.displayName === "Entry").typeKind.fields
+    const keyFirst = fields.map(field => [field.id, field.displayName]).sort(([x], [y]) => x < y ? -1 : 1)[0][1] === "key"
+    const out = keyFirst ? ["key: ?[*]u8, key_cap: usize, key_len: *usize", "size: *i64"] : ["size: *i64", "key: ?[*]u8, key_cap: usize, key_len: *usize"]
+    const pass = keyFirst ? "key, key_cap, key_len, size" : "size, key, key_cap, key_len"
+    await writeFile(join(directory, "harness.zig"), `const std = @import("std");
+extern fn ny_entry(text: ?[*]const u8, len: usize, ${out.join(", ")}) c_int;
+extern fn ny_nonEmpty(text: ?[*]const u8, len: usize, some: *bool, ${out.join(", ")}) c_int;
+test "results" {
+    var buffer: [4]u8 = undefined;
+    const key: ?[*]u8 = &buffer;
+    var key_len: usize = 0;
+    var size: i64 = 0;
+    const key_cap: usize = buffer.len;
+    const key_ptr = &key_len;
+    const size_ptr = &size;
+    try std.testing.expectEqual(@as(c_int, 0), call(false, "abc", key, key_cap, key_ptr, size_ptr, null));
+    try std.testing.expectEqualStrings("abc", buffer[0..key_len]);
+    try std.testing.expectEqual(@as(i64, 3), size);
+    // Too small: status 3, the length says what is needed and the other fields are written.
+    try std.testing.expectEqual(@as(c_int, 3), call(false, "abcdefg", key, key_cap, key_ptr, size_ptr, null));
+    try std.testing.expectEqual(@as(usize, 7), key_len);
+    try std.testing.expectEqual(@as(i64, 7), size);
+    var some = false;
+    try std.testing.expectEqual(@as(c_int, 0), call(true, "ab", key, key_cap, key_ptr, size_ptr, &some));
+    try std.testing.expect(some);
+    try std.testing.expectEqualStrings("ab", buffer[0..key_len]);
+    size = -1;
+    try std.testing.expectEqual(@as(c_int, 0), call(true, "", key, key_cap, key_ptr, size_ptr, &some));
+    try std.testing.expect(!some);
+    try std.testing.expectEqual(@as(i64, -1), size);
+}
+fn call(option: bool, text: []const u8, key: ?[*]u8, key_cap: usize, key_len: *usize, size: *i64, some: ?*bool) c_int {
+    return if (option) ny_nonEmpty(text.ptr, text.len, some.?, ${pass}) else ny_entry(text.ptr, text.len, ${pass});
+}
+`)
+    zig(["test", join(directory, "harness.zig"), library, "-lc", "-rpath", directory])
+
+    // A Union result has no flat form, so emission names the type instead of guessing.
+    await publish(context, { op: "simulateCreateTypeByName", displayName: "Choice", typeKind: { kind: "union", variants: [{ displayName: "a", fields: [] }] } })
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "choice", resultType: named("Choice"), requiredEffects: [], parameters: [],
+      body: { kind: "unionConstruct", type: "Choice", variant: "a", fields: [] } })
+    await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], exports: ["choice"] }))
+    const refused = JSON.parse(await requestAuthoring({ op: "emitZigLibrary" }, context))
+    assert.equal(refused.ok, false)
+    assert.match(refused.error.message, /export result type/)
+
+    // Shapes nest: this has to compile, and status 3 reports both buffers' lengths.
+    await publish(context, { op: "simulateCreateTypeByName", displayName: "Pair", typeKind: { kind: "product", fields: [
+      { displayName: "left", type: string }, { displayName: "right", type: string }] } })
+    await publish(context, { op: "simulateCreateTypeByName", displayName: "Wrap", typeKind: { kind: "product", fields: [
+      { displayName: "pair", type: named("Pair") }, { displayName: "maybe", type: { kind: "builtinGeneric", generic: "option", arguments: [int64] } },
+      { displayName: "items", type: list(int64) }, { displayName: "rows", type: list(list(int64)) }] } })
+    const pair = { kind: "productConstruct", type: "Pair", fields: [{ field: "left", value: parameter("text") }, { field: "right", value: parameter("text") }] }
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "pair", resultType: named("Pair"), requiredEffects: [],
+      parameters: [{ displayName: "text", type: string }], body: pair })
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "wrap", resultType: named("Wrap"), requiredEffects: [],
+      parameters: [{ displayName: "text", type: string }, { displayName: "items", type: list(int64) }, { displayName: "rows", type: list(list(int64)) }],
+      body: { kind: "productConstruct", type: "Wrap", fields: [{ field: "pair", value: pair }, { field: "maybe", value: { kind: "optionNone", itemType: int64 } },
+        { field: "items", value: parameter("items") }, { field: "rows", value: parameter("rows") }] } })
+    await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], exports: ["pair", "wrap"] }))
+    const nested = await request(context, { op: "emitZigLibrary", output: "nested.zig" })
+    const nestedLibrary = join(directory, "libnested.so")
+    zig(["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", nested.path, `-femit-bin=${nestedLibrary}`])
+    await writeFile(join(directory, "nested_harness.zig"), `const std = @import("std");
+extern fn ny_pair(text: ?[*]const u8, len: usize, a: ?[*]u8, a_cap: usize, a_len: *usize, b: ?[*]u8, b_cap: usize, b_len: *usize) c_int;
+test "both lengths" {
+    var a: [2]u8 = undefined;
+    var b: [2]u8 = undefined;
+    var a_len: usize = 0;
+    var b_len: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 3), ny_pair("abc", 3, &a, a.len, &a_len, &b, b.len, &b_len));
+    try std.testing.expectEqual(@as(usize, 3), a_len);
+    try std.testing.expectEqual(@as(usize, 3), b_len);
+}
+`)
+    zig(["test", join(directory, "nested_harness.zig"), nestedLibrary, "-lc", "-rpath", directory])
+  } finally {
+    await closeAuthoring(context).catch(() => undefined)
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("library mode exports listed functions through the C ABI with bounded memory",{ timeout: 300000, skip }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "nyrwvy-zig-library-"))
   const context = { sessionID: randomUUID(), worktree: process.cwd() }

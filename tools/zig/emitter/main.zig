@@ -2533,6 +2533,46 @@ fn abiProduct(t: *const Type) ?[]Field {
     return fields;
 }
 
+/// Out parameters and copy statements for a result: scalars, Strings and Lists as before, an Option as
+/// `<name>_some` plus its value's parameters (written only when some), a Product as one set per field.
+/// Every buffer is tried, so status 3 reports all the lengths at once. False for any other type.
+fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]const u8), buffered: *bool, t: *const Type, name: []const u8, value: []const u8, within: []const []const u8) bool {
+    if (abiScalar(t)) |zig_type| {
+        push([]const u8, parameters, cat(&.{ name, ": *", zig_type }));
+        lineCat(copies, &.{ "    ", name, ".* = ", value, ";" });
+    } else if (isString(t) or abiListItem(t) != null) {
+        const zig_type = if (isString(t)) "u8" else abiListItem(t).?;
+        push([]const u8, parameters, cat(&.{ name, ": ?[*]", zig_type, ", ", name, "_cap: usize, ", name, "_len: *usize" }));
+        lineCat(copies, &.{ "    if (!nyCopyOut(", zig_type, ", ", value, ", ", name, ", ", name, "_cap, ", name, "_len)) fits = false;" });
+        buffered.* = true;
+    } else if (abiRowsItem(t)) |zig_type| {
+        push([]const u8, parameters, cat(&.{ name, ": ?[*]", zig_type, ", ", name, "_cap: usize, ", name, "_len: *usize, ", name, "_row_lens: ?[*]usize, ", name, "_row_cap: usize, ", name, "_rows: *usize" }));
+        lineCat(copies, &.{ "    if (!nyCopyRows(", zig_type, ", ", value, ", ", name, ", ", name, "_cap, ", name, "_len, ", name, "_row_lens, ", name, "_row_cap, ", name, "_rows)) fits = false;" });
+        buffered.* = true;
+    } else if (t.* == .builtin and eql(t.builtin.kind, "option")) {
+        // A nested Option would need a second flag of the same name, and nothing wants one yet.
+        if (t.builtin.args[0].* == .builtin and eql(t.builtin.args[0].builtin.kind, "option")) return false;
+        const some = cat(&.{ name, "_value" });
+        push([]const u8, parameters, cat(&.{ name, "_some: *bool" }));
+        lineCat(copies, &.{ "    ", name, "_some.* = ", value, " != null;" });
+        lineCat(copies, &.{ "    if (", value, ") |", some, "| {" });
+        if (!abiResult(parameters, copies, doc, buffered, t.builtin.args[0], name, some, within)) return false;
+        line(copies, "    }");
+    } else if (t.* == .named and t.named.args.len == 0) {
+        const fields = (declarations.get(t.named.id) orelse return false).product orelse return false;
+        for (within) |id| if (eql(id, t.named.id)) return false;
+        const nested = std.mem.concat(a, []const u8, &.{ within, &.{t.named.id} }) catch oom();
+        var names: List([]const u8) = .empty;
+        for (fields) |field| {
+            push([]const u8, &names, field.id);
+            if (!abiResult(parameters, copies, doc, buffered, field.type, cat(&.{ name, "_", fieldName(field.id) }), cat(&.{ value, ".", fieldName(field.id) }), nested)) return false;
+        }
+        if (fields.len == 0) lineCat(copies, &.{ "    _ = ", value, ";" });
+        push([]const u8, doc, cat(&.{ name, " fields in this order: ", join(", ", names.items) }));
+    } else return false;
+    return true;
+}
+
 fn libraryExports(exports: []const Export) []const u8 {
     var out: List(u8) = .empty;
     out.appendSlice(a, library_support) catch oom();
@@ -2589,27 +2629,20 @@ fn libraryExports(exports: []const Export) []const u8 {
             } else problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
         }
         const r = fn_.result;
-        const copy = if (abiScalar(r)) |zig_type| blk: {
-            push([]const u8, &parameters, cat(&.{ "out: *", zig_type }));
-            break :blk "    out.* = result;\n    return 0;\n";
-        } else if (r.* == .primitive and eql(r.primitive, "primitiveUnit")) "    _ = result;\n    return 0;\n" else if (isString(r) or abiListItem(r) != null) blk: {
-            const zig_type = if (isString(r)) "u8" else abiListItem(r).?;
-            push([]const u8, &parameters, cat(&.{ "out: ?[*]", zig_type, ", out_cap: usize, out_len: *usize" }));
-            break :blk cat(&.{ "    return if (nyCopyOut(", zig_type, ", result, out, out_cap, out_len)) 0 else 3;\n" });
-        } else if (abiRowsItem(r)) |zig_type| blk: {
-            push([]const u8, &parameters, cat(&.{ "out: ?[*]", zig_type, ", out_cap: usize, out_len: *usize, out_row_lens: ?[*]usize, out_row_cap: usize, out_rows: *usize" }));
-            break :blk cat(&.{ "    return if (nyCopyRows(", zig_type, ", result, out, out_cap, out_len, out_row_lens, out_row_cap, out_rows)) 0 else 3;\n" });
-        } else blk: {
-            problem(cat(&.{ "export result type ", typeDisplay(r) }));
-            break :blk "";
-        };
+        var copies: List(u8) = .empty;
+        var buffered = false;
+        if (r.* != .primitive or !eql(r.primitive, "primitiveUnit")) {
+            if (!abiResult(&parameters, &copies, &doc, &buffered, r, "out", "result", &.{})) problem(cat(&.{ "export result type ", typeDisplay(r) }));
+        } else line(&copies, "    _ = result;");
         for (doc.items) |text| lineCat(&out, &.{ "/// ", text });
         lineCat(&out, &.{ "export fn ", item.symbol, "(", join(", ", parameters.items), ") c_int {" });
         line(&out, "    nyExportEnter();");
         line(&out, "    defer nyExportLeave();");
         const fail = if (failing(fn_.id)) " catch return nyExportFail()" else "";
         lineCat(&out, &.{ "    const result = ", instanceName(fn_.id, &.{}), "(", join(", ", arguments.items), ")", fail, ";" });
-        out.appendSlice(a, copy) catch oom();
+        if (buffered) line(&out, "    var fits = true;");
+        out.appendSlice(a, copies.items) catch oom();
+        line(&out, if (buffered) "    return if (fits) 0 else 3;" else "    return 0;");
         line(&out, "}");
         line(&out, "");
     }
