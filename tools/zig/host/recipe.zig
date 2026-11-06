@@ -531,8 +531,6 @@ pub const Decoder = struct {
                 try arguments.append(a, .{ .slot = @intCast(slot), .value = try self.parameterRecipe(name) });
             };
             return self.node("selfCall", try a.dupe(Slot, &.{.{ .name = "arguments", .data = .{ .pairs = arguments.items } }}));
-        } else if (keep) {
-            return self.fail("keepUnlisted applies only to a call of the function being created or replaced; '{s}' is another function.", .{callee_name orelse ""});
         } else {
             const callee = selected orelse try self.selector(try self.at(path, "function"), callee_selector, "function");
             for (try self.array(value, "arguments"), 0..) |item, i| {
@@ -541,6 +539,19 @@ pub const Decoder = struct {
                 const parameter = try self.member("parameter on {s}", .{query.nameOf(callee)}, callee, "parameters", try self.requiredString(item, "parameter"));
                 try arguments.append(a, .{ .id = query.idOf(parameter), .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
             }
+            // A parameter the call does not name takes the caller's parameter of the same name; the
+            // preflight checks its type as if it were written out.
+            if (keep) for (callee.parameters()) |parameter| {
+                const listed = for (arguments.items) |pair| {
+                    if (std.mem.eql(u8, pair.id, query.idOf(parameter))) break true;
+                } else false;
+                if (listed) continue;
+                const name = query.nameOf(parameter);
+                for (owner.parameters) |candidate| {
+                    if (std.mem.eql(u8, candidate, name)) break;
+                } else return self.fail("keepUnlisted: the caller has no parameter '{s}' to pass to '{s}'.", .{ name, query.nameOf(callee) });
+                try arguments.append(a, .{ .id = query.idOf(parameter), .value = try self.parameterRecipe(name) });
+            };
             return self.node("directCall", try a.dupe(Slot, &.{ .{ .name = "functionId", .data = .{ .id = query.idOf(callee) } }, .{ .name = "arguments", .data = .{ .pairs = arguments.items } } }));
         }
     }
