@@ -65,7 +65,9 @@ try {
   const buildInfo = join(temporary, "build_info.zig")
   await writeFile(buildInfo, info)
   modules.push(["build_info", buildInfo])
-  const args = ["build-exe", `-femit-bin=${built}`, ...(process.platform === "darwin" ? ["-lc"] : []), "-O", "ReleaseSafe",
+  // CI caches the built host across runners whose CPUs differ, so a native-CPU build can die on an illegal instruction.
+  const cpu = process.env.CI ? ["-mcpu=baseline"] : []
+  const args = ["build-exe", `-femit-bin=${built}`, ...cpu, ...(process.platform === "darwin" ? ["-lc"] : []), "-O", "ReleaseSafe",
     ...modules.flatMap(([name]) => ["--dep", name]), "-Mroot=tools/zig/host/main.zig",
     ...modules.flatMap(([name, path]) => ["-O", "ReleaseSafe", `-M${name}=${path}`])]
   await new Promise((accept, reject) => {
