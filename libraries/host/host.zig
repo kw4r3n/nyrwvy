@@ -118,6 +118,13 @@ pub const Pty = struct {
         return false;
     }
 
+    /// Waits until the master is ready for `events`; false once the close signals `wake`.
+    fn wait(self: *Pty, events: i16) bool {
+        var fds = [_]std.c.pollfd{ .{ .fd = self.master, .events = events, .revents = 0 }, .{ .fd = self.wake, .events = std.c.POLL.IN, .revents = 0 } };
+        while (std.c.poll(&fds, fds.len, -1) < 0) if (std.c.errno(-1) != .INTR) return false;
+        return fds[1].revents == 0;
+    }
+
     fn leave(self: *Pty) void {
         if (self.users.fetchSub(1, .acq_rel) > 1) return;
         _ = std.c.close(self.master);
@@ -151,7 +158,7 @@ pub fn ptyOpen(allocator: Allocator, argv: []const []const u8, environment: Envi
 
     // Close-on-exec from the start, and no slave fd in this process: neither can leak into a child
     // that another thread starts, which would keep this pty's reads from ever seeing EIO.
-    const master = posix_openpt(openFlags(.{ .ACCMODE = .RDWR, .NOCTTY = true, .CLOEXEC = true }));
+    const master = posix_openpt(openFlags(.{ .ACCMODE = .RDWR, .NOCTTY = true, .CLOEXEC = true, .NONBLOCK = true }));
     if (master < 0) return error.PtyUnavailable;
     errdefer _ = std.c.close(master);
     var name: [128:0]u8 = @splat(0);
@@ -187,17 +194,14 @@ pub fn ptyOpen(allocator: Allocator, argv: []const []const u8, environment: Envi
 pub fn ptyRead(allocator: Allocator, pty: *Pty) !?[]const u8 {
     if (!pty.enter()) return null;
     defer pty.leave();
-    var fds = [_]std.c.pollfd{ .{ .fd = pty.master, .events = std.c.POLL.IN }, .{ .fd = pty.wake, .events = std.c.POLL.IN } };
-    while (true) {
-        const ready = std.c.poll(&fds, fds.len, -1);
-        if (ready >= 0) break;
-        if (std.c.errno(ready) != .INTR) return null;
-    }
-    if (fds[1].revents != 0) return null;
     const buffer = try allocator.alloc(u8, 64 * 1024);
-    const n = std.c.read(pty.master, buffer.ptr, buffer.len);
-    // EIO on the master once the child exits.
-    return if (n > 0) buffer[0..@intCast(n)] else null;
+    while (true) {
+        if (!pty.wait(std.c.POLL.IN)) return null;
+        const n = std.c.read(pty.master, buffer.ptr, buffer.len);
+        if (n > 0) return buffer[0..@intCast(n)];
+        // EIO on the master once the child exits; EAGAIN and EINTR wait again.
+        if (n == 0 or (std.c.errno(n) != .AGAIN and std.c.errno(n) != .INTR)) return null;
+    }
 }
 
 /// Blocks while the pty's buffer is full, until the child reads.
@@ -206,9 +210,11 @@ pub fn ptyWrite(_: Allocator, pty: *Pty, data: []const u8) !void {
     defer pty.leave();
     var rest = data;
     while (rest.len > 0) {
+        // Close wakes a write blocked on a full buffer, as it does a read.
+        if (!pty.wait(std.c.POLL.OUT)) return error.Closed;
         const n = std.c.write(pty.master, rest.ptr, rest.len);
         if (n < 0) {
-            if (std.c.errno(n) == .INTR) continue;
+            if (std.c.errno(n) == .INTR or std.c.errno(n) == .AGAIN) continue;
             return error.WriteFailed;
         }
         rest = rest[@intCast(n)..];
