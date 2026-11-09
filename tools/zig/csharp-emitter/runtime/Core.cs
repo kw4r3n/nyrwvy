@@ -376,6 +376,7 @@ public static class NyText
         System.Array.Resize(ref checkpoints, count);
         return new PositionMap(position, checkpoints);
     }
+    public static long CodePointLength(NyStr text) => text.CodePoints;
     public static long CodePointLength(string text)
     {
         if (text.Length >= IndexedLength) return MapOf(text).Length;
@@ -464,6 +465,8 @@ public sealed class NyStr : IEquatable<NyStr>
     private readonly Store? _store;
     private readonly int _length;
     private string? _text;
+    // Strings are well formed, so no pair forms where two meet and a concatenation adds the counts.
+    private long _codePoints = -1;
     private NyStr(string text) { _text = text; _length = text.Length; }
     private NyStr(Store store, int length) { _store = store; _length = length; }
     public static implicit operator NyStr(string text) => text.Length == 0 ? EmptyString : new NyStr(WellFormed(text));
@@ -480,6 +483,18 @@ public sealed class NyStr : IEquatable<NyStr>
     }
     public static implicit operator string(NyStr value) => value is null ? null! : value.Text;
     public int Length => _length;
+    public long CodePoints
+    {
+        get
+        {
+            if (_codePoints >= 0) return _codePoints;
+            var chars = Chars;
+            var count = (long)chars.Length;
+            if (chars.IndexOfAnyInRange('\uD800', '\uDFFF') >= 0) foreach (var unit in chars) if (char.IsLowSurrogate(unit)) count--;
+            return _codePoints = count;
+        }
+    }
+    private static long CodePointsOf(NyStr left, NyStr right) => left._codePoints < 0 ? -1 : left._codePoints + right.CodePoints;
     public string Text => _text ??= new string(_store!.Chars, 0, _length);
     private ReadOnlySpan<char> Chars => _text is { } text ? text.AsSpan() : new ReadOnlySpan<char>(_store!.Chars, 0, _length);
     public void CopyTo(Span<char> destination) => Chars.CopyTo(destination);
@@ -493,13 +508,13 @@ public sealed class NyStr : IEquatable<NyStr>
         if (store != null && total <= store.Chars.Length && System.Threading.Interlocked.CompareExchange(ref store.Used, (int)total, left._length) == left._length)
         {
             right.Chars.CopyTo(store.Chars.AsSpan(left._length));
-            return new NyStr(store, (int)total);
+            return new NyStr(store, (int)total) { _codePoints = CodePointsOf(left, right) };
         }
         if (total < StoreThreshold) return new NyStr(string.Concat(left.Chars, right.Chars));
         var chars = new char[(int)System.Math.Min(total * 2L, Array.MaxLength)];
         left.Chars.CopyTo(chars);
         right.Chars.CopyTo(chars.AsSpan(left._length));
-        return new NyStr(new Store(chars, (int)total), (int)total);
+        return new NyStr(new Store(chars, (int)total), (int)total) { _codePoints = CodePointsOf(left, right) };
     }
     public bool Equals(NyStr? other) => other is not null && (ReferenceEquals(this, other) || Chars.SequenceEqual(other.Chars));
     public override bool Equals(object? obj) => obj is NyStr other && Equals(other);
