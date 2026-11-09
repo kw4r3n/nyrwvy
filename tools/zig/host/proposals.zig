@@ -806,12 +806,12 @@ pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, ve
         try readiness(w, proposed_root);
         if (p.batch) |captures| {
             try w.writeAll(",\"changedFunctions\":[");
-            for (try batchViewIds(r.a, captures, true), 0..) |id, i| {
-                const function = typed_edit.find(proposed_root, .functions, model.utf8(model.decoded(id))) orelse {
-                    r.rejection = .{ .code = "ViewWriteFailed", .message = try std.fmt.allocPrint(r.a, "Proposed focus of function:{s} failed: FunctionNotFound", .{model.utf8(model.decoded(id))}) };
-                    return error.Rejected;
-                };
-                if (i > 0) try w.writeByte(',');
+            var first_function = true;
+            for (try batchViewIds(r.a, captures, true)) |id| {
+                // A function deleted by a step has no proposed focus, as in the single-proposal path.
+                const function = typed_edit.find(proposed_root, .functions, model.utf8(model.decoded(id))) orelse continue;
+                if (!first_function) try w.writeByte(',');
+                first_function = false;
                 try w.writeAll("{\"committed\":");
                 const before = if (current) typed_edit.find(committed_root, .functions, model.utf8(model.decoded(id))) else null;
                 if (before) |old| try w.writeAll(try viewer.typedFocusValue(r.a, committed_root, r.snapshot_id, old)) else try w.writeAll("null");

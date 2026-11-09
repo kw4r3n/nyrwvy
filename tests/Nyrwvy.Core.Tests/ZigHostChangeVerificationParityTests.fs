@@ -185,6 +185,22 @@ module ZigHostChangeVerificationParityTests =
                 Assert.Equal<string list>([ "right"; "left" ], item.GetProperty("arguments").[0].GetProperty("fields").EnumerateArray() |> Seq.map (fun field -> field.GetProperty("field").GetString()) |> Seq.toList)))
 
     [<Fact; Trait("Suite", "Extended")>]
+    let ``batches that delete a function stay viewable and verifiable while new missing arguments refuse execution`` () =
+        withDirectory (fun directory ->
+            let source, declarations = fixture (Path.Combine(directory, "input")) false
+            pair "verification-batch-steps" source [ "--read-only" ] (fun path send _ ->
+                let simulate operation =
+                    send (sprintf """{"id":"batch","op":"simulateBatchByName","steps":[{"kind":"createType","displayName":"Flag","typeKind":{"kind":"product","fields":[]}},{"kind":"operations","operations":[%s]}]}""" operation)
+                    |> success |> fun value -> value.GetProperty("proposalId").GetString()
+                let deleted = simulate """{"kind":"deleteFunction","function":"float"}"""
+                lifecycle send "viewProposal" deleted |> success |> ignore
+                Assert.Equal<string list>([ "tested-agreement" ], statuses (verify path send deleted ("[" + case "echo" [ intValue 1 ] None + "]") "deleted.html"))
+                let call = declarations.Functions |> List.find (fun fn -> fn.DisplayName = "caller") |> fun fn -> StableId.value fn.Body.ResultNodeId
+                let missing = simulate (sprintf """{"kind":"addFunctionParameter","function":"echo","displayName":"extra","type":%s,"callSites":[{"kind":"leaveMissing","callNodeId":"%s"}]}""" integer call)
+                let refused = send (sprintf """{"id":"verify","op":"verifyChangeByName","proposalId":"%s","cases":[%s]}""" missing (case "caller" [] None))
+                Assert.Equal("DependencyFailure", errorCode refused)))
+
+    [<Fact; Trait("Suite", "Extended")>]
     let ``verification compares ordered fake calls and keeps concurrency and prior failures unknown`` () =
         withDirectory (fun directory ->
             let source, declarations = fixture (Path.Combine(directory, "input")) false
