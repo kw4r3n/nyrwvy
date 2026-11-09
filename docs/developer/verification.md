@@ -20,13 +20,13 @@ verify the build/tests with that version when updating the pin.
 framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
 
-GitHub Actions minutes are billed, so the only workflow,
-[`ci.yml`](../../.github/workflows/ci.yml), does not run on push or pull request: it
-runs only on demand (`workflow_dispatch`), at major milestones (owner decision,
-2026-10-05). The extended suite runs locally only; its GitHub workflow was removed
-on 2026-10-17 (owner decision). Before
-opening a pull request, run the fast suite and the tests related to the change
-in a local or cloud session; a PR does not wait on GitHub Actions.
+The only workflow, [`ci.yml`](../../.github/workflows/ci.yml), runs its fast job
+(`F# foundation build and fast tests`) on every pull request and push to `main`, and
+that job is a required check for `main` (owner decision, 2026-11-09: the repository
+is public, so Actions minutes are not a concern). The extended suites and the native
+platform checks run on demand (`workflow_dispatch` with `extended` or
+`native_platforms`) or locally. Before opening a pull request, still run the fast
+suite and the tests related to the change in a local or cloud session.
 
 The verification entry points require Node 22.6+ (22.22.2 recommended, see
 `.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts,
@@ -124,7 +124,7 @@ The current extended entry point is:
 ./scripts/test-extended.fish
 ```
 
-While iterating, `NYRWVY_ZIG_RUNNER_OPTIMIZE=Debug` makes the host build Zig `runPure` runners in Debug instead of ReleaseSafe: about 0.4 s per runner instead of 15 s, and the backend comparison takes under 5 minutes instead of about 15. Any other value is ignored, and the mode is part of the runner cache key. Run without it before merging a change to the emitter or its runtime, because the runners a program actually gets are ReleaseSafe.
+While iterating, `NYRWVY_ZIG_RUNNER_OPTIMIZE=Debug` makes the host build Zig `runPure` runners in Debug instead of ReleaseSafe: about 0.4 s per runner instead of 5.5 s (ReleaseSafe runners are built without debug info, `-fstrip`, which took them from 16 s; a crash reply reads only the runner's `panic:` line). Any other value is ignored, and the mode is part of the runner cache key. Run without it before merging a change to the emitter or its runtime, because the runners a program actually gets are ReleaseSafe.
 
 For an opt-in full-solution build/test with a shareable log, use `bash scripts/verify-local-20260825-1427.sh --clean`. This includes the extended project once and is not the routine CI fallback.
 

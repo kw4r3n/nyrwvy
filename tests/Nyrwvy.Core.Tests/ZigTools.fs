@@ -102,7 +102,9 @@ module internal ZigTools =
 
     let private sha256Hex (text: string) = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text))
 
-    let private tools = Collections.Generic.Dictionary<string, string>()
+    let private tools = Collections.Concurrent.ConcurrentDictionary<string, string>()
+    // One lock per tool, so tests that need different tools build them at the same time.
+    let private building = Collections.Concurrent.ConcurrentDictionary<string, obj>()
 
     // The modules a tool imports (`@import("model_reader")` for `tools/zig/model-reader`), each a
     // directory below the repository with a `main.zig` or, for the viewer page, `asset.zig`.
@@ -138,7 +140,7 @@ module internal ZigTools =
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,
     /// keyed by a hash of every file in its directory and in the directories it imports.
     let tool (name: string) =
-        lock tools (fun () ->
+        lock (building.GetOrAdd(name, fun _ -> obj ())) (fun () ->
             match tools.TryGetValue name with
             | true, path -> Ok path
             | _ ->
