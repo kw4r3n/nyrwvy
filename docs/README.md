@@ -6,20 +6,23 @@ This directory contains the maintained documentation for the current Nyrwvy desi
 
 ## Start here
 
-- **Why does Nyrwvy exist?** Read [Vision](concepts/vision.md) and the [AI-first semantic design principles](concepts/ai-first-design-principles.md). [Semantic independence](concepts/semantic-independence.md) (proposed) separates Nyrwvy's meaning from backend choices.
-- **How is the system organized?** Read [Architecture](developer/architecture.md).
-- **How much verification does a change need?** Read [Verification philosophy](developer/verification.md).
-- **What does the implemented language and agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).
-- **What happened after Milestone 2, and what should trigger the next milestone?** Read the [post-M2 roadmap](plans/post-m2-roadmap.md).
-- **Which general-purpose language and tool capabilities should be implemented next?** Read the [post-M2 roadmap](plans/post-m2-roadmap.md), which records the completed queue (orders 1-71, each a numbered language or tool change), the open candidates with how often probes observed them, and the selection rule for adding more; [Semantic independence](concepts/semantic-independence.md) lists the remaining semantic gaps. The completed [general-purpose programming roadmap](plans/general-purpose-programming-roadmap.md) records what G1–G4 and T1–T3 established, using rrawrlet (a separate Python application by the same author, ported slice by slice; see the [verification index](verification/README.md#live-agent-probes)) as a requirements probe rather than a builtin feature set.
-- **Why was a direction chosen?** Use the [decision register](decisions/README.md).
-- **What remains unresolved?** Read [Open questions](decisions/open-questions.md). The [typed function-abort contract](specs/typed-function-abort.md) is implemented; broader non-local escape and resumable handlers remain outside its scope.
-- **What must an implementation preserve?** Use the maintained [specifications](specs/), including [expression structural authoring](specs/expression-authoring.md), [explicit host exception boundaries](specs/exception-boundary.md), [parallel capability sharing](specs/parallel-capability-sharing.md), [program capability implementations](specs/program-capability-implementations.md), [derived runtime ordering](specs/runtime-ordering.md), [atomic product/union declaration authoring](specs/type-declaration-authoring.md), [atomic effect declaration authoring](specs/effect-declaration-authoring.md), [atomic capability/operation declaration authoring](specs/capability-declaration-authoring.md), the [snapshot-backed agent authoring session](specs/agent-authoring-session.md), and, as a historical record, the narrower [Float64 bounded structural editing contract](specs/bounded-structural-editing.md), whose implementation was removed from `main`.
-- **What was completed in Milestone 1?** Read the completed [Milestone 1 record](plans/milestone-1.md) and its linked verification evidence.
-- **What did Milestone 2 establish?** Read the [Milestone 2 record](plans/milestone-2.md) and its controlled structural-editing evidence.
-- **What evidence supports an implemented claim?** Use the [verification record index](verification/README.md), including the Codex CLI MCP probe: [initial approval blocker](verification/codex-cli-mcp-maintenance-probe.md) and [qualified maintenance success](verification/codex-cli-mcp-maintenance-probe-run-2.md).
-- **What is exploratory rather than a current contract?** Use the [experiment index](experiments/README.md).
-- **How should documentation itself be maintained?** Read [Documentation conventions](developer/documentation.md).
+Pick a document by the question you have.
+
+| Question | Read |
+| --- | --- |
+| Why does Nyrwvy exist? | [Vision](concepts/vision.md), [AI-first design principles](concepts/ai-first-design-principles.md), [semantic independence](concepts/semantic-independence.md) (proposed) |
+| How is the system organized? | [Architecture](developer/architecture.md) |
+| What does the language support now? | [Current language subset](reference/language-subset.md), [stable IDs](reference/stable-ids.md) |
+| How does an agent use the tools? | [Tool contract](specs/agent-graph-tools.md), [MCP guide](specs/mcp-graph-tools.md), [authoring session protocol](specs/agent-authoring-session.md) |
+| What must an implementation preserve? | The [specifications](specs/) — start with [expression authoring](specs/expression-authoring.md) |
+| What has been done, and what comes next? | [Post-M2 roadmap](plans/post-m2-roadmap.md) (numbered queue of completed and candidate changes), [general-purpose programming roadmap](plans/general-purpose-programming-roadmap.md) (completed) |
+| What did the milestones establish? | [Milestone 1](plans/milestone-1.md), [Milestone 2](plans/milestone-2.md) |
+| Why was a direction chosen? | [Decision register](decisions/README.md) |
+| What is still unresolved? | [Open questions](decisions/open-questions.md) |
+| What evidence backs a claim? | [Verification records](verification/README.md) |
+| How much verification does a change need? | [Verification philosophy](developer/verification.md) |
+| What is exploratory, not a contract? | [Experiments](experiments/README.md) |
+| How is documentation maintained? | [Documentation conventions](developer/documentation.md) |
 
 ## Maintained areas
 
