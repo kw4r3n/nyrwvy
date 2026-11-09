@@ -124,7 +124,7 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })
 
-test("typed host gate selects both Zig suites and stops after a failure", () => {
+test("typed host gate selects both Zig suites and fails when one fails", () => {
   const fixture = mkdtempSync(join(tmpdir(), "nyrwvy-typed-host-"))
   const repo = join(fixture, "repository with spaces")
   const calls = join(fixture, "calls")
@@ -133,41 +133,41 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
   for (const file of ["test-typed-host.mjs", "test-typed-host.fish"]) copyFileSync(join(repositoryRoot, "scripts", file), join(repo, "scripts", file))
   mkdirSync(join(repo, "tools/zig/emitter"), { recursive: true })
   for (const file of ["runtime.zig", "case_mapping.zig", "runtime_test.zig"]) copyFileSync(join(repositoryRoot, "tools/zig/emitter", file), join(repo, "tools/zig/emitter", file))
-  writeFileSync(preload, `const fs = require('node:fs');\nif (!process.argv[1]?.endsWith('test-typed-host.mjs')) {\n  fs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: ['test', ...process.argv.slice(2)]}) + '\\n');\n  process.exit(Number(process.env.TYPED_FAIL) === fs.readFileSync(process.env.TYPED_CALLS, 'utf8').trim().split('\\n').length ? 23 : 0);\n}\n`)
-  const run = (fail, fish = false) => {
+  writeFileSync(preload, `const fs = require('node:fs');\nif (!process.argv[1]?.endsWith('test-typed-host.mjs')) {\n  fs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: ['test', ...process.argv.slice(2)]}) + '\\n');\n  process.exit(process.env.TYPED_FAIL && process.argv.slice(2).includes(process.env.TYPED_FAIL) ? 23 : 0);\n}\n`)
+  const run = (fail = "", fish = false) => {
     writeFileSync(calls, "")
     const command = fish ? "fish" : process.execPath
     const args = fish ? ["--no-config", join(repo, "scripts/test-typed-host.fish")] : [join(repo, "scripts/test-typed-host.mjs")]
     const result = spawnSync(command, args, {
-      cwd: fixture, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--require="${preload}"`, NYRWVY_ZIG: process.execPath, TYPED_CALLS: calls, TYPED_FAIL: String(fail) },
+      cwd: fixture, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--require="${preload}"`, NYRWVY_ZIG: process.execPath, TYPED_CALLS: calls, TYPED_FAIL: fail },
     })
     if (result.error) throw result.error
     return { ...result, calls: readFileSync(calls, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) }
   }
   try {
-    const success = run(0)
+    const success = run()
     assert.equal(success.status, 0, success.stderr)
     assert.equal(success.calls.length, 5)
     assert.ok(success.calls.every(call => call.cwd === repo))
     const linkerArgs = process.platform === "darwin" ? ["-lc"] : []
-    // The emitter runtime test runs first, from a temporary file that joins the runtime sources.
-    assert.deepEqual(success.calls[0].args.slice(0, -1), ["test", ...linkerArgs, "-O", "ReleaseSafe"])
-    assert.ok(success.calls[0].args.at(-1).endsWith("runtime.zig"))
-    assert.deepEqual(success.calls[1].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
-    assert.deepEqual(success.calls[2].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/emitter/main.zig"])
-    assert.deepEqual(success.calls[3].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/csharp-emitter/native.zig"])
-    const args = success.calls[4].args
+    // The commands start at once, so they are found by their arguments, not their order.
+    const isRuntime = call => call.args.at(-1).endsWith("runtime.zig")
+    // The emitter runtime test runs from a temporary file that joins the runtime sources.
+    assert.deepEqual(success.calls.find(isRuntime).args.slice(0, -1), ["test", ...linkerArgs, "-O", "ReleaseSafe"])
+    for (const file of ["tools/zig/model-reader/main.zig", "tools/zig/emitter/main.zig", "tools/zig/csharp-emitter/native.zig"])
+      assert.ok(success.calls.some(call => call.args.join(" ") === ["test", ...linkerArgs, "-O", "ReleaseSafe", file].join(" ")), file)
+    const args = success.calls.find(call => call.args.includes("--test-runner")).args
     // Every host test runs: no filter narrows the run.
     assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-runner", "tools/zig/host/test_runner.zig"])
     assert.ok(!args.includes("--test-filter"))
     for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
-    const failure = run(1)
-    assert.equal(failure.status, 23)
-    assert.equal(failure.calls.length, 1)
-    const secondFailure = run(2)
-    assert.equal(secondFailure.status, 23)
-    assert.equal(secondFailure.calls.length, 2)
-    const stable = calls => calls.slice(1)
-    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(stable(run(0, true).calls), stable(success.calls))
+    // A failing suite fails the gate; the others have already started and run to the end.
+    for (const fail of ["tools/zig/model-reader/main.zig", "-Mroot=tools/zig/host/main.zig"]) {
+      const failure = run(fail)
+      assert.equal(failure.status, 23)
+      assert.equal(failure.calls.length, 5)
+    }
+    const stable = calls => calls.filter(call => !isRuntime(call)).map(call => JSON.stringify(call)).sort()
+    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(stable(run("", true).calls), stable(success.calls))
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })

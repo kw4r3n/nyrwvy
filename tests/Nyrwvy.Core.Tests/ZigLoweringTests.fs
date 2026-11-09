@@ -93,39 +93,52 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
                     File.WriteAllText(path, text, Text.UTF8Encoding false)
                     inputs[text] <- path
                     path
-            // In batches, within the argument list limit.
+            // In batches within the argument list limit, one reader per core; the arguments (and the
+            // input files they name) are made first, since `input` is not thread-safe.
             let run (mode: string list) (suffix: string) (selected: (int * _) list) =
-                selected |> List.chunkBySize 1000 |> List.collect (fun batch ->
-                    let info = ProcessStartInfo(reader, RedirectStandardOutput = true)
-                    for argument in mode do info.ArgumentList.Add argument
-                    for index, (text, _, entry) in batch do
-                        info.ArgumentList.Add(input text)
-                        info.ArgumentList.Add(Path.Combine(dir, $"{index}{suffix}"))
-                        info.ArgumentList.Add(match entry with Some id -> StableId.value id | None -> "-")
+                [| for batch in selected |> List.chunkBySize (min 1000 (selected.Length / Environment.ProcessorCount + 1)) do
+                       let info = ProcessStartInfo(reader, RedirectStandardOutput = true)
+                       for argument in mode do info.ArgumentList.Add argument
+                       for index, (text, _, entry) in batch do
+                           info.ArgumentList.Add(input text)
+                           info.ArgumentList.Add(Path.Combine(dir, $"{index}{suffix}"))
+                           info.ArgumentList.Add(match entry with Some id -> StableId.value id | None -> "-")
+                       info |]
+                |> Array.Parallel.collect (fun info ->
                     use child = Process.Start info
                     let lines = child.StandardOutput.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries)
                     child.WaitForExit()
                     Assert.Equal(0, child.ExitCode)
-                    List.ofArray lines)
-                |> Array.ofList
+                    lines)
             let lines = run [ mode ] ".out" (List.indexed cases)
             Assert.Equal(cases.Length, lines.Length)
             let outcomes = Collections.Generic.Dictionary<string, int>()
             let mutable throws = 0
             let failures = ResizeArray<string>()
-            cases |> List.iteri (fun index (text, snapshot, entry) ->
-                match (try Some(reference snapshot entry : string * string option) with error -> output.WriteLine($"case {index}: F# threw {error.GetType().Name}: {error.Message}"); None) with
-                | None -> throws <- throws + 1
-                | Some(line, json) ->
-                    let key = (line.Split(':')[0])
+            // Each case is checked in parallel (the references are pure functions of the snapshot) and
+            // reduced to its outcome and any difference, so no JSON outlives its comparison.
+            let checkedCases =
+                cases |> List.indexed |> Array.ofList |> Array.Parallel.map (fun (index, (_, snapshot, entry)) ->
+                    match (try Ok(reference snapshot entry : string * string option) with error -> Error error) with
+                    | Error error -> Error $"case {index}: F# threw {error.GetType().Name}: {error.Message}"
+                    | Ok(line, json) ->
+                        let failure =
+                            if lines[index] <> line then Some $"case {index} (entry {entry}): F# says {line}, Zig says {lines[index]}"
+                            else
+                                match json with
+                                | Some expected ->
+                                    let actual = File.ReadAllText(Path.Combine(dir, $"{index}.out"))
+                                    if expected <> actual then Some $"case {index} (entry {entry}): the JSON differs {difference expected actual}" else None
+                                | None -> None
+                        Ok(line.Split(':')[0], failure))
+            for result in checkedCases do
+                match result with
+                | Error message ->
+                    output.WriteLine message
+                    throws <- throws + 1
+                | Ok(key, failure) ->
                     outcomes[key] <- (match outcomes.TryGetValue key with | true, n -> n + 1 | _ -> 1)
-                    if lines[index] <> line then failures.Add($"case {index} (entry {entry}): F# says {line}, Zig says {lines[index]}")
-                    else
-                        match json with
-                        | Some expected ->
-                            let actual = File.ReadAllText(Path.Combine(dir, $"{index}.out"))
-                            if expected <> actual then failures.Add($"case {index} (entry {entry}): the JSON differs {difference expected actual}")
-                        | None -> ())
+                    failure |> Option.iter failures.Add
             output.WriteLine($"{cases.Length} cases from {texts.Length} texts ({inputs.Count} decoded), {throws} F# failures")
             for KeyValue(outcome, count) in outcomes |> Seq.sortBy (fun pair -> pair.Key) do output.WriteLine($"{count,6} {outcome}")
             Assert.True(failures.Count = 0, $"{failures.Count} differences; the first:\n" + String.Join("\n\n", failures |> Seq.truncate 5))

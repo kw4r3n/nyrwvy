@@ -111,44 +111,46 @@ module ZigHostRunPureParityTests =
             Assert.Equal(0, host.ExitCode)
             Assert.Equal("", errors.Result.Trim())
 
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``native Zig host executes exact named plain typed and recursive values on JSON and records`` () =
-        withDirectory (fun directory ->
-            let path, declarations = fixture directory
-            let chainEnd = """{"kind":"union","type":"Chain","variant":"End","fields":[]}"""
-            let chain = $"""{{"kind":"union","type":"Chain","variant":"Link","fields":[{{"field":"value","value":{{"kind":"int64","value":"3"}}}},{{"field":"next","value":{chainEnd}}}]}}"""
-            let values =
-                [ "echo", stringValue "日本 😀\u0000<&", stringValue "日本 😀\u0000<&"
-                  "integer", "\"-9223372036854775808\"", "\"-9223372036854775808\""
-                  "boolean", "true", "true"; "float", "-0.25", "-0.25"
-                  "bytes", """{"kind":"bytes","hex":"00ff80"}""", """{"kind":"bytes","hex":"00ff80"}"""
-                  "unit", "null", "null"; "pair", pair "a😀" -4, pair "a😀" -4
-                  "tagged", """{"kind":"data"}""", """{"kind":"data"}"""
-                  "box", """{"value":"generic 日本"}""", """{"value":"generic 日本"}"""
-                  "answer", found "ok", found "ok"; "chain", chain, chain
-                  "nested", """[{"text":"one","count":"1"},null]""", """[{"text":"one","count":"1"},null]"""
-                  "mapping", """[["b","2"],["a","1"]]""", """[["b","2"],["a","1"]]"""
-                  "set", "[3,1,2]", "[3,1,2]"; "result", """{"ok":"42"}""", """{"ok":"42"}"""
-                  "integer", "9223372036854775807", "9223372036854775807"
-                  for value in [ "-0"; "1e-5"; "1e16"; "1.234e17"; "5e-324"; "\"NaN\""; "\"Infinity\""; "\"-Infinity\"" ] do
-                      "float", value, value ]
-            let echoId = declarations.Functions |> List.find (fun fn -> fn.DisplayName = "echo") |> fun fn -> StableId.value fn.Id
-            let exact = $"""{{"id":"exact","op":"runPure","functionId":"{echoId}","backend":"zig","arguments":[{{"kind":"string","value":"exact"}}],"expected":{{"kind":"string","value":"exact"}}}}"""
-            let requests = values |> List.map (fun (name, argument, expected) -> runName name [ argument ] (Some expected))
-            let manifest = (runName "constant" [] (Some "7")).Replace(",\"backend\":\"zig\"", "")
-            let mismatch = runName "pair" [ pair "actual" 1 ] (Some(pair "expected" 1))
-            let requests = requests @ [ exact; manifest; mismatch ]
-            for record in [ false; true ] do
-                let source = if record then Path.ChangeExtension(path, ".nyrec") else path
-                if record then
-                    File.WriteAllText(source, File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap |> RecordCodec.serialize |> unwrap)
-                    File.Copy(path + ".backends.json", source + ".backends.json")
-                let replies = strictPair source requests
-                for reply in replies |> List.take (replies.Length - 1) do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
-                let result = success (List.last replies)
-                Assert.False(result.GetProperty("matches").GetBoolean())
-                Assert.Equal(1, result.GetProperty("mismatch").GetProperty("path").GetArrayLength())
-            Assert.Equal("7", (strictPair path [ manifest ] |> List.head |> success).GetProperty("actual").GetProperty("value").GetString()))
+    // The slowest tests run in their own modules, which xUnit runs beside the others.
+    module ExactValues =
+        [<Fact; Trait("Suite", "Extended")>]
+        let ``native Zig host executes exact named plain typed and recursive values on JSON and records`` () =
+            withDirectory (fun directory ->
+                let path, declarations = fixture directory
+                let chainEnd = """{"kind":"union","type":"Chain","variant":"End","fields":[]}"""
+                let chain = $"""{{"kind":"union","type":"Chain","variant":"Link","fields":[{{"field":"value","value":{{"kind":"int64","value":"3"}}}},{{"field":"next","value":{chainEnd}}}]}}"""
+                let values =
+                    [ "echo", stringValue "日本 😀\u0000<&", stringValue "日本 😀\u0000<&"
+                      "integer", "\"-9223372036854775808\"", "\"-9223372036854775808\""
+                      "boolean", "true", "true"; "float", "-0.25", "-0.25"
+                      "bytes", """{"kind":"bytes","hex":"00ff80"}""", """{"kind":"bytes","hex":"00ff80"}"""
+                      "unit", "null", "null"; "pair", pair "a😀" -4, pair "a😀" -4
+                      "tagged", """{"kind":"data"}""", """{"kind":"data"}"""
+                      "box", """{"value":"generic 日本"}""", """{"value":"generic 日本"}"""
+                      "answer", found "ok", found "ok"; "chain", chain, chain
+                      "nested", """[{"text":"one","count":"1"},null]""", """[{"text":"one","count":"1"},null]"""
+                      "mapping", """[["b","2"],["a","1"]]""", """[["b","2"],["a","1"]]"""
+                      "set", "[3,1,2]", "[3,1,2]"; "result", """{"ok":"42"}""", """{"ok":"42"}"""
+                      "integer", "9223372036854775807", "9223372036854775807"
+                      for value in [ "-0"; "1e-5"; "1e16"; "1.234e17"; "5e-324"; "\"NaN\""; "\"Infinity\""; "\"-Infinity\"" ] do
+                          "float", value, value ]
+                let echoId = declarations.Functions |> List.find (fun fn -> fn.DisplayName = "echo") |> fun fn -> StableId.value fn.Id
+                let exact = $"""{{"id":"exact","op":"runPure","functionId":"{echoId}","backend":"zig","arguments":[{{"kind":"string","value":"exact"}}],"expected":{{"kind":"string","value":"exact"}}}}"""
+                let requests = values |> List.map (fun (name, argument, expected) -> runName name [ argument ] (Some expected))
+                let manifest = (runName "constant" [] (Some "7")).Replace(",\"backend\":\"zig\"", "")
+                let mismatch = runName "pair" [ pair "actual" 1 ] (Some(pair "expected" 1))
+                let requests = requests @ [ exact; manifest; mismatch ]
+                for record in [ false; true ] do
+                    let source = if record then Path.ChangeExtension(path, ".nyrec") else path
+                    if record then
+                        File.WriteAllText(source, File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap |> RecordCodec.serialize |> unwrap)
+                        File.Copy(path + ".backends.json", source + ".backends.json")
+                    let replies = strictPair source requests
+                    for reply in replies |> List.take (replies.Length - 1) do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
+                    let result = success (List.last replies)
+                    Assert.False(result.GetProperty("matches").GetBoolean())
+                    Assert.Equal(1, result.GetProperty("mismatch").GetProperty("path").GetArrayLength())
+                Assert.Equal("7", (strictPair path [ manifest ] |> List.head |> success).GetProperty("actual").GetProperty("value").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``native Zig host resets queued and keyed fakes and preserves failures and call metadata`` () =
@@ -217,54 +219,55 @@ module ZigHostRunPureParityTests =
                   $"""{{"id":"imported","op":"runPure","functionId":"{StableId.value imported.Id}","arguments":[],"backend":"zig","expected":7}}""" ]
             for reply in strictPair path requests do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply))
 
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``native Zig host reuses source builds across inputs names and entries and invalidates changed bodies`` () =
-        withDirectory (fun directory ->
-            let path, declarations = fixture directory
-            let trace = Path.Combine(directory, "compiler-builds")
-            let cache = Path.Combine(directory, "cache")
-            let compiler = Path.Combine(directory, "compiler")
-            let quote (value: string) = "'" + value.Replace("'", "'\\''") + "'"
-            File.WriteAllText(compiler, $"#!/bin/sh\nif [ \"$1\" = build-exe ]; then printf 'build\\n' >> {quote trace}; fi\nexec {quote (ZigTools.executable ())} \"$@\"\n")
-            File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
-            zigHost () |> ignore
-            let environment = [ "NYRWVY_ZIG", compiler; "XDG_CACHE_HOME", cache ]
-            let builds () = if File.Exists trace then File.ReadAllLines(trace).Length else 0
-            withHost environment true path (fun send ->
-                let original = File.ReadAllText path
-                for name, arguments in [ "echo", [ "\"one\"" ]; "echo", [ "\"two\"" ]; "integer", [ "42" ] ] do
-                    send (runName name arguments (Some arguments.Head)) |> success |> ignore
-                for answer in [ "A"; "B" ] do
-                    send (runName "query" [ "\"a\""; responses [ returns (found answer) ] ] (Some(found answer))) |> success |> ignore
-                Assert.Equal(original, File.ReadAllText path)
-                Assert.Equal(3, builds ())
-                let publish request =
-                    let proposal = send request |> success |> fun reply -> reply.GetProperty("proposalId").GetString()
-                    send $"""{{"id":"commit","op":"commit","proposalId":"{proposal}"}}""" |> success |> ignore
-                publish """{"id":"rename","op":"simulateOperationsByName","operations":[{"kind":"renameFunction","function":"echo","displayName":"renamed"}]}"""
-                send (runName "renamed" [ "\"three\"" ] (Some "\"three\"")) |> success |> ignore
-                Assert.Equal(3, builds ())
-                publish """{"id":"body","op":"simulateReplaceBodyByName","function":"constant","replacement":{"kind":"int64Literal","value":"9"}}"""
-                let result = send (runName "constant" [] (Some "9")) |> success
-                Assert.True(result.GetProperty("matches").GetBoolean())
-                Assert.Equal(4, builds ()))
-            withHost environment true path (fun send ->
-                Assert.True((send (runName "constant" [] (Some "9")) |> success).GetProperty("matches").GetBoolean())
-                Assert.Equal(4, builds ()))
-            // PATH wrappers can change their build flags while `zig env` stays identical.
-            let originalCompiler = File.ReadAllText compiler
-            File.WriteAllText(compiler, originalCompiler + "# changed compiler wrapper\n")
-            let pathEnvironment = [ "NYRWVY_ZIG", "compiler"; "XDG_CACHE_HOME", cache; "PATH", directory + Path.PathSeparator.ToString() + Environment.GetEnvironmentVariable("PATH") ]
-            withHost pathEnvironment true path (fun send ->
-                send (runName "constant" [] (Some "9")) |> success |> ignore
-                let previous = builds ()
-                File.WriteAllText(compiler, originalCompiler + "# changed again within the same host\n")
-                send (runName "constant" [] (Some "9")) |> success |> ignore
-                Assert.Equal(previous + 1, builds ()))
-            let echoId = declarations.Functions |> List.find (fun fn -> fn.DisplayName = "echo") |> fun fn -> StableId.value fn.Id
-            let exact = $"""{{"id":"reopen","op":"runPure","backend":"zig","functionId":"{echoId}","arguments":["after reopen"]}}"""
-            let _, _, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] [ exact ]
-            Assert.Equal("renamed", (success replies.Head).GetProperty("function").GetString()))
+    module BuildReuse =
+        [<Fact; Trait("Suite", "Extended")>]
+        let ``native Zig host reuses source builds across inputs names and entries and invalidates changed bodies`` () =
+            withDirectory (fun directory ->
+                let path, declarations = fixture directory
+                let trace = Path.Combine(directory, "compiler-builds")
+                let cache = Path.Combine(directory, "cache")
+                let compiler = Path.Combine(directory, "compiler")
+                let quote (value: string) = "'" + value.Replace("'", "'\\''") + "'"
+                File.WriteAllText(compiler, $"#!/bin/sh\nif [ \"$1\" = build-exe ]; then printf 'build\\n' >> {quote trace}; fi\nexec {quote (ZigTools.executable ())} \"$@\"\n")
+                File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
+                zigHost () |> ignore
+                let environment = [ "NYRWVY_ZIG", compiler; "XDG_CACHE_HOME", cache ]
+                let builds () = if File.Exists trace then File.ReadAllLines(trace).Length else 0
+                withHost environment true path (fun send ->
+                    let original = File.ReadAllText path
+                    for name, arguments in [ "echo", [ "\"one\"" ]; "echo", [ "\"two\"" ]; "integer", [ "42" ] ] do
+                        send (runName name arguments (Some arguments.Head)) |> success |> ignore
+                    for answer in [ "A"; "B" ] do
+                        send (runName "query" [ "\"a\""; responses [ returns (found answer) ] ] (Some(found answer))) |> success |> ignore
+                    Assert.Equal(original, File.ReadAllText path)
+                    Assert.Equal(3, builds ())
+                    let publish request =
+                        let proposal = send request |> success |> fun reply -> reply.GetProperty("proposalId").GetString()
+                        send $"""{{"id":"commit","op":"commit","proposalId":"{proposal}"}}""" |> success |> ignore
+                    publish """{"id":"rename","op":"simulateOperationsByName","operations":[{"kind":"renameFunction","function":"echo","displayName":"renamed"}]}"""
+                    send (runName "renamed" [ "\"three\"" ] (Some "\"three\"")) |> success |> ignore
+                    Assert.Equal(3, builds ())
+                    publish """{"id":"body","op":"simulateReplaceBodyByName","function":"constant","replacement":{"kind":"int64Literal","value":"9"}}"""
+                    let result = send (runName "constant" [] (Some "9")) |> success
+                    Assert.True(result.GetProperty("matches").GetBoolean())
+                    Assert.Equal(4, builds ()))
+                withHost environment true path (fun send ->
+                    Assert.True((send (runName "constant" [] (Some "9")) |> success).GetProperty("matches").GetBoolean())
+                    Assert.Equal(4, builds ()))
+                // PATH wrappers can change their build flags while `zig env` stays identical.
+                let originalCompiler = File.ReadAllText compiler
+                File.WriteAllText(compiler, originalCompiler + "# changed compiler wrapper\n")
+                let pathEnvironment = [ "NYRWVY_ZIG", "compiler"; "XDG_CACHE_HOME", cache; "PATH", directory + Path.PathSeparator.ToString() + Environment.GetEnvironmentVariable("PATH") ]
+                withHost pathEnvironment true path (fun send ->
+                    send (runName "constant" [] (Some "9")) |> success |> ignore
+                    let previous = builds ()
+                    File.WriteAllText(compiler, originalCompiler + "# changed again within the same host\n")
+                    send (runName "constant" [] (Some "9")) |> success |> ignore
+                    Assert.Equal(previous + 1, builds ()))
+                let echoId = declarations.Functions |> List.find (fun fn -> fn.DisplayName = "echo") |> fun fn -> StableId.value fn.Id
+                let exact = $"""{{"id":"reopen","op":"runPure","backend":"zig","functionId":"{echoId}","arguments":["after reopen"]}}"""
+                let _, _, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] [ exact ]
+                Assert.Equal("renamed", (success replies.Head).GetProperty("function").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``native Zig host takes its child process groups down when it is terminated`` () =
@@ -376,45 +379,46 @@ module ZigHostRunPureParityTests =
                 Assert.Equal("ExternalModification", code (send (runName "constant" [] None)))
                 Assert.Equal("SessionInvalidated", code (send (runName "constant" [] None)))) |> ignore)
 
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``native Zig runner transports recursive keys UTF16 identities and seventeen fake bindings`` () =
-        withDirectory (fun directory ->
-            let path, _ = fixture directory
-            do
-                let requests = ResizeArray<string>()
-                let publish (request: string) = requests.Add request
-                let parameters = [ 0 .. 16 ] |> List.map (fun index -> $"""{{"displayName":"provider{index}","type":{{"kind":"capability","name":"Provider"}}}}""") |> String.concat ","
-                publish $"""{{"id":"many","op":"simulateCreateFunctionByName","exported":true,"displayName":"many","parameters":[{parameters}],"resultType":{named "Answer"},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "provider16"},"capability":"Provider","operation":"lookup","arguments":[{{"parameter":"key","value":{{"kind":"stringLiteral","value":"a"}}}}]}}}}"""
-                publish $"""{{"id":"walker","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Walker","operations":[{{"displayName":"walk","parameters":[{{"displayName":"chain","type":{named "Chain"}}}],"resultType":{named "Answer"},"effect":"io"}}]}}"""
-                publish $"""{{"id":"walk","op":"simulateCreateFunctionByName","exported":true,"displayName":"walk","parameters":[{{"displayName":"chain","type":{named "Chain"}}},{{"displayName":"walker","type":{{"kind":"capability","name":"Walker"}}}}],"resultType":{named "Answer"},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "walker"},"capability":"Walker","operation":"walk","arguments":[{{"parameter":"chain","value":{parameter "chain"}}}]}}}}"""
-                publish $"""{{"id":"reader","op":"simulateCreateCapabilityByName","exported":true,"displayName":"FloatReader","operations":[{{"displayName":"read","parameters":[{{"displayName":"number","type":{scalar "float64"}}}],"resultType":{text},"effect":"io"}}]}}"""
-                publish $"""{{"id":"nan","op":"simulateCreateFunctionByName","exported":true,"displayName":"negatedNaN","parameters":[{{"displayName":"reader","type":{{"kind":"capability","name":"FloatReader"}}}},{{"displayName":"number","type":{scalar "float64"}}}],"resultType":{text},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "reader"},"capability":"FloatReader","operation":"read","arguments":[{{"parameter":"number","value":{{"kind":"float64Negate","value":{parameter "number"}}}}}]}}}}"""
-                publishWithZigHost "open" path (List.ofSeq requests)
-            let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
-            let rewrittenTypes =
-                snapshot.Types |> List.map (fun item ->
-                    match item.DisplayName, item.Kind with
-                    | "Pair", SemanticTypeKind.Product fields ->
-                        { item with Kind = SemanticTypeKind.Product(fields |> List.map (fun field -> { field with Id = StableId.createForTesting<FieldTag> (if field.DisplayName = "text" then "field-\U00010000" else "field-\uE000") })) }
-                    | "Answer", SemanticTypeKind.Union variants ->
-                        { item with Kind = SemanticTypeKind.Union(variants |> List.map (fun variant -> { variant with Id = StableId.createForTesting<VariantTag> (if variant.DisplayName = "Found" then "variant-\U00010000" else "variant-\uE000") })) }
-                    | _ -> item)
-            let rewritten = { snapshot with Types = rewrittenTypes }
-            File.WriteAllText(path, SnapshotCodec.serialize rewritten |> unwrap)
-            let chain = """{"kind":"union","type":"Chain","variant":"Link","fields":[{"field":"value","value":{"kind":"int64","value":"3"}},{"field":"next","value":{"kind":"union","type":"Chain","variant":"End","fields":[]}}]}"""
-            let walker = $"""{{"kind":"fakeCapability","capability":"Walker","operations":[{{"operation":"walk","cases":[{{"arguments":[{{"parameter":"chain","value":{chain}}}],"responses":[{returns (found "walked")}]}}]}}]}}"""
-            let requests =
-                [ runName "many" ([ 0 .. 16 ] |> List.map (fun index -> responses [ returns (found (string index)) ])) (Some(found "16"))
-                  runName "walk" [ chain; walker ] (Some(found "walked"))
-                  runName "pair" [ pair "unicode identities" 2 ] (Some(pair "unicode identities" 2))
-                  runName "query" [ "\"a\""; responses [ returns missing ] ] (Some missing)
-                  runName "negatedNaN" [ """{"kind":"fakeCapability","capability":"FloatReader","operations":[{"operation":"read","cases":[{"arguments":[{"parameter":"number","value":{"kind":"float64","value":"NaN"}}],"responses":[{"kind":"return","value":{"kind":"string","value":"matched"}}]}]}]}"""; "\"NaN\"" ] None ]
-            let replies, zig = pairExcept [ 4 ] path requests
-            for reply in replies |> List.take 4 do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
-            Assert.Equal("provider16", (success replies.Head).GetProperty("calls").[0].GetProperty("parameter").GetString())
-            // The F# host compared scripted NaN keys by their bits; NaN keys are canonical now, as on the C# backend.
-            Assert.Equal("RunBindingNoMatch", code replies[4])
-            Assert.Equal("matched", (success zig[4]).GetProperty("actual").GetProperty("value").GetString()))
+    module RunnerTransport =
+        [<Fact; Trait("Suite", "Extended")>]
+        let ``native Zig runner transports recursive keys UTF16 identities and seventeen fake bindings`` () =
+            withDirectory (fun directory ->
+                let path, _ = fixture directory
+                do
+                    let requests = ResizeArray<string>()
+                    let publish (request: string) = requests.Add request
+                    let parameters = [ 0 .. 16 ] |> List.map (fun index -> $"""{{"displayName":"provider{index}","type":{{"kind":"capability","name":"Provider"}}}}""") |> String.concat ","
+                    publish $"""{{"id":"many","op":"simulateCreateFunctionByName","exported":true,"displayName":"many","parameters":[{parameters}],"resultType":{named "Answer"},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "provider16"},"capability":"Provider","operation":"lookup","arguments":[{{"parameter":"key","value":{{"kind":"stringLiteral","value":"a"}}}}]}}}}"""
+                    publish $"""{{"id":"walker","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Walker","operations":[{{"displayName":"walk","parameters":[{{"displayName":"chain","type":{named "Chain"}}}],"resultType":{named "Answer"},"effect":"io"}}]}}"""
+                    publish $"""{{"id":"walk","op":"simulateCreateFunctionByName","exported":true,"displayName":"walk","parameters":[{{"displayName":"chain","type":{named "Chain"}}},{{"displayName":"walker","type":{{"kind":"capability","name":"Walker"}}}}],"resultType":{named "Answer"},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "walker"},"capability":"Walker","operation":"walk","arguments":[{{"parameter":"chain","value":{parameter "chain"}}}]}}}}"""
+                    publish $"""{{"id":"reader","op":"simulateCreateCapabilityByName","exported":true,"displayName":"FloatReader","operations":[{{"displayName":"read","parameters":[{{"displayName":"number","type":{scalar "float64"}}}],"resultType":{text},"effect":"io"}}]}}"""
+                    publish $"""{{"id":"nan","op":"simulateCreateFunctionByName","exported":true,"displayName":"negatedNaN","parameters":[{{"displayName":"reader","type":{{"kind":"capability","name":"FloatReader"}}}},{{"displayName":"number","type":{scalar "float64"}}}],"resultType":{text},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "reader"},"capability":"FloatReader","operation":"read","arguments":[{{"parameter":"number","value":{{"kind":"float64Negate","value":{parameter "number"}}}}}]}}}}"""
+                    publishWithZigHost "open" path (List.ofSeq requests)
+                let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
+                let rewrittenTypes =
+                    snapshot.Types |> List.map (fun item ->
+                        match item.DisplayName, item.Kind with
+                        | "Pair", SemanticTypeKind.Product fields ->
+                            { item with Kind = SemanticTypeKind.Product(fields |> List.map (fun field -> { field with Id = StableId.createForTesting<FieldTag> (if field.DisplayName = "text" then "field-\U00010000" else "field-\uE000") })) }
+                        | "Answer", SemanticTypeKind.Union variants ->
+                            { item with Kind = SemanticTypeKind.Union(variants |> List.map (fun variant -> { variant with Id = StableId.createForTesting<VariantTag> (if variant.DisplayName = "Found" then "variant-\U00010000" else "variant-\uE000") })) }
+                        | _ -> item)
+                let rewritten = { snapshot with Types = rewrittenTypes }
+                File.WriteAllText(path, SnapshotCodec.serialize rewritten |> unwrap)
+                let chain = """{"kind":"union","type":"Chain","variant":"Link","fields":[{"field":"value","value":{"kind":"int64","value":"3"}},{"field":"next","value":{"kind":"union","type":"Chain","variant":"End","fields":[]}}]}"""
+                let walker = $"""{{"kind":"fakeCapability","capability":"Walker","operations":[{{"operation":"walk","cases":[{{"arguments":[{{"parameter":"chain","value":{chain}}}],"responses":[{returns (found "walked")}]}}]}}]}}"""
+                let requests =
+                    [ runName "many" ([ 0 .. 16 ] |> List.map (fun index -> responses [ returns (found (string index)) ])) (Some(found "16"))
+                      runName "walk" [ chain; walker ] (Some(found "walked"))
+                      runName "pair" [ pair "unicode identities" 2 ] (Some(pair "unicode identities" 2))
+                      runName "query" [ "\"a\""; responses [ returns missing ] ] (Some missing)
+                      runName "negatedNaN" [ """{"kind":"fakeCapability","capability":"FloatReader","operations":[{"operation":"read","cases":[{"arguments":[{"parameter":"number","value":{"kind":"float64","value":"NaN"}}],"responses":[{"kind":"return","value":{"kind":"string","value":"matched"}}]}]}]}"""; "\"NaN\"" ] None ]
+                let replies, zig = pairExcept [ 4 ] path requests
+                for reply in replies |> List.take 4 do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
+                Assert.Equal("provider16", (success replies.Head).GetProperty("calls").[0].GetProperty("parameter").GetString())
+                // The F# host compared scripted NaN keys by their bits; NaN keys are canonical now, as on the C# backend.
+                Assert.Equal("RunBindingNoMatch", code replies[4])
+                Assert.Equal("matched", (success zig[4]).GetProperty("actual").GetProperty("value").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``native Zig host respects private imported declaration visibility before backend execution`` () =

@@ -13,12 +13,18 @@ var compiler_stamp: ?[32]u8 = null;
 var compiler_digest: [32]u8 = undefined;
 
 var optimize: []const u8 = "ReleaseSafe";
+// Debug info is two thirds of a ReleaseSafe runner's build (16 s, 5.5 s without it), and a crash reply
+// reads only the runner's `panic: ` line, never its stack trace. Debug runners keep it for debugging.
+var strip: []const u8 = "-fstrip";
 
 pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void {
     compiler = env.get("NYRWVY_ZIG") orelse "zig";
-    // Tests can trade the optimized build for a compile about 35 times faster. Anything else is the default.
+    // Tests can trade the optimized build for a compile about 14 times faster. Anything else is the default.
     if (env.get("NYRWVY_ZIG_RUNNER_OPTIMIZE")) |mode| {
-        if (std.mem.eql(u8, mode, "Debug")) optimize = "Debug";
+        if (std.mem.eql(u8, mode, "Debug")) {
+            optimize = "Debug";
+            strip = "-fno-strip";
+        }
     }
     executable_search = env.get("PATH") orelse if (windows) "" else "/usr/bin:/bin";
     if (compiler.len == 0) compiler = "zig";
@@ -130,7 +136,7 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
         .completed => |result| if (result.term.success()) result.stdout else return .{ .failed = try processFailure(a, result) },
     };
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
-    for ([_][]const u8{ compiler, compiler_env, "build-exe", optimize, @import("zig_emitter").build_source, source }) |part| {
+    for ([_][]const u8{ compiler, compiler_env, "build-exe", optimize, strip, @import("zig_emitter").build_source, source }) |part| {
         hash.update(part);
         hash.update("\x00");
     }
@@ -189,7 +195,7 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
     const partial = try std.fmt.allocPrint(a, "{s}.{s}{s}", .{ binary, suffix, if (windows) ".exe" else "" });
     defer std.Io.Dir.cwd().deleteFile(io, partial) catch {};
     var arguments: std.ArrayList([]const u8) = .empty;
-    try arguments.appendSlice(a, &.{ compiler, "build-exe", input, "-O", optimize, "--cache-dir", try std.fs.path.join(a, &.{ cache, "cache" }), try std.mem.concat(a, u8, &.{ "-femit-bin=", partial }) });
+    try arguments.appendSlice(a, &.{ compiler, "build-exe", input, "-O", optimize, strip, "--cache-dir", try std.fs.path.join(a, &.{ cache, "cache" }), try std.mem.concat(a, u8, &.{ "-femit-bin=", partial }) });
     if (@import("builtin").os.tag == .macos) try arguments.append(a, "-lc");
     const built = switch (try launch(a, io, arguments.items, directory, "Zig build", 300)) {
         .failed => |failure| return .{ .failed = failure },
