@@ -588,3 +588,39 @@ test "stepping a position over one String is linear, keeps its cursor past short
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+test "consumed dropLast and Bytes updates reuse unique storage; a long String's length is recounted after a rewrite" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        const list = numbered(3, 3);
+        const dropped = nyListDropLastOwned([]const u8, list);
+        try std.testing.expectEqual(list.ptr, dropped.ptr);
+        try expectNumbered(dropped, 2);
+        const kept = nyShare(dropped);
+        const copied = nyListDropLastOwned([]const u8, dropped);
+        try expectNumbered(kept, 2);
+        try expectNumbered(copied, 1);
+        nyRelease(kept);
+        nyRelease(copied);
+        try std.testing.expectEqual(@as(usize, 0), nyListDropLastOwned(u8, &.{}).len);
+
+        const bytes = nyBytesFill(4, 1);
+        const set = nyBytesSet(bytes, 1, 7);
+        try std.testing.expectEqual(bytes.data.ptr, set.data.ptr);
+        try std.testing.expectEqualSlices(u8, &.{ 1, 7, 1, 1 }, set.data);
+        nyRelease(set);
+
+        const text = nyAlloc(u8, 300);
+        @memset(text, 'a');
+        try std.testing.expectEqual(@as(i64, 300), nyStringLength(text));
+        // Rewritten in place to the same address and byte length with one code point fewer.
+        const rewritten = nyConcatOwned(nyListSliceOwned(u8, text, 2, 300), nyStatic("\u{e9}"));
+        try std.testing.expectEqual(@intFromPtr(text.ptr), @intFromPtr(rewritten.ptr));
+        try std.testing.expectEqual(@as(usize, 300), rewritten.len);
+        try std.testing.expectEqual(@as(i64, 299), nyStringLength(rewritten));
+        nyRelease(rewritten);
+        try std.testing.expectEqual(@as(usize, 0), ny_length.ptr);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
