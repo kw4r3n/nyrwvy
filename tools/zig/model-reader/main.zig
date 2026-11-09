@@ -2992,7 +2992,7 @@ fn payloadTypeRefs(node: Model, out: *List(TypeRef)) void {
 }
 
 fn kindOf(node: Model) *const Kind {
-    return kinds.getPtr(text(node.kind())).?;
+    return kinds.getPtr(node.kindText()).?;
 }
 
 /// `SemanticNodeShape.directValueReferences`, in operand order: the properties node_references.txt
@@ -3357,7 +3357,7 @@ const Resolver = struct {
 
     /// `inferNodeType` for a node of the function (not a structured one).
     fn infer(self: *Resolver, node: Model) ?TypeRef {
-        const kind = text(node.kind());
+        const kind = node.kindText();
         if (constantType(kind)) |t| return t;
         const k = std.meta.stringToEnum(Typed, kind) orelse return null;
         const context = node.targets("context");
@@ -3895,7 +3895,7 @@ fn requirementsOf(kind: []const u8) []const usize {
 
 /// The table's requirements on one node, then `ValueEqual`.
 fn scalarRules(node: Model) void {
-    const kind = text(node.kind());
+    const kind = node.kindText();
     var references: List(Str) = .empty;
     directValueReferences(node, &references);
     for (requirementsOf(kind)) |index| {
@@ -3979,7 +3979,7 @@ fn kindIs(kind: []const u8, comptime names: []const u8) bool {
 
 /// Lists, Sets, Maps, Option and Result without callbacks (Validation.fs `ListConstruct` … `ListConcat`).
 fn collectionRules(node: Model) void {
-    const kind = text(node.kind());
+    const kind = node.kindText();
     const name = caseNameOf(node.kind());
     const ops = operandsOf(node);
     const int64 = primitiveType("int64");
@@ -4141,7 +4141,7 @@ fn bindingType(binding: Model) TypeRef {
 
 /// Products, unions, abort and the match nodes (Validation.fs `ProductConstruct` … `MatchResult`).
 fn structureRules(node: Model, graph_result: Str) void {
-    const kind = text(node.kind());
+    const kind = node.kindText();
     const id = node.id();
     const ops = operandsOf(node);
     const function = in_function.function;
@@ -4337,7 +4337,7 @@ fn isPure(function_id: Str) bool {
         var nodes: List(Model) = .empty;
         collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
-            if (kindIs(text(node.kind()), effectful_kinds)) return false;
+            if (kindIs(node.kindText(), effectful_kinds)) return false;
             var payload = node.data.node.payload();
             while (payload.next()) |field| if (field.read.domain == .function) {
                 pending.append(a, node.reference(field.read.name)) catch oom();
@@ -4556,7 +4556,7 @@ fn bodySubstitution(checked: *const CallbackContext, input: TypeRef) ?Substituti
 
 /// The higher-order, effect and task nodes (Validation.fs `ListFold` … `ListAll`).
 fn callbackRules(node: Model, local: *const Set) void {
-    const kind = text(node.kind());
+    const kind = node.kindText();
     const name = caseNameOf(node.kind());
     const id = node.id();
     const ops = operandsOf(node);
@@ -4790,7 +4790,7 @@ fn capabilityImplementationRules(node: Model) void {
 /// Function references and invocations, direct calls and capabilities (Validation.fs
 /// `CapabilityConstruct` … `CapabilityInvoke`).
 fn callRules(node: Model) void {
-    const kind = text(node.kind());
+    const kind = node.kindText();
     const id = node.id();
     const function_label = functionLabel(in_function.function);
     if (std.mem.eql(u8, kind, "capabilityConstruct")) {
@@ -5013,7 +5013,7 @@ const FunctionRef = struct { function_id: Str, role: Role, arguments: []const Mo
 /// `SemanticNodeShape.functionReferences`, in payload order.
 fn functionReferences(node: Model) []const FunctionRef {
     var out: List(FunctionRef) = .empty;
-    const kind = text(node.kind());
+    const kind = node.kindText();
     const context = node.targets("context");
     if (std.mem.eql(u8, kind, "directCall")) {
         out.append(a, .{ .function_id = node.reference("targetFunctionId"), .role = .direct_call, .arguments = node.arguments() }) catch oom();
@@ -5097,7 +5097,7 @@ fn memoDependencies(node: Model) []const Str {
 /// observable node in a nested graph.
 fn nodeObservable(node: Model, observable: *const Set) bool {
     if (observable_memo.get(nodeKey(node))) |known| return known;
-    const kind = text(node.kind());
+    const kind = node.kindText();
     const result = blk: {
         if (std.mem.eql(u8, kind, "abort")) break :blk true;
         if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) break :blk true;
@@ -5290,7 +5290,7 @@ fn genericArgs(r: *Resolver, node: Model, name: []const u8, comptime generic: []
 
 /// The values a node passes its callee besides the context, by kind (the `iteration` of `instantiations`).
 fn iterationTypes(r: *Resolver, node: Model) []const TypeRef {
-    const kind = text(node.kind());
+    const kind = node.kindText();
     var out: List(TypeRef) = .empty;
     if (std.mem.eql(u8, kind, "cancellationShield")) {
         out.append(a, primitiveType("unit")) catch oom();
@@ -5930,7 +5930,7 @@ fn typedShape(resolver: *Resolver, read: Read, node: Model) ?[]const u8 {
 }
 
 fn typedNode(resolver: *Resolver, node: Model) []const u8 {
-    const kind_name = text(node.kind());
+    const kind_name = node.kindText();
     const kind = kinds.get(kind_name).?;
     var o: Obj = .{};
     o.put("originNodeId", quoted(node.id()));
@@ -6167,7 +6167,7 @@ fn observableFunctions(functions: []const Model) Set {
         var nodes: List(Model) = .empty;
         collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
-            const kind = text(node.kind());
+            const kind = node.kindText();
             if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) seed = true;
             for (functionReferences(node)) |reference| switch (reference.role) {
                 .direct_call, .effect_callback, .worker, .body => {
@@ -6356,7 +6356,7 @@ const Lowering = struct {
     }
 
     fn lowerSimple(self: *Lowering, env: *Env, block: *Block, node: Model) LowerFailure!void {
-        const kind_name = text(node.kind());
+        const kind_name = node.kindText();
         const value_id = if (std.mem.eql(u8, kind_name, "parameterReference")) blk: {
             const parameter = node.reference("parameterId");
             if (self.parameters_by_id.get(idKey(parameter)) == null) return self.fail("MissingFunctionParameter", text(parameter));
@@ -6415,7 +6415,7 @@ const Lowering = struct {
     }
 
     fn leadsToTailSelfCall(self: *Lowering, node: Model) bool {
-        const kind = text(node.kind());
+        const kind = node.kindText();
         if (std.mem.eql(u8, kind, "directCall")) return self.isExactSelfCall(node);
         if (!kindIs(kind, "bind conditional boolAnd boolOr matchUnion matchOption matchResult")) return false;
         for (nestedScopes(node)) |scope| if (self.tailSelfCallNode(scope.graph) != null) return true;
@@ -6477,7 +6477,7 @@ const Lowering = struct {
 
     /// Lowers one structured node; returns the block to continue in, or null when the graph stops.
     fn lowerStructured(self: *Lowering, env: *Env, block: *Block, node: Model, is_tail: bool) LowerFailure!?*Block {
-        const kind = text(node.kind());
+        const kind = node.kindText();
         if (std.mem.eql(u8, kind, "bind")) {
             const input = try self.requireNode(env, node.reference("inputNodeId"));
             const arm = node.arm("boundBody");
@@ -6662,7 +6662,7 @@ const Lowering = struct {
             last_taken = id;
             const node = pending.get(idKey(id)).?;
             _ = pending.swapRemove(idKey(id));
-            const kind = text(node.kind());
+            const kind = node.kindText();
             const node_tail = tail_id != null and same(id, tail_id.?);
             if (std.mem.eql(u8, kind, "abort")) {
                 const error_value = try self.requireNode(&env, node.reference("errorNodeId"));
@@ -6693,7 +6693,7 @@ const Lowering = struct {
 };
 
 fn isBytesUpdate(node: Model) bool {
-    return kindIs(text(node.kind()), "bytesSet bytesAppend");
+    return kindIs(node.kindText(), "bytesSet bytesAppend");
 }
 
 fn executionFunction(function: Model, resolver: *Resolver, observable: *const Set) LowerFailure![]const u8 {

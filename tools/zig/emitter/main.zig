@@ -1194,7 +1194,12 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .stringConcat => pair(b, "nyConcatOwned"),
         .valueEqual => pair(b, "nyEqual"),
         .productConstruct => cat(&.{ "nyBox(", b.resultTypeName(), ", ", fieldList(arr(b.o, "fields")), ")" }),
-        .fieldAccess => cat(&.{ "nyShare(", b.f("sourceValueId"), ".", fieldName(str(b.o, "fieldId")), ")" }),
+        .fieldAccess => blk: {
+            const source = b.f("sourceValueId");
+            const name = fieldName(str(b.o, "fieldId"));
+            if (b.o.get("moveOut") == null) break :blk cat(&.{ "nyShare(", source, ".", name, ")" });
+            break :blk cat(&.{ "if (nyUnique(", source, ")) nyTakeField(&@constCast(", source, ").", name, ") else nyShare(", source, ".", name, ")" });
+        },
         .productUpdate => blk: {
             const fields = a.dupe(json.Value, arr(b.o, "fields")) catch oom();
             byId(json.Value, fields, targetFieldKey);
@@ -1263,8 +1268,8 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .listDropLast => b.listCall("nyListDropLastOwned", "listValueId", &.{}),
         .listSlice => b.listCall("nyListSliceOwned", "listValueId", &.{ b.f("startId"), b.f("endId") }),
         .listSetAt => b.listCall("nyListSetAtOwned", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
-        .listInsertAt => b.listCall("nyListInsertAt", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
-        .listRemoveAt => b.listCall("nyListRemoveAt", "listValueId", &.{b.f("indexValueId")}),
+        .listInsertAt => b.listCall("nyListInsertAtOwned", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
+        .listRemoveAt => b.listCall("nyListRemoveAtOwned", "listValueId", &.{b.f("indexValueId")}),
         .listIndexOf => b.listCall("nyListIndexOf", "listValueId", &.{b.f("itemValueId")}),
         .listLastIndexOf => b.listCall("nyListLastIndexOf", "listValueId", &.{b.f("itemValueId")}),
         .listContains => cat(&.{ "nyListIndexOf(", b.elementOf("listValueId"), ", ", b.f("listValueId"), ", ", b.f("itemValueId"), ") != null" }),
@@ -1350,7 +1355,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .setToList => cat(&.{ "nyShare(", b.f("setValueId"), ".items)" }),
         .setSize => cat(&.{ "@as(i64, @intCast(", b.f("setValueId"), ".items.len))" }),
         .setInsert => b.listCall("nySetInsertInto", "setValueId", &.{b.f("itemValueId")}),
-        .setRemove => b.listCall("nySetRemove", "setValueId", &.{b.f("itemValueId")}),
+        .setRemove => b.listCall("nySetRemoveOwned", "setValueId", &.{b.f("itemValueId")}),
         .setContains => cat(&.{ "nySetFind(", b.elementOf("setValueId"), ", ", b.f("setValueId"), ", ", b.f("itemValueId"), ") != null" }),
         .setUnion => b.listCall("nySetUnion", "leftSetValueId", &.{b.f("rightSetValueId")}),
         .setIntersection => b.listCall("nySetKeep", "leftSetValueId", &.{ b.f("rightSetValueId"), "true" }),
@@ -1369,7 +1374,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .mapKeys => cat(&.{ "nyShare(", b.f("mapValueId"), ".keys)" }),
         .mapValues => cat(&.{ "nyShare(", b.f("mapValueId"), ".values)" }),
         .mapInsert => b.mapCall("nyMapInsertInto", "mapValueId", &.{ b.f("keyValueId"), b.f("valueValueId") }),
-        .mapRemove => b.mapCall("nyMapRemove", "mapValueId", &.{b.f("keyValueId")}),
+        .mapRemove => b.mapCall("nyMapRemoveOwned", "mapValueId", &.{b.f("keyValueId")}),
         .mapGet => b.mapCall("nyMapGet", "mapValueId", &.{b.f("keyValueId")}),
         .mapGetOrDefault => blk: {
             const types = b.mapTypes("mapValueId");
@@ -1638,6 +1643,8 @@ fn consumedKey(kind: []const u8, key: []const u8) bool {
         .{ "return", "valueId" },              .{ "abort", "errorValueId" },               .{ "jump", "arguments" },
         .{ "tailCall", "arguments" },          .{ "listDropLast", "listValueId" },         .{ "bytesSet", "bytesId" },
         .{ "bytesAppend", "bytesId" },         .{ "bytesConcat", "leftId" },               .{ "bytesSlice", "bytesId" },
+        .{ "listInsertAt", "listValueId" },    .{ "listRemoveAt", "listValueId" },         .{ "setRemove", "setValueId" },
+        .{ "mapRemove", "mapValueId" },
     };
     for (table) |row| if (eql(row[0], kind) and eql(row[1], key)) return true;
     return false;
@@ -1885,6 +1892,62 @@ fn reuseProductConstructors(original: Function, values: *const std.StringHashMap
     return fn_;
 }
 
+/// Marks a field read whose box is next used, in the same block, only by an update that overwrites
+/// that field, with the box dead after it (reads of other fields in between are allowed). A unique box
+/// then moves the field out (`nyTakeField`) instead of sharing it, so the value stays unique for an
+/// in-place update; a shared box shares it as before. shortcut: the read and the update must be in
+/// one block; follow the read across branches if a conditional update pattern turns out to be slow.
+fn moveOutUpdatedFields(original: Function, values: *const std.StringHashMap(*const Type)) Function {
+    var fn_ = original;
+    fn_.blocks = a.dupe(Block, original.blocks) catch oom();
+    var own = Ownership{ .values = values, .fn_ = original, .live_in = .init(a) };
+    own.analyse();
+    for (fn_.blocks) |*block| {
+        block.instructions = a.dupe(Instruction, block.instructions) catch oom();
+        // Whether each update's source is still live after it.
+        const source_live = a.alloc(bool, block.instructions.len) catch oom();
+        var live = own.beforeTerminator(block.*);
+        var at = block.instructions.len;
+        while (at > 0) {
+            at -= 1;
+            const o = block.instructions[at].o;
+            source_live[at] = eql(str(o, "kind"), "productUpdate") and live.contains(str(o, "sourceValueId"));
+            _ = live.swapRemove(block.instructions[at].result.id);
+            for (own.uses(o)) |use| live.put(a, use.id, {}) catch oom();
+        }
+        for (block.instructions, 0..) |*read, i| {
+            if (!eql(str(read.o, "kind"), "fieldAccess") or !movable(read.result.type)) continue;
+            const source = str(read.o, "sourceValueId");
+            const field = str(read.o, "fieldId");
+            for (block.instructions[i + 1 ..], i + 1..) |next, j| {
+                var reads: usize = 0;
+                for (own.uses(next.o)) |use| reads += @intFromBool(eql(use.id, source));
+                if (reads == 0) continue;
+                const kind = str(next.o, "kind");
+                if (eql(kind, "fieldAccess") and !eql(str(next.o, "fieldId"), field)) continue;
+                if (reads == 1 and eql(kind, "productUpdate") and eql(str(next.o, "sourceValueId"), source) and !source_live[j]) {
+                    for (arr(next.o, "fields")) |update| if (eql(str(update.object, "targetFieldId"), field)) {
+                        read.o = read.o.clone(a) catch oom();
+                        read.o.put(a, "moveOut", .{ .bool = true }) catch oom();
+                        break;
+                    };
+                }
+                break;
+            }
+        }
+    }
+    return fn_;
+}
+
+/// Field types with an empty value a moved-out field can leave behind (`nyTakeField`).
+fn movable(t: *const Type) bool {
+    return switch (t.*) {
+        .primitive => |kind| eql(kind, "primitiveString") or eql(kind, "primitiveBytes"),
+        .builtin => |builtin| eql(builtin.kind, "list") or eql(builtin.kind, "set") or eql(builtin.kind, "map"),
+        else => false,
+    };
+}
+
 fn completeProductFields(instruction: Instruction) bool {
     const named = switch (instruction.result.type.*) {
         .named => |named| named,
@@ -2113,7 +2176,7 @@ fn emit(ordered: []const Function) ?[]const u8 {
         const values = valuesOf(fn_);
         var body = Body{ .values = .init(a) };
         for (values) |value| body.values.put(value.id, value.type) catch oom();
-        fn_ = reuseProductConstructors(fn_, &body.values);
+        fn_ = moveOutUpdatedFields(reuseProductConstructors(fn_, &body.values), &body.values);
         for (values) |value| _ = zigOf(value.type);
         _ = zigOf(fn_.result);
         var lines: List([]const u8) = .empty;
@@ -3098,6 +3161,9 @@ test "constructor reuse keeps owned sources live and excludes consumed or later-
         for (instructions.items) |instruction| try values.put(instruction.result.id, instruction.result.type);
         const lowered = reuseProductConstructors(fn_, &values);
         const changed = lowered.blocks[0].instructions[index];
+        // Only a read the reused constructor overwrites, of a field with an empty value, moves out.
+        const moved = moveOutUpdatedFields(lowered, &values).blocks[0].instructions[0].o.get("moveOut") != null;
+        try std.testing.expectEqual(scenario == 0 or scenario == 4, moved);
         try std.testing.expectEqualStrings(if (scenario == 0 or scenario == 4) "productUpdate" else "productConstruct", str(changed.o, "kind"));
         try std.testing.expectEqualStrings("productConstruct", str(construct, "kind"));
         if (scenario == 4) {
@@ -3112,6 +3178,48 @@ test "constructor reuse keeps owned sources live and excludes consumed or later-
             try std.testing.expect(std.mem.indexOf(u8, rendered[1], "errdefer") != null);
             try std.testing.expect(std.mem.indexOf(u8, rendered[1], drop) != null);
         }
+    }
+}
+
+test "a field read moves out only when the next use of its box overwrites it and the box dies there" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    const box: Type = .{ .named = .{ .id = "Box", .args = &.{} } };
+    const string: Type = .{ .primitive = "primitiveString" };
+    declarations = .init(a);
+    try declarations.put("Box", .{ .id = "Box", .type_parameters = &.{}, .product = try a.dupe(Field, &.{ .{ .id = "text", .type = &string }, .{ .id = "other", .type = &string } }), .variants = &.{} });
+    const read_text = (try parseJson(
+        \\{"kind":"fieldAccess","sourceValueId":"source","fieldId":"text"}
+    )).object;
+    const read_other = (try parseJson(
+        \\{"kind":"fieldAccess","sourceValueId":"source","fieldId":"other"}
+    )).object;
+    const update = (try parseJson(
+        \\{"kind":"productUpdate","sourceValueId":"source","fields":[{"targetFieldId":"text","valueId":"text"}]}
+    )).object;
+    // 0 plain, 1 another field read between, 2 the same field read again, 3 the box live after.
+    for (0..4) |scenario| {
+        var instructions: List(Instruction) = .empty;
+        push(Instruction, &instructions, .{ .result = .{ .id = "text", .type = &string }, .o = read_text });
+        if (scenario == 1) push(Instruction, &instructions, .{ .result = .{ .id = "other", .type = &string }, .o = read_other });
+        if (scenario == 2) push(Instruction, &instructions, .{ .result = .{ .id = "again", .type = &string }, .o = read_text });
+        push(Instruction, &instructions, .{ .result = .{ .id = "result", .type = &box }, .o = update });
+        const terminator = (try parseJson(if (scenario == 3)
+            \\{"kind":"return","valueId":"source"}
+        else
+            \\{"kind":"return","valueId":"result"}
+        )).object;
+        var blocks: List(Block) = .empty;
+        push(Block, &blocks, .{ .id = "entry", .parameters = &.{}, .instructions = instructions.items, .terminator = terminator });
+        const fn_: Function = .{ .id = "test", .type_parameters = &.{}, .parameters = &.{}, .result = &box, .entry = "entry", .blocks = blocks.items };
+        var values = std.StringHashMap(*const Type).init(a);
+        try values.put("source", &box);
+        for (instructions.items) |instruction| try values.put(instruction.result.id, instruction.result.type);
+        const marked = moveOutUpdatedFields(fn_, &values).blocks[0].instructions;
+        try std.testing.expectEqual(scenario <= 1, marked[0].o.get("moveOut") != null);
+        if (scenario == 1) try std.testing.expect(marked[1].o.get("moveOut") == null);
+        if (scenario == 2) try std.testing.expect(marked[1].o.get("moveOut") != null);
     }
 }
 
@@ -3166,6 +3274,7 @@ test "emitted constructor reuse executes unique shared nested and failing paths 
     });
     const output = try runner(allocator, ir, null);
     try std.testing.expect(output == .source);
+    try std.testing.expect(std.mem.indexOf(u8, output.source, "nyTakeField(") != null);
     const emitted_test = cat(&.{
         \\test "generated constructor ownership" {
         \\ var gpa: std.heap.DebugAllocator(.{}) = .init;
@@ -3194,6 +3303,14 @@ test "emitted constructor reuse executes unique shared nested and failing paths 
         " try std.testing.expectEqualStrings(\"42\", held.",
         fieldName("items"),
         "[0]); nyRelease(held);",
+        // A unique box whose field was moved out before the failure is released with no leak.
+        " try std.testing.expectError(error.NyFailure, ",
+        instanceName("failed", &.{}),
+        "(nyBox(",
+        typeName("Box", &.{}),
+        ", .{ .",
+        fieldName("items"),
+        " = nyListMove([]const u8, &.{nyInt64ToString(7)}) }), .{ .type_name = \"Test\", .message = \"failed\" }));",
         \\ }
         \\ try std.testing.expect(gpa.deinit() == .ok);
         \\}
