@@ -552,7 +552,7 @@ test "three waiters deadlocked at once, waited out of start order, each unwind a
     try std.testing.expect(gpa.deinit() == .ok);
 }
 
-test "stepping a position over one String is linear and survives freeing it" {
+test "stepping a position over one String is linear, keeps its cursor past short Strings, and survives freeing it" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     ny_values = gpa.allocator();
     {
@@ -571,6 +571,9 @@ test "stepping a position over one String is linear and survives freeing it" {
                 else => 4,
             }), point.len);
             nyRelease(point);
+            // A short table read between steps must not take the cursor from `text`.
+            nyRelease(nyStringSlice(nyStatic("\"\\/bfnrt"), 3, 4));
+            try std.testing.expectEqual(@intFromPtr(text.ptr), ny_cursor.ptr);
             try std.testing.expectEqual(position + 1, nyStringSpan(text, nyStatic("a"), position) + @intFromBool(@mod(position, 3) != 0));
         }
         while (position > 0) : (position -= 3) try std.testing.expectEqual(position - 1, nyStringIndexOf(text, nyStatic("\u{1F600}"), position - 1).?);

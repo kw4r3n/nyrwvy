@@ -1357,6 +1357,10 @@ fn nyWidth(text: []const u8, offset: usize) usize {
 /// large Strings walks again; upgrade to per-String checkpoints (C# `MapOf`) when such a pattern shows up.
 var ny_cursor: struct { ptr: usize = 0, len: usize = 0, offset: usize = 0, position: i64 = 0 } = .{};
 
+/// Strings shorter than this are walked from byte 0 and leave the cursor alone, so a lookup table read
+/// inside a loop over a long String does not take the cursor from it.
+const ny_cursor_min = 256;
+
 fn nyCursorStart(text: []const u8) void {
     if (ny_cursor.ptr == @intFromPtr(text.ptr) and ny_cursor.len == text.len) return;
     ny_cursor = .{ .ptr = @intFromPtr(text.ptr), .len = text.len };
@@ -1372,6 +1376,12 @@ fn nyCursorBack(text: []const u8) void {
 /// The byte offset of a code-point position clamped to [0, length].
 fn nyOffsetOf(text: []const u8, position: i64) usize {
     if (position <= 0 or text.len == 0) return 0;
+    if (text.len < ny_cursor_min) {
+        var offset: usize = 0;
+        var reached: i64 = 0;
+        while (reached < position and offset < text.len) : (reached += 1) offset += nyWidth(text, offset);
+        return offset;
+    }
     nyCursorStart(text);
     if (position < @divTrunc(ny_cursor.position, 2)) ny_cursor = .{ .ptr = ny_cursor.ptr, .len = text.len };
     while (ny_cursor.position < position and ny_cursor.offset < text.len) {
@@ -1385,6 +1395,7 @@ fn nyOffsetOf(text: []const u8, position: i64) usize {
 /// The code-point position of a code-point boundary `offset`.
 fn nyPositionOf(text: []const u8, offset: usize) i64 {
     if (offset == 0) return 0;
+    if (text.len < ny_cursor_min) return nyStringLength(text[0..offset]);
     nyCursorStart(text);
     if (offset < ny_cursor.offset / 2) ny_cursor = .{ .ptr = ny_cursor.ptr, .len = text.len };
     while (ny_cursor.offset < offset) {
