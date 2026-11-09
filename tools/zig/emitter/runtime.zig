@@ -360,14 +360,19 @@ fn nyInt64ToString(value: i64) []const u8 {
 }
 
 /// The code-point count of the last long String measured, so a loop that tests a long String's
-/// length each step counts it once. Dropped with the cursor when the storage is freed or rewritten.
+/// length each step counts it once, and one that appends and then tests counts only the new tail.
+/// Dropped with the cursor when the storage is freed or rewritten.
 var ny_length: struct { ptr: usize = 0, len: usize = 0, count: i64 = 0 } = .{};
 
 /// Strings are UTF-8 sequences of Unicode scalar values, so this never fails.
 fn nyStringLength(text: []const u8) i64 {
     if (text.len < ny_cursor_min) return @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable);
-    if (ny_length.ptr != @intFromPtr(text.ptr) or ny_length.len != text.len)
-        ny_length = .{ .ptr = @intFromPtr(text.ptr), .len = text.len, .count = @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable) };
+    if (ny_length.ptr != @intFromPtr(text.ptr) or ny_length.len > text.len) ny_length = .{ .ptr = @intFromPtr(text.ptr) };
+    // Live storage only grows at its end, and a measured String ends on a code-point boundary.
+    if (ny_length.len < text.len) {
+        ny_length.count += @intCast(std.unicode.utf8CountCodepoints(text[ny_length.len..]) catch unreachable);
+        ny_length.len = text.len;
+    }
     return ny_length.count;
 }
 
@@ -390,7 +395,6 @@ fn nyConcat(left: []const u8, right: []const u8) []const u8 {
 // deadline. With nothing able to resume, every waiter fails as the C# clock's waiters do, one at a time.
 var ny_io: std.Io = undefined;
 var ny_gate: std.Io.Mutex = .init;
-var ny_turn: std.Io.Condition = .init;
 var ny_running: usize = 1;
 var ny_next_order: u64 = 1;
 var ny_now: i64 = 0;
@@ -405,6 +409,8 @@ const NyWaiter = struct {
     is_delay: bool,
     released: bool = false,
     failed: bool = false,
+    /// Signalled when the scheduler releases this waiter, so a turn wakes one thread, not all of them.
+    turn: std.Io.Condition = .init,
 };
 
 fn nyAlways(_: *const anyopaque) bool {
@@ -475,7 +481,7 @@ fn nySchedule() void {
     }
     next.?.released = true;
     ny_running += 1;
-    ny_turn.broadcast(ny_io);
+    next.?.turn.signal(ny_io);
 }
 
 const ny_deadlock: NyFailure = .{ .type_name = "System.InvalidOperationException", .message = "Every task is blocked and no delay is pending, so the program cannot continue." };
@@ -493,7 +499,7 @@ fn nyBlock(ready: *const fn (*const anyopaque) bool, context: *const anyopaque, 
     ny_waiters.append(nyAllocator(), waiter) catch @panic("out of memory");
     ny_running -= 1;
     nySchedule();
-    while (!waiter.released) ny_turn.waitUncancelable(ny_io, &ny_gate);
+    while (!waiter.released) waiter.turn.waitUncancelable(ny_io, &ny_gate);
     ny_gate.unlock(ny_io);
     if (waiter.failed) return nyDeadlock();
     return ready(context);
@@ -514,7 +520,7 @@ fn nyEnter() *NyWaiter {
 fn nyStart(ticket: *NyWaiter) bool {
     ny_order = ticket.order;
     ny_gate.lockUncancelable(ny_io);
-    while (!ticket.released) ny_turn.waitUncancelable(ny_io, &ny_gate);
+    while (!ticket.released) ticket.turn.waitUncancelable(ny_io, &ny_gate);
     ny_gate.unlock(ny_io);
     return !ticket.failed;
 }
@@ -891,7 +897,9 @@ fn nyExtend(comptime T: type, list: []const T, extra: usize) []T {
     const len = list.len + extra;
     if (list.len > 0 and nyHeader(list.ptr).count == 1) {
         const header = nyHeader(list.ptr);
-        nyCursorForget(T, list.ptr);
+        // Appending keeps the items before `list.len`, so a String cursor or length survives unless a
+        // longer, now dead, list measured the items about to be overwritten.
+        if (nyUsed(T, list.ptr) != list.len) nyCursorForget(T, list.ptr);
         // Items a longer, now dead, list left past this one are owned by the storage alone.
         if (comptime nyCounted(T)) for (list.ptr[list.len..nyUsed(T, list.ptr)]) |item| nyRelease(item);
         if (nyCap(header) >= len) {
@@ -900,6 +908,8 @@ fn nyExtend(comptime T: type, list: []const T, extra: usize) []T {
         }
         const cap = @min(@max(len, nyCap(header) * 2), std.math.maxInt(u31));
         if (len > cap) nyOom();
+        // realloc may move the storage and free the old range without `nyFree`.
+        nyCursorForget(T, list.ptr);
         const old: [*]align(8) u8 = @ptrCast(@alignCast(header));
         const bytes = nyRaw().realloc(old[0 .. @sizeOf(NyHeader) + nyCap(header) * @sizeOf(T)], @sizeOf(NyHeader) + cap * @sizeOf(T)) catch nyOom();
         const moved: *NyHeader = @ptrCast(bytes.ptr);
@@ -939,6 +949,7 @@ fn nyListAppendOwned(comptime T: type, list: []const T, item: T) []const T {
 fn nyListSetAtOwned(comptime T: type, list: []const T, index: i64, item: T) []const T {
     const at = nyIndex(index, list.len) orelse return list;
     const items = nyExtend(T, list, 0);
+    nyCursorForget(T, items.ptr);
     nyRelease(items[at]);
     items[at] = nyShare(item);
     return items;
@@ -1064,6 +1075,7 @@ fn nyListInsertAtOwned(comptime T: type, list: []const T, index: i64, item: T) [
         return copy;
     }
     const items = nyExtend(T, list, 1);
+    nyCursorForget(T, items.ptr);
     std.mem.copyBackwards(T, items[at + 1 ..], items[at .. items.len - 1]);
     items[at] = nyShare(item);
     return items;
