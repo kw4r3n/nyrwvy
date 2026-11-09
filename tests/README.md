@@ -76,7 +76,7 @@ The fast wrapper also runs the ordinary-authoring smoke tests, authoring transpo
 node scripts/run-node-tests.mjs fast-contracts
 ```
 
-The on-demand CI workflow additionally verifies the MCP adapter. After `npm ci` and `npm run build:host`, run all fast Node transport/script and MCP contracts with:
+The CI workflow additionally verifies the MCP adapter. After `npm ci` and `npm run build:host`, run all fast Node transport/script and MCP contracts with:
 
 ```shell
 npm run test:node

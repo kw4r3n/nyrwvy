@@ -1,9 +1,12 @@
 name: CI
 
-# GitHub Actions minutes are billed, so CI runs only on demand at major milestones (owner,
-# 2026-10-05). Routine changes run the same checks in a local or cloud session before a PR;
-# see docs/developer/verification.md.
+# The repository is public, so Actions minutes are not a concern: the fast job runs on every pull
+# request and push to main and is a required check for main (owner, 2026-11-09). The extended
+# suites and the native platform checks run on demand; see docs/developer/verification.md.
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       extended:
