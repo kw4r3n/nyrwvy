@@ -45,7 +45,7 @@ fn containsNode(function: Value, node_id: []const u8) bool {
     for (model.typedBodyNodes(function.context.allocator, function)) |node| if (edit.hasId(node, node_id)) return true;
     return false;
 }
-fn planRecipe(d: *recipe.Decoder, path: []const u8, input: Json, node_id: []const u8, by_name: bool, fields: ?[]const Value) !*const recipe.Node {
+fn planRecipe(d: *recipe.Decoder, path: []const u8, raw: []const u8, input: Json, node_id: []const u8, by_name: bool, fields: ?[]const Value) !*const recipe.Node {
     var body = input;
     var local = d.*;
     local.new_fields = fields;
@@ -56,7 +56,7 @@ fn planRecipe(d: *recipe.Decoder, path: []const u8, input: Json, node_id: []cons
         for (parameters, names) |parameter, *name| name.* = query.nameOf(parameter);
         local.owner = .{ .name = query.nameOf(owner), .parameters = names, .existing = owner };
     } else local.owner = null;
-    try recipe.resolveNames(&local, path, &body, try rawAt(&local, path));
+    try recipe.resolveNames(&local, path, &body, raw);
     const result = try local.recipe(path, body);
     return if (by_name) recipe.bindExistingTypes(&local, result) else result;
 }
@@ -102,13 +102,16 @@ fn productField(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool)
     const type_key: []const u8 = if (by_name) "fieldType" else "type";
     const field_type = try local.anyType(try at(d, path, type_key), try d.property(item, type_key));
     var plans: std.ArrayList(types.ValuePlan) = .empty;
-    for (try d.array(item, "constructions"), 0..) |plan, i| {
+    const constructions = try d.array(item, "constructions");
+    // Split the array's raw items once; rescanning the request line per plan is quadratic.
+    const raw_plans = if (constructions.len == 0) &.{} else try @import("recipe_file.zig").rawArrayItems(d.r.a, try rawAt(d, try at(d, path, "constructions")));
+    for (constructions, 0..) |plan, i| {
         const p = try index(d, try at(d, path, "constructions"), i);
         try d.ensureFields(p, plan, "product construction plan", &.{ "constructNodeId", "valueNodeId", "value" }, &.{"constructNodeId"});
         const construct = try id(d, plan, "constructNodeId");
         const value = plan.object.get("value");
         const existing = plan.object.get("valueNodeId");
-        const result: types.ValuePlan = if (existing != null and value == null) .{ .construct = construct, .value = .{ .existing = try id(d, plan, "valueNodeId") } } else if (existing == null and value != null) .{ .construct = construct, .value = .{ .recipe = try planRecipe(d, try at(d, p, "value"), value.?, construct, by_name, null) } } else return d.r.fail("A product construction plan takes exactly one of valueNodeId or value.", .{});
+        const result: types.ValuePlan = if (existing != null and value == null) .{ .construct = construct, .value = .{ .existing = try id(d, plan, "valueNodeId") } } else if (existing == null and value != null) .{ .construct = construct, .value = .{ .recipe = try planRecipe(d, try at(d, p, "value"), try recipe.rawProperty(d.r.a, raw_plans[i], "value"), value.?, construct, by_name, null) } } else return d.r.fail("A product construction plan takes exactly one of valueNodeId or value.", .{});
         try plans.append(d.r.a, result);
     }
     return .{ .add_product_field = .{ .type = owner, .field = .{ .name = name, .type = field_type }, .constructions = plans.items } };
@@ -151,11 +154,13 @@ fn unionVariant(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool)
     }
     local.r = &request;
     var arms: std.ArrayList(types.ArmRecipe) = .empty;
-    for (try d.array(item, "arms"), 0..) |arm, i| {
+    const arm_items = try d.array(item, "arms");
+    const raw_arms = if (arm_items.len == 0) &.{} else try @import("recipe_file.zig").rawArrayItems(d.r.a, try rawAt(d, try at(d, path, "arms")));
+    for (arm_items, 0..) |arm, i| {
         const p = try index(d, try at(d, path, "arms"), i);
         try d.ensureFields(p, arm, "union match arm plan", &.{ "matchNodeId", "body" }, &.{ "matchNodeId", "body" });
         const match_id = try id(d, arm, "matchNodeId");
-        const body = planRecipe(&local, try at(d, p, "body"), try d.property(arm, "body"), match_id, by_name, if (by_name) null else variant.fields()) catch |err| {
+        const body = planRecipe(&local, try at(d, p, "body"), try recipe.rawProperty(d.r.a, raw_arms[i], "body"), try d.property(arm, "body"), match_id, by_name, if (by_name) null else variant.fields()) catch |err| {
             d.r.rejection = request.rejection;
             return err;
         };

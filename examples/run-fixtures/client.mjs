@@ -101,7 +101,7 @@ export async function runParity(client, fixtures, backends, transcript, report =
     const supported = outcomes.filter(outcome => !outcome.unsupported)
     const unsupported = outcomes.filter(outcome => outcome.unsupported).map(outcome => outcome.backend)
     const note = unsupported.length ? ` (unsupported on ${unsupported.join(", ")})` : ""
-    if (supported.length === 0) {
+    if (unsupported.length > 0) { // a partial run compares nothing, so it must not pass
       counts.unsupported += 1
       report(`${label}: UNSUPPORTED${note}`)
     } else if (supported.some(outcome => outcome.transportFailed)) {
@@ -148,7 +148,7 @@ async function main() {
     await appendFile(transcript, JSON.stringify({ phase: "open", response: opened }) + "\n")
     if (opened.isError || payload(opened)?.ok === false) throw new Error("Could not open snapshot; see transcript.")
     const counts = parity ? await runParity(client, fixtures, backends, transcript) : await runFixtures(client, fixtures, transcript)
-    console.log(`${counts.passed} passed, ${counts.failed} failed, ${counts.unknown} unknown` + (parity ? `, ${counts.unsupported} unsupported everywhere` : ""))
+    console.log(`${counts.passed} passed, ${counts.failed} failed, ${counts.unknown} unknown` + (parity ? `, ${counts.unsupported} unsupported` : ""))
     if (counts.failed || counts.unknown || counts.unsupported) process.exitCode = 1
   } finally {
     await client.close()

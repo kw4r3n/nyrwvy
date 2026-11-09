@@ -69,8 +69,8 @@ function report(rows) {
   console.log("| --- | ---: | ---: | ---: | --- | ---: |")
   for (const [key, list] of groups) {
     const codes = Object.entries(Object.groupBy(list.flatMap(r => r.rejections), code => code)).map(([code, all]) => `${code}×${all.length}`).join(", ")
-    const judged = list.filter(r => r.verifyError === undefined)
-    console.log(`| ${key} | ${judged.filter(r => r.passed).length}/${judged.length}${judged.length < list.length ? ` (+${list.length - judged.length} verifier errors)` : ""} | ${mean(list.map(r => r.toolCalls))} | ${mean(list.map(r => r.rejections.length))} | ${codes || "-"} | ${median(list.map(r => r.input))} |`)
+    const judged = list.filter(r => r.verifyError === undefined && r.infraError === undefined)
+    console.log(`| ${key} | ${judged.filter(r => r.passed).length}/${judged.length}${judged.length < list.length ? ` (+${list.length - judged.length} verifier/infrastructure errors)` : ""} | ${mean(list.map(r => r.toolCalls))} | ${mean(list.map(r => r.rejections.length))} | ${codes || "-"} | ${median(list.map(r => r.input))} |`)
   }
 }
 
@@ -99,12 +99,14 @@ if (values.check) {
       const exit = await codex(task, workspace, dir)
       const events = summarizeEvents((await readFile(join(dir, "events.jsonl"), "utf8")).split("\n"))
       let checks, verifyError
-      try { checks = await verify(workspace, task.checks) } catch (error) { verifyError = String(error) }
-      // A verifier failure is not the model's: such a run has no passed value and is left out of the pass rate.
-      const row = { label: values.label, task: basename(path, ".json"), run: i, exit, ...(verifyError ? { verifyError } : { passed: checks.every(Boolean), checks }), seconds: Math.round((Date.now() - started) / 1000), ...events }
+      // A codex crash that left no snapshot is infrastructure, not a model failure.
+      const infraError = exit !== 0 && !existsSync(join(workspace, "workspace.json")) ? `codex exited ${exit} without a snapshot` : undefined
+      if (!infraError) try { checks = await verify(workspace, task.checks) } catch (error) { verifyError = String(error) }
+      // A verifier or infrastructure failure is not the model's: such a run has no passed value and is left out of the pass rate.
+      const row = { label: values.label, task: basename(path, ".json"), run: i, exit, ...(infraError ? { infraError } : verifyError ? { verifyError } : { passed: checks.every(Boolean), checks }), seconds: Math.round((Date.now() - started) / 1000), ...events }
       rows.push(row)
       await appendFile(join(out, "results.jsonl"), JSON.stringify(row) + "\n")
-      console.error(`${row.task} #${i}: ${verifyError ? `VERIFIER ERROR (${verifyError})` : row.passed ? "pass" : "FAIL"}, ${row.toolCalls} calls, ${row.rejections.length} rejected`)
+      console.error(`${row.task} #${i}: ${infraError ? `INFRASTRUCTURE ERROR (${infraError})` : verifyError ? `VERIFIER ERROR (${verifyError})` : row.passed ? "pass" : "FAIL"}, ${row.toolCalls} calls, ${row.rejections.length} rejected`)
     }
   }
   console.error(`results: ${join(out, "results.jsonl")}`)

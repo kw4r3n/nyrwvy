@@ -43,9 +43,10 @@ public static class NyRuntime
     }
     public static System.Threading.Tasks.Task<T> Run<T>(Func<T> work)
     {
-        if (Clock is not { } clock) return System.Threading.Tasks.Task.Run(work);
+        // A dedicated thread: a task blocks (on its turn, or a wait in real time), which would starve the pool.
+        if (Clock is not { } clock)
+            return System.Threading.Tasks.Task.Factory.StartNew(work, System.Threading.CancellationToken.None, System.Threading.Tasks.TaskCreationOptions.LongRunning, System.Threading.Tasks.TaskScheduler.Default);
         var start = clock.Enter();
-        // A dedicated thread: every virtual task waits for its turn, which would starve the pool.
         var running = System.Threading.Tasks.Task.Factory.StartNew(() => { clock.Start(start); return work(); },
             System.Threading.CancellationToken.None, System.Threading.Tasks.TaskCreationOptions.LongRunning, System.Threading.Tasks.TaskScheduler.Default);
         running.ContinueWith(_ => clock.Exit(), System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously);
@@ -74,8 +75,9 @@ public sealed class NyVirtualClock
         public long? Due;
         public long Order;
         public bool IsDelay;
-        public bool Released;
         public Exception? Failure;
+        /// Released when the scheduler picks this waiter, so a turn wakes one thread, not all of them.
+        public readonly System.Threading.SemaphoreSlim Turn = new(0);
     }
     private readonly object _gate = new();
     private readonly System.Collections.Generic.List<Waiter> _waiters = new();
@@ -100,31 +102,30 @@ public sealed class NyVirtualClock
     {
         var waiter = (Waiter)ticket;
         Order.Value = waiter.Order;
-        lock (_gate)
-        {
-            while (!waiter.Released) System.Threading.Monitor.Wait(_gate);
-            if (waiter.Failure != null) throw waiter.Failure;
-        }
+        waiter.Turn.Wait();
+        if (waiter.Failure != null) throw waiter.Failure;
     }
     public void Exit() { lock (_gate) { _running--; Schedule(); } }
     /// Blocks until `ready` holds or `millis` of virtual time have passed; true when ready.
     public bool Block(Func<bool> ready, long? millis, bool isDelay = false)
     {
+        var waiter = new Waiter { Ready = ready, Order = Order.Value, IsDelay = isDelay };
         lock (_gate)
         {
-            var waiter = new Waiter { Ready = ready, Due = millis is long value ? Deadline(value) : null, Order = Order.Value, IsDelay = isDelay };
+            waiter.Due = millis is long value ? Deadline(value) : null;
             _waiters.Add(waiter);
             _running--;
             Schedule();
-            while (!waiter.Released) System.Threading.Monitor.Wait(_gate);
-            if (waiter.Failure != null) throw waiter.Failure;
-            return ready();
         }
+        waiter.Turn.Wait();
+        if (waiter.Failure != null) throw waiter.Failure;
+        return ready();
     }
     private void Schedule()
     {
         if (_running > 0 || _waiters.Count == 0) return;
-        var next = Earliest(waiter => waiter.IsDelay && waiter.Due <= _now);
+        // A failed waiter has no deadline and is no delay, so Earliest picks the lowest start order.
+        var next = Earliest(waiter => waiter.Failure != null) ?? Earliest(waiter => waiter.IsDelay && waiter.Due <= _now);
         if (next == null)
         {
             foreach (var waiter in _waiters)
@@ -135,23 +136,17 @@ public sealed class NyVirtualClock
             next = Earliest(waiter => waiter.Due != null);
             if (next == null)
             {
-                // Nothing can ever resume: fail every waiter instead of hanging.
+                // Nothing can ever resume: every waiter fails instead of hanging, released one at a
+                // time by start order so that their unwinding never runs on two threads at once.
                 foreach (var waiter in _waiters)
-                {
                     waiter.Failure = new InvalidOperationException("Every task is blocked and no delay is pending, so the program cannot continue.");
-                    waiter.Released = true;
-                    _running++;
-                }
-                _waiters.Clear();
-                System.Threading.Monitor.PulseAll(_gate);
-                return;
+                next = Earliest(waiter => waiter.Failure != null)!;
             }
-            _now = next.Due!.Value;
+            else _now = next.Due!.Value;
         }
         _waiters.Remove(next);
-        next.Released = true;
         _running++;
-        System.Threading.Monitor.PulseAll(_gate);
+        next.Turn.Release();
     }
     /// The matching waiter with the earliest deadline; delays before waits, then start order.
     private Waiter? Earliest(Func<Waiter, bool> matches)

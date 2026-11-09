@@ -346,8 +346,10 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request
     return failure(out, id, "UnsupportedOperation", try std.fmt.allocPrint(a, "Unsupported operation '{s}'.", .{op}));
 }
 
+// shortcut: 256 MiB is a judgment ceiling for a snapshot or dependency file; raise it if a real workspace needs more.
+const max_text_bytes = 256 * 1024 * 1024;
 pub fn readText(a: std.mem.Allocator, path: []const u8) ![]const u8 {
-    return decodeText(a, try std.Io.Dir.cwd().readFileAlloc(host_io, path, a, .unlimited));
+    return decodeText(a, try std.Io.Dir.cwd().readFileAlloc(host_io, path, a, .limited(max_text_bytes)));
 }
 fn decodeText(a: std.mem.Allocator, bytes: []const u8) ![]const u8 {
     const text = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;

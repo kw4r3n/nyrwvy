@@ -14,6 +14,8 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     const input = try @import("recipe_file.zig").jsonInput(&decoder, "functions", "functionsFile");
     if (input.value != .array) return r.fail("functions must be an array.", .{});
     if (input.value.array.items.len == 0) return r.fail("functions must list at least one function.", .{});
+    // shortcut: 256 is a judgment cap on one batch; each item is built against all predecessors.
+    if (input.value.array.items.len > 256) return r.fail("functions must list at most 256 functions; split a larger batch.", .{});
     const expected = if (r.root.get("expectedSnapshotId") != null) try decoder.stableId("expectedSnapshotId", try decoder.requiredString(.{ .object = r.root }, "expectedSnapshotId")) else r.snapshot_id;
     try r.ensureUsable();
     var created: std.ArrayList(model.Model) = .empty;

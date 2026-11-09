@@ -1,16 +1,18 @@
 // Writes json.json: an RFC 8259 parser and serializer for a recursive Json Union, built from existing
-// nodes only. Usage: node libraries/json/author.mjs [<host executable>]; run it again after a change.
+// nodes only. Usage: node libraries/json/author.mjs [<host executable> [<output directory>]]; run it again after a change.
 import { spawn } from "node:child_process"
-import { rmSync } from "node:fs"
+import { copyFileSync, mkdtempSync, renameSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { hostExchange } from "../host-client.mjs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const executable = process.argv[2] ?? resolve(here, "../../tools/zig/host/bin/nyrwvy-host")
-const snapshot = join(here, "json.json")
-rmSync(snapshot, { force: true })
-rmSync(snapshot + ".backends.json", { force: true })
+const outDir = resolve(process.argv[3] ?? here)
+// Written to a temp dir and moved over the tracked file only after the host succeeded.
+const work = mkdtempSync(join(tmpdir(), "nyr-json-author-"))
+const snapshot = join(work, "json.json")
 const cli = spawn(executable, ["create", "--snapshot", snapshot], { stdio: ["pipe", "pipe", "inherit"], cwd: resolve(here, "../..") })
 const exchange = hostExchange(cli)
 const send = async request => {
@@ -204,4 +206,8 @@ await define("jsonBool", { value: Json }, option(bool), matchJson(P("value"), [a
 await define("jsonIsNull", { value: Json }, bool, matchJson(P("value"), [arm("Null", null, { kind: "boolLiteral", value: true })], { kind: "boolLiteral", value: false }), true)
 cli.stdin.end()
 await new Promise(done => cli.once("close", done))
-for (const file of [".backends.json", ".lock"]) rmSync(snapshot + file, { force: true })
+if (cli.exitCode !== 0) throw new Error(`host exited (${cli.exitCode ?? cli.signalCode})`)
+const target = join(outDir, "json.json")
+copyFileSync(snapshot, target + ".tmp")
+renameSync(target + ".tmp", target)
+rmSync(work, { recursive: true, force: true })

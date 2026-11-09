@@ -1,16 +1,18 @@
 // Writes core.json: small functions whose calls take fewer nodes than the shapes they replace. Each uses
-// existing nodes only. Usage: node libraries/core/author.mjs [<host executable>]; run it again after a change.
+// existing nodes only. Usage: node libraries/core/author.mjs [<host executable> [<output directory>]]; run it again after a change.
 import { spawn } from "node:child_process"
-import { rmSync } from "node:fs"
+import { copyFileSync, mkdtempSync, renameSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { hostExchange } from "../host-client.mjs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const executable = process.argv[2] ?? resolve(here, "../../tools/zig/host/bin/nyrwvy-host")
-const snapshot = join(here, "core.json")
-rmSync(snapshot, { force: true })
-rmSync(snapshot + ".backends.json", { force: true })
+const outDir = resolve(process.argv[3] ?? here)
+// Written to a temp dir and moved over the tracked file only after the host succeeded.
+const work = mkdtempSync(join(tmpdir(), "nyr-core-author-"))
+const snapshot = join(work, "core.json")
 const cli = spawn(executable, ["create", "--snapshot", snapshot], { stdio: ["pipe", "pipe", "inherit"], cwd: resolve(here, "../..") })
 const exchange = hostExchange(cli)
 const send = async request => {
@@ -82,4 +84,8 @@ await define("optionOrElse", ["T"], { option: optionOf(T), other: optionOf(T) },
 await define("resultIsErr", ["T", "E"], { result: { kind: "builtinGeneric", generic: "result", arguments: [T, E] } }, bool, not({ kind: "resultIsOk", value: P("result") }))
 cli.stdin.end()
 await new Promise(done => cli.once("close", done))
-for (const file of [".backends.json", ".lock"]) rmSync(snapshot + file, { force: true })
+if (cli.exitCode !== 0) throw new Error(`host exited (${cli.exitCode ?? cli.signalCode})`)
+const target = join(outDir, "core.json")
+copyFileSync(snapshot, target + ".tmp")
+renameSync(target + ".tmp", target)
+rmSync(work, { recursive: true, force: true })

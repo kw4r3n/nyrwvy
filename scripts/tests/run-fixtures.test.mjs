@@ -126,12 +126,12 @@ test("parity sends each fixture to every backend and separates agreement, disagr
     return replies[label].shift()
   } }, fixtures, ["csharp", "zig"], transcript, line => summaries.push(line))
   assert.deepEqual(sent, Array.from({ length: 7 }, () => ["csharp", "zig"]).flat())
-  assert.deepEqual(counts, { passed: 2, failed: 4, unknown: 0, unsupported: 1 })
+  assert.deepEqual(counts, { passed: 1, failed: 4, unknown: 0, unsupported: 2 })
   assert.deepEqual(summaries, [
     "agree: PASSED on csharp, zig",
     "differ: DISAGREE between csharp, zig",
     "differCalls: DISAGREE between csharp, zig",
-    "zigUnsupported: PASSED on csharp (unsupported on zig)",
+    "zigUnsupported: UNSUPPORTED (unsupported on zig)",
     "nowhere: UNSUPPORTED (unsupported on csharp, zig)",
     "sameFailure: FAILED on csharp, zig",
     "otherFailure: DISAGREE between csharp, zig",
