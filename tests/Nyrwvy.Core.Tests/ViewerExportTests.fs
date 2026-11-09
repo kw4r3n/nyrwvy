@@ -78,3 +78,15 @@ module ViewerExportTests =
             let code, _, errors = export [ "--input"; app; "--output"; app ]
             Assert.True((code = 2), errors)
             Assert.Equal<byte[]>(before, File.ReadAllBytes app))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``focus refuses to overwrite the snapshot's sidecars`` () =
+        withDirectory (fun directory ->
+            let app = Path.Combine(directory, "app.json")
+            createSnapshot app "value" None
+            for suffix in [ ".lock"; ".dependency.json"; ".backends.json" ] do
+                let output = app + suffix
+                let before = if File.Exists output then Some(File.ReadAllBytes output) else None
+                let code, _, errors = export [ "--input"; app; "--output"; output ]
+                Assert.True((code = 2), errors)
+                Assert.Equal<byte[] option>(before, (if File.Exists output then Some(File.ReadAllBytes output) else None)))

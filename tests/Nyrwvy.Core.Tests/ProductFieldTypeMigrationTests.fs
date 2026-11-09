@@ -83,6 +83,13 @@ module ProductFieldTypeMigrationTests =
         | other -> failwithf "Invalid field migration accepted: %A" other
 
     [<Fact>]
+    let ``simulateGroup returns a builder error instead of raising`` () =
+        let ws = fixture ()
+        match AgentExpressionStructuralWorkflow.FunctionCreation.simulateGroup ws [ fun _ -> Error("broken", "cannot resolve") ] with
+        | Error(AgentStructuralWorkflowError.SimulationRejected [ _ ]) -> ()
+        | other -> failwithf "Expected SimulationRejected: %A" other
+
+    [<Fact>]
     let ``field type migration rewrites constructions and reads in one reviewed publication`` () =
         let ws = fixture ()
         let before = AgentWorkspace.snapshotForStructuralEditing ws
