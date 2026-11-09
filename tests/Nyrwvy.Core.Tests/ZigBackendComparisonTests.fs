@@ -622,20 +622,28 @@ module ZigBackendComparisonTests =
         withDirectory (fun directory ->
             let path = Path.Combine(directory, "workspace.json")
             publishWithZigHost "create" path (declarations @ batchDeclarations)
-            // A host handles its requests in turn and nearly every call builds its own runner (about 15 s
-            // in ReleaseSafe), so each backend splits the calls over several read-only hosts.
+            // A host handles its requests in turn and builds a runner per function (one core each), so each
+            // backend deals the functions round-robin over read-only hosts, half a core's worth per backend
+            // (more oversubscribes: builds took up to 50 s, past the 60 s silence limit): a function's calls
+            // stay on one host (one build), and every host builds about as many runners.
+            let hosts = max 4 (Environment.ProcessorCount / 2)
             let replies backend =
                 calls
-                |> List.map (fun (_, name, arguments) -> request backend name arguments)
-                |> List.splitInto 8
-                |> List.map (fun requests ->
+                |> List.mapi (fun index (_, name, arguments) -> index, name, request backend name arguments)
+                |> List.groupBy (fun (_, name, _) -> name)
+                |> List.mapi (fun position (_, group) -> position % hosts, group)
+                |> List.groupBy fst
+                |> List.map (fun (_, groups) ->
+                    let indexed = List.collect snd groups
+                    let requests = indexed |> List.map (fun (_, _, request) -> request)
                     Threading.Tasks.Task.Run(fun () ->
                         let code, errors, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
                         Assert.Equal(0, code)
                         Assert.Equal("", errors)
                         Assert.Equal(requests.Length, replies.Length)
-                        replies))
-            let collect (shards: Threading.Tasks.Task<_> list) = shards |> List.collect (fun shard -> shard.Result)
+                        List.zip (indexed |> List.map (fun (index, _, _) -> index)) replies))
+            // Back in call order.
+            let collect (shards: Threading.Tasks.Task<_> list) = shards |> List.collect (fun shard -> shard.Result) |> List.sortBy fst |> List.map snd
             let csharp, zig = replies "csharp", replies "zig"
             let disagreements =
                 [ for (succeeds, name, arguments), csharp, zig in List.zip3 calls (collect csharp) (collect zig) do

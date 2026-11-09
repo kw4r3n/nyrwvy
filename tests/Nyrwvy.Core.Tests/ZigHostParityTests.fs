@@ -46,7 +46,10 @@ module ZigHostParityTests =
         |> Array.tryPick (fun frame ->
             match frame.GetMethod() with
             | null -> None
-            | m when m.IsDefined(typeof<FactAttribute>, true) -> Some(Regex.Replace($"{m.DeclaringType.Name}.{m.Name}", "[^A-Za-z0-9.]+", "-").Trim('-'))
+            | m when m.IsDefined(typeof<FactAttribute>, true) ->
+                // A test in a nested module (split out to run in parallel) keeps its outer module's runs.
+                let rec outer (t: Type) = if isNull t.DeclaringType then t else outer t.DeclaringType
+                Some(Regex.Replace($"{(outer m.DeclaringType).Name}.{m.Name}", "[^A-Za-z0-9.]+", "-").Trim('-'))
             | _ -> None)
 
     /// The run file of the next F# host start in the calling test: the test method and its count

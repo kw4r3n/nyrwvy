@@ -46,16 +46,18 @@ function run(args, host) {
     groups.add(child.pid)
     let stderr = "", error
     child.stderr?.setEncoding("utf8").on("data", text => { stderr += text })
-    const timer = setTimeout(() => { error = new Error("timed out after 300 s"); killGroup(child.pid) }, 300_000)
+    const timer = setTimeout(() => { error = new Error("timed out after 600 s"); killGroup(child.pid) }, 600_000)
     child.on("error", failure => { clearTimeout(timer); done({ status: null, stderr, error: failure }) })
     child.on("close", status => { clearTimeout(timer); groups.delete(child.pid); done({ status, stderr, error }) })
   })
 }
-for (const args of commands) {
-  if (process.platform === "darwin") args.splice(1, 0, "-lc")
-  const host = args === commands.at(-1)
-  const result = await run(args, host)
-  if (host) process.stderr.write(result.stderr ?? "")
+// Each zig compile uses about one core, so the commands run at once and are checked in order afterwards.
+if (process.platform === "darwin") commands.forEach(args => args.splice(1, 0, "-lc"))
+const results = await Promise.all(commands.map(args => run(args, args === commands.at(-1))))
+// The host run has finished too, so its output shows even when an earlier suite failed.
+process.stderr.write(results.at(-1).stderr ?? "")
+for (const [index, result] of results.entries()) {
+  const host = index === commands.length - 1
   if (result.error) {
     console.error(`Zig host test failed: ${result.error.message}`)
     process.exit(1)
