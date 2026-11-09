@@ -980,6 +980,22 @@ fn nyListSliceOwned(comptime T: type, list: []const T, start: i64, end: i64) []c
     return shrunk[0..kept];
 }
 
+/// Moves a field out of a unique box whose next update overwrites it (main.zig
+/// `moveOutUpdatedFields`): the box keeps an empty value, which that update releases (a no-op).
+fn nyTakeField(slot: anytype) @TypeOf(slot.*) {
+    const value = slot.*;
+    slot.* = switch (@typeInfo(@TypeOf(value))) {
+        .pointer => &.{},
+        .@"struct" => |info| blk: {
+            var empty: @TypeOf(value) = undefined;
+            inline for (info.field_names) |name| @field(empty, name) = &.{};
+            break :blk empty;
+        },
+        else => @compileError("a moved field is a List, String, Bytes, Set or Map"),
+    };
+    return value;
+}
+
 /// Whether an owned box is its only reference, so an update may write it in place.
 fn nyUnique(box: anytype) bool {
     return nyHeader(box).count == 1;
@@ -1035,21 +1051,46 @@ fn nyListSetAt(comptime T: type, list: []const T, index: i64, item: T) []const T
     return items;
 }
 
-fn nyListInsertAt(comptime T: type, list: []const T, index: i64, item: T) []const T {
+/// Insertion that consumes `list` (reused when unique) and borrows `item`.
+fn nyListInsertAtOwned(comptime T: type, list: []const T, index: i64, item: T) []const T {
     const at = nyClamp(index, list.len);
-    const items = nyAlloc(T, list.len + 1);
-    nyCopyItems(T, items[0..at], list[0..at]);
+    // A shared list may claim spare slots in `nyExtend`, but its holders must not see items shift.
+    if (list.len == 0 or nyHeader(list.ptr).count != 1) {
+        defer nyRelease(list);
+        const copy = nyAlloc(T, list.len + 1);
+        nyCopyItems(T, copy[0..at], list[0..at]);
+        copy[at] = nyShare(item);
+        nyCopyItems(T, copy[at + 1 ..], list[at..]);
+        return copy;
+    }
+    const items = nyExtend(T, list, 1);
+    std.mem.copyBackwards(T, items[at + 1 ..], items[at .. items.len - 1]);
     items[at] = nyShare(item);
-    nyCopyItems(T, items[at + 1 ..], list[at..]);
     return items;
 }
 
-fn nyListRemoveAt(comptime T: type, list: []const T, index: i64) []const T {
-    const at = nyIndex(index, list.len) orelse return nyShare(list);
-    const items = nyAlloc(T, list.len - 1);
-    nyCopyItems(T, items[0..at], list[0..at]);
-    nyCopyItems(T, items[at..], list[at + 1 ..]);
-    return items;
+/// Removal that consumes `list`: a unique list closes the gap in place, a shared one is copied.
+fn nyListRemoveAtOwned(comptime T: type, list: []const T, index: i64) []const T {
+    const at = nyIndex(index, list.len) orelse return list;
+    if (list.len == 1) {
+        nyRelease(list);
+        return &.{};
+    }
+    if (nyHeader(list.ptr).count != 1) {
+        defer nyRelease(list);
+        const items = nyAlloc(T, list.len - 1);
+        nyCopyItems(T, items[0..at], list[0..at]);
+        nyCopyItems(T, items[at..], list[at + 1 ..]);
+        return items;
+    }
+    nyCursorForget(T, list.ptr);
+    const items = @constCast(list.ptr)[0..nyUsed(T, list.ptr)];
+    nyRelease(items[at]);
+    // Items a longer, now dead, list left past this one are owned by the storage alone.
+    for (items[list.len..]) |item| nyRelease(item);
+    std.mem.copyForwards(T, items[at .. list.len - 1], items[at + 1 .. list.len]);
+    nySetUsed(T, list.ptr, list.len - 1);
+    return items[0 .. list.len - 1];
 }
 
 fn nyListIndexOf(comptime T: type, list: []const T, item: T) ?i64 {
@@ -1098,7 +1139,10 @@ fn nyFloat64ToInt64(integral: f64) ?i64 {
 // storage of power-of-two slots, each 0 (empty) or a position + 1, at most half full (linear
 // probing), and covers exactly the items of the value holding it. It is updated in place only when
 // its count is one, and otherwise rebuilt, so a shared update is O(n). Empty means no index: lookups
-// scan, which is faster for a few items. Removal compacts and rebuilds (O(n)).
+// scan, which is faster for a few items. Removing the last item is O(1) when unique. Removing an
+// earlier one compacts the items, so it is O(n): a unique index drops the slot and renumbers in place
+// without hashing, a shared one is rebuilt. shortcut: dense storage keeps front and middle removal
+// O(n); use tombstones if a queue-like drain of a large Set or Map is slow.
 fn NySet(comptime T: type) type {
     return struct {
         items: []const T,
@@ -1175,6 +1219,43 @@ noinline fn nyIndexGrow(comptime T: type, index: []const u32, items: []const T) 
     return index;
 }
 
+/// Consumes the index of `kept` plus the item that was at position `at` (whose hash is `hash`), and
+/// returns the index of `kept`. A unique index frees that item's slot, renumbers the positions past
+/// `at` (none when it was the last), and closes the slot by backward shift (linear probing),
+/// rehashing only the cluster after it.
+noinline fn nyIndexRemove(comptime T: type, index: []const u32, kept: []const T, at: usize, hash: u64) []const u32 {
+    if (index.len == 0) return index;
+    // A drained set shrinks its index: a built one is at most 4x its items, so this rebuilds once
+    // per 2x shrink and later removals renumber a small index.
+    if (kept.len <= nyIndexMin(T) or nyHeader(index.ptr).count != 1 or index.len > kept.len * 8) {
+        nyRelease(index);
+        return nyIndexBuild(T, kept);
+    }
+    const slots = @constCast(index);
+    const mask = slots.len - 1;
+    var hole: usize = @truncate(hash);
+    while (slots[hole & mask] != at + 1) hole +%= 1;
+    hole &= mask;
+    slots[hole] = 0;
+    if (at < kept.len) for (slots) |*slot| {
+        if (slot.* > at + 1) slot.* -= 1;
+    };
+    var next = hole;
+    while (true) {
+        next = (next + 1) & mask;
+        const slot = slots[next];
+        if (slot == 0) break;
+        const home = @as(usize, @truncate(nyHash(kept[slot - 1]))) & mask;
+        // An entry stays when its home lies cyclically in (hole, next]; otherwise it fills the hole.
+        const stays = if (hole <= next) home > hole and home <= next else home > hole or home <= next;
+        if (stays) continue;
+        slots[hole] = slot;
+        slots[next] = 0;
+        hole = next;
+    }
+    return index;
+}
+
 fn nySetFind(comptime T: type, set: NySet(T), item: T) ?usize {
     return nyLookup(T, set.items, set.index, item);
 }
@@ -1201,9 +1282,12 @@ inline fn nySetInsertOwned(comptime T: type, set: NySet(T), item: T) NySet(T) {
     return nySetInsertInto(T, set, item);
 }
 
-fn nySetRemove(comptime T: type, set: NySet(T), item: T) NySet(T) {
-    const at = nySetFind(T, set, item) orelse return nyShare(set);
-    return nySetOf(T, nyListRemoveAt(T, set.items, @intCast(at)));
+/// Removal from a set this call owns (reused when unique), borrowing the item.
+fn nySetRemoveOwned(comptime T: type, set: NySet(T), item: T) NySet(T) {
+    const at = nySetFind(T, set, item) orelse return set;
+    const hash = nyHash(set.items[at]);
+    const items = nyListRemoveAtOwned(T, set.items, @intCast(at));
+    return .{ .items = items, .index = nyIndexRemove(T, set.index, items, at, hash) };
 }
 
 /// The distinct items in first-seen order.
@@ -1251,10 +1335,12 @@ inline fn nyMapInsertOwned(comptime K: type, comptime V: type, map: NyMap(K, V),
     return nyMapInsertInto(K, V, map, key, value);
 }
 
-fn nyMapRemove(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) NyMap(K, V) {
-    const at: i64 = @intCast(nyMapFind(K, V, map, key) orelse return nyShare(map));
-    const keys = nyListRemoveAt(K, map.keys, at);
-    return .{ .keys = keys, .index = nyIndexBuild(K, keys), .values = nyListRemoveAt(V, map.values, at) };
+/// Removal from a map this call owns (keys, values and index each reused when unique), borrowing the key.
+fn nyMapRemoveOwned(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) NyMap(K, V) {
+    const at = nyMapFind(K, V, map, key) orelse return map;
+    const hash = nyHash(map.keys[at]);
+    const keys = nyListRemoveAtOwned(K, map.keys, @intCast(at));
+    return .{ .keys = keys, .index = nyIndexRemove(K, map.index, keys, at, hash), .values = nyListRemoveAtOwned(V, map.values, @intCast(at)) };
 }
 
 fn nyMapGet(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) ?V {

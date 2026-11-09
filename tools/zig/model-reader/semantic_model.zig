@@ -118,10 +118,18 @@ pub const Record = struct {
         self.activate();
         return if (self.data.binding.name) |n| nameText(n) else null;
     }
+    /// `kind()` as UTF-8; a node's comes straight from the kind table, with no conversion.
+    pub fn kindText(self: Record) []const u8 {
+        self.activate();
+        return switch (self.data) {
+            .node => |p| p.kind(),
+            else => std.unicode.utf16LeToUtf8Alloc(allocator, self.kind()) catch @panic("out of memory"),
+        };
+    }
     pub fn kind(self: Record) Str {
         self.activate();
         return switch (self.data) {
-            .node => |p| std.unicode.utf8ToUtf16LeAlloc(allocator, p.kind()) catch @panic("out of memory"),
+            .node => |p| kind16(p),
             .type_declaration => |p| if (p.product) &.{ 'p', 'r', 'o', 'd', 'u', 'c', 't' } else &.{ 'u', 'n', 'i', 'o', 'n' },
             .type_ref => |t| switch (t) {
                 .primitive => &.{ 'p', 'r', 'i', 'm', 'i', 't', 'i', 'v', 'e' },
@@ -472,4 +480,15 @@ test "borrowed semantic handles retain their own interner across temporary model
     try std.testing.expectEqualSlices(u16, &.{ 'f', 'i', 'r', 's', 't' }, first.id());
     try std.testing.expectEqualSlices(u16, &.{ 's', 'e', 'c', 'o', 'n', 'd' }, second.id());
     try std.testing.expectEqualSlices(u16, &.{ 'f', 'i', 'r', 's', 't' }, first.id());
+}
+
+/// A node kind's UTF-16 name per kind-table index (at most 256), converted once per process like the
+/// table itself, so `kind()` on a node does not allocate.
+var kind16_cache: [256]?Str = @splat(null);
+fn kind16(p: model.Node) Str {
+    const k = p.body.kinds[p.index];
+    if (kind16_cache[k]) |cached| return cached;
+    const units = std.unicode.utf8ToUtf16LeAlloc(std.heap.page_allocator, p.kind()) catch @panic("out of memory");
+    kind16_cache[k] = units;
+    return units;
 }

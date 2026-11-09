@@ -441,8 +441,8 @@ test "sets and maps look up through a hash index that agrees with equality" {
         try std.testing.expectEqual(@as(?usize, 1001), nySetFind(i64, set, 1001));
         for (0..1001) |i| try std.testing.expectEqual(@as(?usize, i), nySetFind(i64, old, @intCast(i)));
         nyRelease(old);
-        // Removal compacts the items and rebuilds the index over the new positions.
-        const removed = nySetRemove(i64, set, 3);
+        // Removing from a shared set compacts a copy of the items and rebuilds the index.
+        const removed = nySetRemoveOwned(i64, nyShare(set), 3);
         try std.testing.expectEqual(@as(?usize, null), nySetFind(i64, removed, 3));
         for (4..1002) |i| try std.testing.expectEqual(@as(?usize, i - 1), nySetFind(i64, removed, @intCast(i)));
         try std.testing.expectEqual(@as(?usize, 3), nySetFind(i64, set, 3));
@@ -461,7 +461,7 @@ test "sets and maps look up through a hash index that agrees with equality" {
         const joined = nySetUnion(i64, removed, evens);
         try std.testing.expectEqual(@as(i64, 2000), joined.items[joined.items.len - 1]);
         try std.testing.expectEqual(removed.items.len + 1, joined.items.len);
-        const unjoined = nySetRemove(i64, joined, 2000);
+        const unjoined = nySetRemoveOwned(i64, nyShare(joined), 2000);
         try std.testing.expect(!nyEqual(joined, removed) and nyEqual(unjoined, removed));
         nyRelease(unjoined);
         for ([_]NySet(i64){ evens, both, only, joined, removed, set, up }) |each| nyRelease(each);
@@ -472,8 +472,10 @@ test "sets and maps look up through a hash index that agrees with equality" {
         const key = nyInt64ToString(5);
         map = nyMapInsertInto([]const u8, i64, map, key, -5);
         try std.testing.expectEqualStrings("5", map.keys[5]);
-        const without = nyMapRemove([]const u8, i64, map, key);
-        nyRelease(map);
+        // A unique map removes in place: the index renumbers and closes the slot without a rebuild.
+        const index_before_remove = map.index.ptr;
+        const without = nyMapRemoveOwned([]const u8, i64, map, key);
+        try std.testing.expectEqual(index_before_remove, without.index.ptr);
         map = nyMapInsertInto([]const u8, i64, without, key, 5);
         nyRelease(key);
         try std.testing.expectEqualStrings("5", map.keys[map.keys.len - 1]);
@@ -621,6 +623,81 @@ test "consumed dropLast and Bytes updates reuse unique storage; a long String's 
         try std.testing.expectEqual(@as(i64, 299), nyStringLength(rewritten));
         nyRelease(rewritten);
         try std.testing.expectEqual(@as(usize, 0), ny_length.ptr);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
+
+test "removing from a unique set or list closes the gap in place and keeps every lookup" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        // 2000 values in a scattered insertion order (7 is coprime to 2000), so removals hit
+        // probe clusters in every position.
+        var set: NySet(i64) = .{ .items = &.{} };
+        for (0..2000) |i| set = nySetInsertInto(i64, set, @intCast(i * 7 % 2000));
+        const items_ptr = set.items.ptr;
+        const index_ptr = set.index.ptr;
+        var value: i64 = 0;
+        while (value < 2000) : (value += 3) set = nySetRemoveOwned(i64, set, value);
+        try std.testing.expectEqual(items_ptr, set.items.ptr);
+        try std.testing.expectEqual(index_ptr, set.index.ptr);
+        var position: usize = 0;
+        for (0..2000) |i| {
+            const item: i64 = @intCast(i * 7 % 2000);
+            if (@mod(item, 3) == 0) {
+                try std.testing.expectEqual(@as(?usize, null), nySetFind(i64, set, item));
+                continue;
+            }
+            try std.testing.expectEqual(item, set.items[position]);
+            try std.testing.expectEqual(@as(?usize, position), nySetFind(i64, set, item));
+            position += 1;
+        }
+        try std.testing.expectEqual(position, set.items.len);
+        // Removing the last item needs no renumbering.
+        const last = set.items[set.items.len - 1];
+        set = nySetRemoveOwned(i64, set, last);
+        try std.testing.expectEqual(@as(?usize, null), nySetFind(i64, set, last));
+        for (set.items, 0..) |item, at| try std.testing.expectEqual(@as(?usize, at), nySetFind(i64, set, item));
+        nyRelease(set);
+
+        // A Set, Map or Bytes field moved out leaves empty slices that release as a no-op.
+        const Fields = struct { set: NySet(i64), map: NyMap(i64, i64), bytes: NyBytes };
+        const box = nyBox(Fields, .{ .set = nySetFromList(i64, &.{ 1, 2 }), .map = nyMapInsertOwned(i64, i64, .{ .keys = &.{}, .values = &.{} }, 1, 2), .bytes = nyBytesFill(3, 9) });
+        const moved_set = nyTakeField(&@constCast(box).set);
+        const moved_map = nyTakeField(&@constCast(box).map);
+        const moved_bytes = nyTakeField(&@constCast(box).bytes);
+        try std.testing.expectEqual(@as(usize, 0), box.set.items.len + box.map.keys.len + box.map.values.len + box.bytes.data.len);
+        try std.testing.expectEqual(@as(usize, 2), moved_set.items.len);
+        try std.testing.expectEqual(@as(?i64, 2), nyMapGet(i64, i64, moved_map, 1));
+        try std.testing.expectEqual(@as(usize, 3), moved_bytes.data.len);
+        nyRelease(box);
+        nyRelease(moved_set);
+        nyRelease(moved_map);
+        nyRelease(moved_bytes);
+
+        var list = numbered(3, 4);
+        const list_ptr = list.ptr;
+        list = nyListInsertAtOwned([]const u8, list, 1, nyStatic("x"));
+        try std.testing.expectEqual(list_ptr, list.ptr);
+        try std.testing.expectEqualStrings("x", list[1]);
+        list = nyListRemoveAtOwned([]const u8, list, 1);
+        try std.testing.expectEqual(list_ptr, list.ptr);
+        try expectNumbered(list, 3);
+        // A shared list with a spare slot (3 items in room for 4) is copied, not shifted under its holders.
+        const held = nyShare(list);
+        const inserted = nyListInsertAtOwned([]const u8, nyShare(list), 0, nyStatic("y"));
+        try std.testing.expect(inserted.ptr != held.ptr);
+        try expectNumbered(held, 3);
+        try std.testing.expectEqualStrings("y", inserted[0]);
+        nyRelease(inserted);
+        nyRelease(held);
+        const shared = nyShare(list);
+        const removed = nyListRemoveAtOwned([]const u8, list, 0);
+        try std.testing.expect(removed.ptr != shared.ptr);
+        try expectNumbered(shared, 3);
+        try std.testing.expectEqualStrings("1", removed[0]);
+        nyRelease(removed);
+        nyRelease(shared);
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
