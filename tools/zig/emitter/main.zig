@@ -2504,7 +2504,6 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\pub fn main(init: std.process.Init) !void {
         \\    // The host kills the runner's process group, which misses it when the host itself is SIGKILLed.
         \\    if (@import("builtin").os.tag == .linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_PDEATHSIG), @intFromEnum(std.os.linux.SIG.KILL), 0, 0, 0);
-        \\    // shortcut: no memory cap here: RLIMIT_AS also counts each task thread's stack, so any useful cap breaks parallelAll over a few hundred items; add one with a smaller task stack_size if Zig-backend runs must be bounded like the C# 1 GiB heap.
         \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
         \\    const entry = args[1];
         \\    var tokens = NyTokens{ .it = std.mem.splitScalar(u8, try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], init.arena.allocator(), .unlimited), ' ') };
@@ -2514,8 +2513,8 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
         \\    const out = &writer.interface;
         \\    ny_out = out;
         \\    ny_io = init.io;
-        \\    ny_calls = .init(nyAllocator());
         \\    nyUseValueAllocator();
+        \\    ny_calls = .init(nyAllocator());
         \\    var value: std.Io.Writer.Allocating = .init(nyAllocator());
         \\    if (false) {}
         \\

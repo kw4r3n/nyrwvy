@@ -8,6 +8,20 @@ const Node = union(enum) {
 };
 const Pair = struct { text: []const u8, items: []const []const u8 };
 
+test "a capped allocator fails past its budget and returns freed bytes" {
+    var budget: NyBudget = .{ .cap = 100 };
+    var capped: NyCapped = .{ .child = std.testing.allocator, .budget = &budget };
+    const a = capped.allocator();
+    const first = try a.alloc(u8, 60);
+    try std.testing.expectError(error.OutOfMemory, a.alloc(u8, 60));
+    try std.testing.expectEqual(@as(usize, 60), budget.used.load(.monotonic));
+    const grown = try a.realloc(first, 90);
+    try std.testing.expectEqual(@as(usize, 90), budget.used.load(.monotonic));
+    a.free(grown);
+    try std.testing.expectEqual(@as(usize, 0), budget.used.load(.monotonic));
+    a.free(try a.alloc(u8, 100));
+}
+
 test "counted runtime frees everything" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     ny_values = gpa.allocator();

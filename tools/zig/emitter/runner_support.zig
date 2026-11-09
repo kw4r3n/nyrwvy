@@ -301,8 +301,16 @@ const ny_page_cache: std.mem.Allocator.VTable = .{
 };
 const ny_page_bytes = (std.heap.DebugAllocatorConfig{}).page_size;
 
+// Values and runtime records share the C# child's 1 GiB bound; outside the debug allocator, so its leak check sees every block.
+var ny_budget: NyBudget = .{ .cap = 1 << 30 };
+var ny_capped_values: NyCapped = undefined;
+var ny_capped_records: NyCapped = .{ .child = std.heap.page_allocator, .budget = &ny_budget };
+
+/// Called before anything is allocated: it replaces `ny_arena`.
 fn nyUseValueAllocator() void {
-    ny_values = if (@import("builtin").mode == .safe) ny_debug_allocator.allocator() else std.heap.smp_allocator;
+    ny_capped_values = .{ .child = if (@import("builtin").mode == .safe) ny_debug_allocator.allocator() else std.heap.smp_allocator, .budget = &ny_budget };
+    ny_values = ny_capped_values.allocator();
+    ny_arena = .init(ny_capped_records.allocator());
 }
 
 /// Exit code 86 with "leak: ..." on stderr when a value is still live at the end of the run.
