@@ -1987,6 +1987,11 @@ module Transaction =
                 | [], Some message -> reject "DuplicateDisplayName" message
                 | [], None ->
                     let changes = sortChanges accumulatedChanges
+                    // An attach or resolution on a call or parameter that a later operation deleted is not a net change.
+                    let liveNodes =
+                        proposed.Functions |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body) |> List.map (fun node -> node.Id) |> Set.ofList
+                    let liveParameters =
+                        proposed.Functions |> List.collect (fun fn -> fn.Parameters |> List.map (fun p -> p.Id)) |> Set.ofList
                     let diff: SemanticDiff =
                         { Renames = renames
                           VisibilityChanges = netVisibilityChanges baseSnapshot proposed
@@ -2014,9 +2019,15 @@ module Transaction =
                               changes.CapabilityImplementationsBound
                               |> List.filter (fun item ->
                                   proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId))
-                          ArgumentsAttached = changes.ArgumentsAttached
-                          ObligationsCreated = changes.ObligationsCreated
-                          ObligationsResolved = changes.ObligationsResolved
+                          ArgumentsAttached =
+                              changes.ArgumentsAttached
+                              |> List.filter (fun item -> liveNodes.Contains item.CallNodeId && liveParameters.Contains item.TargetParameterId)
+                          ObligationsCreated =
+                              changes.ObligationsCreated
+                              |> List.filter (fun item -> liveNodes.Contains item.CallNodeId && liveParameters.Contains item.ParameterId)
+                          ObligationsResolved =
+                              changes.ObligationsResolved
+                              |> List.filter (fun item -> liveNodes.Contains item.CallNodeId && liveParameters.Contains item.ParameterId)
                           FunctionRequiredEffectsChanged = netRequiredEffectChanges baseSnapshot proposed changes
                           ParametersRemoved = changes.ParametersRemoved
                           UnionVariantsRemoved = changes.UnionVariantsRemoved

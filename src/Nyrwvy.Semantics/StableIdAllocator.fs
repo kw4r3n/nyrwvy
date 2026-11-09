@@ -9,12 +9,6 @@ open System
 /// inspection tags and are therefore not duplicated inside the identity payload.
 [<RequireQualifiedAccess>]
 module StableIdAllocator =
-    /// `NYRWVY_TEST_ID_SEED`, read once per process: when set, new IDs are deterministic, so two
-    /// hosts given the same requests write the same IDs (docs/decisions/zig-session-host.md,
-    /// "How parity with F# is checked"). Never set it outside tests: seeded IDs repeat across processes.
-    let private testSeed = lazy (Environment.GetEnvironmentVariable "NYRWVY_TEST_ID_SEED" |> Option.ofObj |> Option.filter (fun seed -> seed <> ""))
-    let mutable private allocated = 0L
-
     /// The `n`-th ID (from 1) of a process seeded with `seed`: a UUIDv7 whose timestamp is
     /// 1 700 000 000 000 ms plus `n` and whose other bits come from SHA-256 of `seed:n`.
     let seededPayload (seed: string) (n: int64) =
@@ -39,20 +33,6 @@ module StableIdAllocator =
         }
         |> Seq.fold max 0L
 
-    /// Whether new IDs are seeded test IDs (`NYRWVY_TEST_ID_SEED` is set).
-    let seeded () = testSeed.Value.IsSome
-
-    /// Under the seed, moves the count past every seeded ID in `text`, a snapshot or sidecar the
-    /// host read, so a restarted process never hands out an ID that a seeded run already wrote.
-    let observe (text: string) =
-        match testSeed.Value with
-        | None -> ()
-        | Some seed ->
-            let found = seededCount seed text
-            let mutable current = Threading.Interlocked.Read &allocated
-            while found > current && Threading.Interlocked.CompareExchange(&allocated, found, current) <> current do
-                current <- Threading.Interlocked.Read &allocated
-
     let private flowSeed = Threading.AsyncLocal<(string * int64 ref) option>()
 
     /// Test-only: while `f` runs, new IDs on this async flow are `seededPayload seed 1, 2, …`, apart
@@ -64,10 +44,9 @@ module StableIdAllocator =
 
     let private allocate<'Kind> (): StableId<'Kind> =
         let payload =
-            match flowSeed.Value, testSeed.Value with
-            | Some(seed, count), _ -> seededPayload seed (Threading.Interlocked.Increment &count.contents)
-            | None, Some seed -> seededPayload seed (Threading.Interlocked.Increment &allocated)
-            | None, None -> Guid.CreateVersion7().ToString("D")
+            match flowSeed.Value with
+            | Some(seed, count) -> seededPayload seed (Threading.Interlocked.Increment &count.contents)
+            | None -> Guid.CreateVersion7().ToString("D")
         match StableId.tryCreate<'Kind> payload with
         | Ok id -> id
         | Error error -> invalidOp $"Generated UUIDv7 was rejected as a stable ID: {error}."
