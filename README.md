@@ -3,29 +3,36 @@
 > [!WARNING]
 > **Under active development; not for use.** Formats, protocols and APIs change without notice or migration, and nothing here is supported. Please do not depend on it, and do not open issues or pull requests for now.
 
-**Nyrwvy is an AI-native semantic programming system in which programs are persistent typed semantic graphs and changes are validated meaning-level operations.**
+**Nyrwvy is an AI-native semantic programming system: programs are persistent typed semantic graphs, and changes are validated meaning-level operations.**
 
-In plain terms: an AI agent writes and maintains a small, strongly typed program by calling a few tools (open a snapshot, inspect, create a type or function, replace one expression, review, commit) instead of editing source text. Every proposed change is validated and shown as a before/after review before it is published; stable IDs keep the program's identity across edits and sessions; and the committed graph is compiled to C# and run on .NET. The repository holds the F# implementation, the tool adapters (an MCP server and an OpenCode plugin), the specifications, the decision records and the verification evidence.
+An AI agent does not edit source text. It calls a small set of tools — open a snapshot, inspect, create a type or function, replace one expression, review, commit — and every proposed change is validated and shown as a before/after review before it is published. Stable IDs keep each declaration's identity across edits and sessions. The committed graph compiles to C# (run on .NET) or to Zig.
+
+This repository holds the F# core, the native Zig session host, the tool adapters (an MCP server and an OpenCode plugin), the specifications, the decision records and the verification evidence.
 
 ## Quick start
 
-Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.4xx), Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version); older 22.x releases install the development dependencies with engine warnings), npm, and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`. The native host build needs only Node and Zig; .NET remains required for the C# backend.
+You need:
+
+- Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version)) and npm
+- Zig 0.17.0 on `PATH`, or named by `NYRWVY_ZIG`
+- .NET 10 SDK, feature band pinned in [`global.json`](global.json) (currently 10.0.4xx) — only for the C# backend and the F# tests
 
 ```shell
 npm ci
-npm run build:host
+npm run build:host        # builds tools/zig/host/bin/nyrwvy-host (a cold build takes a few minutes)
 node --experimental-strip-types examples/function-abort/run.mjs
 ```
 
-The example authors a function that reads a file through a capability and aborts on failure, using exactly the tool handlers an agent uses. It prints the three scenario results and writes a `workspace.json` snapshot and a `transcript.jsonl` of every tool request and review to a temporary directory. The [example README](examples/function-abort/README.md) explains what to look at; [`examples/`](examples/README.md) lists four more small programs kept as snapshots with generated runners, and the probe programs.
+The example authors a function that reads a file through a capability and aborts on failure, using exactly the tool handlers an agent uses. It prints three scenario results and writes the snapshot and a transcript of every tool request to a temporary directory. Its [README](examples/function-abort/README.md) says what to look at; [`examples/`](examples/README.md) lists the other programs.
 
-To drive the same tools from an AI agent, run the MCP server (`npm --prefix tools/nyrwvy-mcp run setup`, then point your MCP client at `tools/nyrwvy-mcp/server.mjs`) as the [MCP guide](docs/specs/mcp-graph-tools.md) describes; OpenCode users can load the plugin under `.opencode/` instead. The direct typed-read migration and Linux verification are complete, including focused, maintained, adapter, and benchmark checks. Portability code targets macOS and Windows too, but those native runtime checks are on hold: hosted platform jobs did not start under an account-level runner restriction, and the owner deferred another hosted attempt. This does not change product support scope. The F# session host was removed (its last commit is tag `fsharp-host-final`). See the [typed-read migration and platform verification record](docs/decisions/zig-session-host.md#step-8-blocker--typed-read-architecture-confirmed). The [tool contract](docs/specs/agent-graph-tools.md) lists the twelve `nyrwvy_*` tools.
+### Connect an AI agent
 
-The adapters launch the native Zig session host, `tools/zig/host/bin/nyrwvy-host`, which `npm run build:host` builds (a cold build takes a few minutes; rebuild it after changing host sources). `NYRWVY_HOST_EXECUTABLE` names any other host ([decision](docs/decisions/zig-session-host.md)). The .NET SDK is still required, since the C# backend (`runPure`, `emitCSharp`) builds with it.
+- **MCP:** run `npm --prefix tools/nyrwvy-mcp run setup`, then point your MCP client at `tools/nyrwvy-mcp/server.mjs`. See the [MCP guide](docs/specs/mcp-graph-tools.md).
+- **OpenCode:** load the plugin under [`.opencode/`](.opencode/).
 
-## Core model
+Both launch the native host. Rebuild it with `npm run build:host` after changing host sources; `NYRWVY_HOST_EXECUTABLE` selects another host binary ([decision](docs/decisions/zig-session-host.md)).
 
-Source text is not the authoritative program form. Stable semantic identity, relationships, validation, change review, and unresolved work are represented explicitly so AI agents can make typed semantic changes without reconstructing program meaning from text, while humans can review what was requested and what will actually change.
+## How it works
 
 ```mermaid
 flowchart TD
@@ -39,100 +46,101 @@ flowchart TD
     G --> I[Typed Semantic IR]
     I --> J[Backend-neutral Execution IR]
     J --> K[C# / .NET backend]
+    J --> L[Zig backend]
 ```
 
-The semantic graph is the source of truth. Textual code, generated C#, serialized encodings, diagnostic reports, query payloads, and viewer artifacts are projections or storage representations.
+The semantic graph is the source of truth. Generated C# or Zig, serialized files, reports and viewer pages are projections of it. The rules that follow from this:
 
-Important boundaries include:
+- Stable IDs define identity; names are only presentation.
+- Edits are typed semantic operations, never raw graph or file mutation.
+- Every change is simulated and reviewed before it is published.
+- An undecided part of a program is recorded as an explicit obligation, not left implicit.
+- Generated backend code never flows back into the graph, and no backend defines the language's semantics.
 
-- stable IDs define semantic identity; names are presentation metadata;
-- ordinary edits use typed semantic operations rather than raw graph or serialization mutation;
-- simulation and review precede publication;
-- unresolved semantic decisions are represented explicitly as obligations when a safe incomplete state exists;
-- generated backend source never becomes upstream authority;
-- backend-specific representation choices do not define core language semantics.
+## The agent tools
 
-## AI graph authoring
+The tool handlers live in [`tools/nyrwvy-agent`](tools/nyrwvy-agent/); the MCP server ([`tools/nyrwvy-mcp`](tools/nyrwvy-mcp/README.md)) and the OpenCode tools expose the same handlers. The [tool contract](docs/specs/agent-graph-tools.md) documents all fourteen `nyrwvy_*` tools. The usual sequence:
 
-The host-neutral tool handlers live in `tools/nyrwvy-agent`; the stdio MCP server in `tools/nyrwvy-mcp` and the OpenCode tools in `.opencode/tools/nyrwvy.ts` expose the same handlers ([`tools/README.md`](tools/README.md) lists the maintained tools under `tools/` and where the removed evaluation runners can be replayed from). They let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a human-readable HTML page for a person to open: a function, or a pending proposal's Change Review before commit; the page is written beside the snapshot (under `nyrwvy-views/` by default) and never elsewhere. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations and `runPure`, which compiles the committed program and runs one function with fake capability responses. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
+| Step | Tool |
+| --- | --- |
+| Open or create a snapshot | `nyrwvy_open` |
+| Read the relevant part of the graph | `nyrwvy_inspect` |
+| Propose a change | `nyrwvy_create_type`, `nyrwvy_create_function`, `nyrwvy_replace` |
+| Show a person the function or the pending review as HTML | `nyrwvy_view` |
+| Publish or discard the proposal | `nyrwvy_commit`, `nyrwvy_reject` |
+| Anything else in the protocol, by stable ID (including `runPure`) | `nyrwvy_request` |
 
-`runPure` runs the compiled program in a child process bounded in wall time (5 s) and output size, with the permissions of the user who started the tool host. It is not a sandbox and has no memory bound, and its optional `hostSources` (off by default) compile and run arbitrary C#; see [SECURITY.md](SECURITY.md) and the [session protocol](docs/specs/agent-authoring-session.md).
+`runPure` compiles the committed program and runs one function with fake capability responses. It runs in a child process limited to 5 s of wall time and a bounded output size, with your user's permissions. **It is not a sandbox**, and the optional `hostSources` (off by default) compile and run arbitrary C#. See [SECURITY.md](SECURITY.md).
 
-Underneath, the Zig session host (`tools/zig/host`) is a JSON-lines executable over a snapshot file. An independent workspace can select one or several published snapshots with `create --snapshot <new-local-path> --dependency <source-snapshot-path>` (repeat `--dependency` for several); later use `open --snapshot <local-path>`. Sources with pinned dependencies are flattened into complete retained graphs. The read-only `dependency` operation shows the pinned provenance. Selected content is retained in a sidecar, while the local graph stores local declarations and references. Clone/move both files together. `nyrwvy_open` accepts `dependency` or `dependencies` on create and `mode: "pin"` for same-content recovery of older source-only selections. Review a version change with `previewDependencyUpgrade`, or `previewDependencyUpgrades` for a dependency set, then apply the reviewed selection with `mode: "upgrade"`; the set form supports both paired replacements and library consolidation/splitting while preserving local identities. See [pinned snapshot dependencies and recovery](docs/specs/agent-authoring-session.md#pinned-snapshot-dependencies). No per-program Python/F#/C# authoring helper is required.
+Underneath, the Zig session host ([`tools/zig/host`](tools/zig/host/)) is a JSON-lines executable over a snapshot file. A workspace can pin other published snapshots as dependencies and upgrade them through a reviewed preview; see [pinned snapshot dependencies](docs/specs/agent-authoring-session.md#pinned-snapshot-dependencies).
 
-The write-side goal is an adequate AI graph-editing toolset, not a natural-language compiler or a human-written source language. Human-facing projections can be graphical. [Structured-action research](docs/concepts/structured-agent-actions.md) distinguishes the relevant CODESTRUCT evidence from CGM and smaller AST-edit experiments.
+The goal is an adequate AI graph-editing toolset — not a natural-language compiler, and not a human-written source language.
 
-## Status and evidence
+## Status
 
-Nyrwvy is an active research and implementation project by one maintainer. Each claim below is bounded by its linked record; build/test and evaluation evidence lives under [verification records](docs/verification/README.md), not on this page.
+A research and implementation project by one maintainer. Each claim is bounded by its linked record; the evidence lives in the [verification records](docs/verification/README.md).
 
-- **End-to-end lifecycle works** (Milestone 0): a graph is persisted, edited through review and executed through generated code.
-- **Bounded typed operations are in place** (Milestone 1): production stable IDs, fingerprints, reviewed publication, physical assembly boundaries, `Int64`, immutable ordered `List<T>`, pure higher-order List operations, explicit IEEE 754 binary64 `Float64`, and controlled agent-evaluation evidence. See the [Milestone 1 record](docs/plans/milestone-1.md).
-- **Agents can edit structure safely** (Milestone 2): a controlled evaluation showed that agents inspect, simulate, review, publish, and recover from stale structural proposals with system-owned identities and no unrelated semantic churn. See the [Milestone 2 record](docs/plans/milestone-2.md).
-- **Declaration and expression authoring is maintained** (post-M2): agents create functions and Product/Union, Effect and Capability/Operation declarations, replace targeted expressions, persist and reopen work through the snapshot-backed AuthoringSession, reach an explicitly bound provider-backed execution path, and perform a bounded atomic parameter-type migration with required caller rewrites while preserving stable declaration identities. Production IDs remain system-owned. See the [post-M2 roadmap](docs/plans/post-m2-roadmap.md).
-- **Ordinary AI graph tools and stdio MCP are maintained:** one Codex CLI live probe completed identity-preserving maintenance through review, commit and reopen, using local repository context alongside MCP tools. This does not establish tool-description-only discovery or compatibility with every host. See the [MCP guide and verification evidence](docs/specs/mcp-graph-tools.md#verification-and-scope).
-- **The language covers small general-purpose programs:** a series of porting probes re-authored slices of a real Python application and a few algorithmic programs and compared them with their references case by case; each gap they found became a recorded language or tool change. The probe scripts are private; the [verification index](docs/verification/README.md#live-agent-probes) states what the records do and do not let a reader reproduce.
+| Milestone | What it established |
+| --- | --- |
+| M0 | A graph is persisted, edited through review, and executed through generated code. |
+| [M1](docs/plans/milestone-1.md) | Bounded typed operations: production stable IDs, fingerprints, reviewed publication, `Int64`, `Float64`, immutable `List<T>` and its pure higher-order operations. |
+| [M2](docs/plans/milestone-2.md) | In a controlled evaluation, agents inspected, simulated, reviewed, published and recovered from stale proposals without unrelated semantic churn. |
+| [Post-M2](docs/plans/post-m2-roadmap.md) | Agents create functions and type, effect and capability declarations, replace expressions, persist and reopen work, and migrate a parameter type with its callers — all with stable identities. |
+| MCP | A Codex CLI live probe completed an identity-preserving maintenance task through review, commit and reopen ([scope](docs/specs/mcp-graph-tools.md#verification-and-scope)). |
+| Language reach | Porting probes re-authored slices of a real Python application and several algorithmic programs, compared case by case; each gap became a recorded change ([index](docs/verification/README.md#live-agent-probes)). |
 
-Completed controlled evaluations are reusable design evidence; they are not a requirement to repeat the same experiment for every adjacent semantic extension. The scoped-control-flow interaction boundary is tracked separately from the frozen M2 claim because it introduces lexical scope and nested branch graphs.
+Linux is fully verified. Portability code also targets macOS and Windows, but their native runtime checks are on hold ([record](docs/decisions/zig-session-host.md), under "Current platform status").
 
-## Build and verify
+## Build and test
 
-Install a .NET 10 SDK of the feature band selected by [`global.json`](global.json) (currently 10.0.4xx; the pinned patch or any newer one is accepted through `rollForward: latestPatch`) and Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version)); fish 3.4+ is needed only for the `.fish` wrapper scripts. Moving to another feature band or major version is an explicit repository change. Shared F# settings live in `Directory.Build.props`. Routine local development runs the fast test graph plus the ordinary-authoring and script contracts:
+Routine local checks (`./scripts/test-fast.fish` runs the first two):
 
 ```shell
 dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
 node scripts/run-node-tests.mjs fast-contracts
+npm run typecheck && npm test           # adapter, transport and MCP contracts
 ```
 
-`./scripts/test-fast.fish` wraps the same two commands. The Node group includes ordinary authoring workflow, transport, and script contracts. Example pipelines that repeatedly generate and execute C# live under `.opencode/tests-extended/` and run only through the extended entry point.
+`npm test` needs the native host and the C# compiler helper built (the MCP setup above does both). The heavier suites run only when a change needs them:
 
-The maintained Node/Bun adapters also have a repository-owned, locked TypeScript toolchain. From a clean checkout, no global `tsc`, OpenCode installation, or .NET build is needed to typecheck them:
+| Command | Runs |
+| --- | --- |
+| `npm run test:node:extended` | Example pipelines that repeatedly generate and run C# |
+| `fish scripts/test-extended.fish` | The xUnit extended suite and those pipelines |
+| `npm run test:bun` | Bun unit tests for the OpenCode plugin (Bun 1.4.2) |
+| `bash scripts/verify-local-20260825-1427.sh --clean` | A clean full-solution build and test with a shareable log |
 
-```shell
-npm ci
-npm run typecheck
-npm test
-```
+The `CI` workflow runs the fast suite on every pull request and on pushes to `main`, and is a required check for `main`; the extended and native-platform suites run on demand. See the [verification philosophy](docs/developer/verification.md) for which checks a change needs, and [`tests/README.md`](tests/README.md#adapter-toolchain-and-typechecking) for the adapter toolchain.
 
-`npm test` is the fast root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the native host and standalone C# compiler helper built, available through the full MCP setup above). `npm run test:node:extended` selects only the heavy Node example pipelines; `fish scripts/test-extended.fish` runs both xUnit extended and those pipelines. These are deterministic checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 runs only the Bun unit tests (`npm run test:bun`), which the CI workflow includes; the Node adapters do not need it. See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
+## Repository layout
 
-Tests run locally before a change is merged. The only GitHub Actions workflow, `CI` (the checks above plus the MCP and Bun contracts), is started manually by the maintainer at milestones rather than on every push or pull request, and the extended suite runs locally only; see the [verification philosophy](docs/developer/verification.md#reproducible-tooling-and-shell-checks). External pull requests are not accepted at this stage.
-
-Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification. For an opt-in clean full-solution build and test run with a shareable log:
-
-```shell
-bash scripts/verify-local-20260825-1427.sh --clean
-```
-
-The full-solution script includes the extended project once; it is not the routine fallback. Routine, milestone, and experimental verification have different roles; see the maintained [verification philosophy](docs/developer/verification.md) before promoting expensive checks into normal development.
+| Path | Contents |
+| --- | --- |
+| [`src/`](src/) | F# core: semantics, execution IR, C# and Zig backends, viewer |
+| [`tools/`](tools/README.md) | Zig session host, Zig emitter, agent tool handlers, MCP server |
+| [`.opencode/`](.opencode/) | OpenCode plugin and its tests |
+| [`libraries/`](libraries/) | Shared libraries (`core`, `host`, `json`) |
+| [`examples/`](examples/README.md) | Small programs authored through the tools |
+| [`tests/`](tests/README.md), [`scripts/`](scripts/) | Test projects and test/build scripts |
+| [`evaluation/`](evaluation/) | Probe programs and measurements |
+| [`docs/`](docs/README.md) | Maintained documentation |
+| [`docs-archive/`](docs-archive/README.md) | Historical material, not authoritative |
 
 ## Documentation
 
-Start with the [documentation portal](docs/README.md).
+Start at the [documentation portal](docs/README.md). The most useful entry points:
 
-Useful entry points:
-
-- [Vision](docs/concepts/vision.md) — mission, priorities, principles, non-goals, and success conditions.
-- [Architecture](docs/developer/architecture.md) — current high-level boundaries and invariants.
-- [Current language subset](docs/reference/language-subset.md) — implemented semantic and agent-editing surfaces at a glance.
-- [Post-M2 roadmap](docs/plans/post-m2-roadmap.md) — completed M3-M5 outcomes and evidence-triggered conditions for later work.
-- [Decisions](docs/decisions/README.md) — accepted rationale and bounded open questions.
-- [Milestone 1 record](docs/plans/milestone-1.md) — completed bounded-operation milestone and the exact claim boundary.
-- [Milestone 2 record](docs/plans/milestone-2.md) — completed bounded structural-editing milestone and controlled evaluation evidence.
-- [Bounded structural editing spec](docs/specs/bounded-structural-editing.md) — historical Float64 body-replacement contract (implementation removed from `main`; see the evaluation freeze tags).
-- [Expression structural authoring](docs/specs/expression-authoring.md) — maintained cross-domain recipe, scoped control flow, and calls/capability invocations within predeclared effects.
-- [Contributor/reviewer entry point](docs/developer/README.md) — implementation-oriented navigation.
-
-Historical and superseded material is kept separately under [`docs-archive/`](docs-archive/README.md) and is not authoritative for current behavior.
+- [Vision](docs/concepts/vision.md) — mission, principles and non-goals
+- [Architecture](docs/developer/architecture.md) — boundaries and invariants
+- [Current language subset](docs/reference/language-subset.md) — what the language and tools support now
+- [Post-M2 roadmap](docs/plans/post-m2-roadmap.md) — completed work and what comes next
+- [Decisions](docs/decisions/README.md) — why each direction was chosen
+- [Developer guide](docs/developer/README.md) — implementation-oriented navigation
 
 ## Relationship to RAST
 
-Nyrwvy is informed by earlier RAST work, but RAST is not a runtime, semantic, or design-authority dependency. Conceptual ancestry does not require a special provenance system; concrete copied or substantially adapted material uses ordinary source attribution. See the [RAST provenance decision](docs/decisions/rast-provenance.md).
+Nyrwvy is informed by earlier RAST work, but does not depend on it at runtime, semantically, or for design authority ([decision](docs/decisions/rast-provenance.md)).
 
-## Security
+## Security and license
 
-See [SECURITY.md](SECURITY.md) for how to report a vulnerability and for the boundary of what `runPure` and `hostSources` execute.
-
-## License
-
-Nyrwvy is licensed under the [Apache License, Version 2.0](LICENSE). The probe material under `evaluation/` and the archived documentation under `docs-archive/` are covered by the same license.
+See [SECURITY.md](SECURITY.md) for reporting a vulnerability and for what `runPure` and `hostSources` execute. Nyrwvy is licensed under the [Apache License, Version 2.0](LICENSE), including `evaluation/` and `docs-archive/`.
