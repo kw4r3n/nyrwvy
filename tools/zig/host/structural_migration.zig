@@ -403,6 +403,7 @@ fn capability(r: *query.Request, wanted: []const u8, operation_id: []const u8, t
     for ((r.typedModel()).functions()) |f| for (model.typedBodyNodes(r.a, f)) |node| {
         const kind = model.utf8((node).kind());
         if (m.same(kind, "capabilityInvoke") and m.same(model.utf8((node).reference("operationId")), operation_id)) try required.put(r.a, query.idOf(f), {});
+        if (m.same(kind, "useResource") and m.same(model.utf8((node).reference("releaseOperationId")), operation_id)) try required.put(r.a, query.idOf(f), {});
         if (m.same(kind, "capabilityConstruct")) for ((node).implementations()) |binding| if (m.same(model.utf8((binding).reference("operationId")), operation_id)) {
             try required.put(r.a, query.idOf(f), {});
             const implementation = model.utf8((binding).reference("functionId"));
