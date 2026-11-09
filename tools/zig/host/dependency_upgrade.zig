@@ -50,7 +50,7 @@ pub fn pin(r: *query.Request, source: []const u8) !Pinned {
     const sidecar_stat = std.Io.Dir.cwd().statFile(host.host_io, sidecar, .{}) catch null;
     const nested = if (sidecar_stat != null and sidecar_stat.?.kind == .file) host.loadSidecar(host.host_io, r.a, sidecar) catch return storageFailure(r) else null;
     const content = host.readText(r.a, path) catch |e| {
-        r.rejection = .{ .code = "IoFailure", .message = @errorName(e) };
+        r.rejection = .{ .code = "IoFailure", .message = if (e == error.StreamTooLong) "The dependency file exceeds the 256 MiB limit." else @errorName(e) };
         return error.Rejected;
     };
     @import("ids.zig").observe(content);
