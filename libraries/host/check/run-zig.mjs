@@ -1,9 +1,9 @@
 // Checks host.zig against the real OS: builds a program that imports host.json, emits a Zig library with
-// host.zig.json, and calls its exports from a Zig test. Linux, needs zig and sh.
+// host.zig.json, and calls its exports from a Zig test with a checking allocator. Linux, needs zig and sh.
 // Usage: node libraries/host/check/run-zig.mjs [<host executable>] (default: the Zig host, `npm run build:host`)
 import { spawn, spawnSync } from "node:child_process"
 import { createInterface } from "node:readline"
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -56,60 +56,54 @@ await define("spawned", "Process", str, ["script"], orError(invoke("Process", "s
 const emitted = await send({ op: "emitZigLibrary", output: "check.zig" })
 cli.stdin.end()
 
-const harness = `const std = @import("std");
-const Text = @TypeOf(ny_readOr);
-extern fn ny_readOr(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_readBytesOr(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_env(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_stdout(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_stderr(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_runError(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_spawned(?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-extern fn ny_exitCode(?[*]const u8, usize, *i64) c_int;
-extern fn ny_write(?[*]const u8, usize, ?[*]const u8, usize, ?[*]u8, usize, *usize) c_int;
-var buffer: [256]u8 = undefined;
-fn call(function: *const Text, input: []const u8) ![]const u8 {
+// Appended to the emitted source, so it calls the exports directly and can set a checking allocator.
+const harness = `
+const CheckText = @TypeOf(ny_readOr);
+var check_values: std.heap.DebugAllocator(.{}) = .init;
+var check_buffer: [256]u8 = undefined;
+fn checkCall(function: *const CheckText, input: []const u8) ![]const u8 {
     var n: usize = 0;
-    try std.testing.expectEqual(@as(c_int, 0), function(input.ptr, input.len, &buffer, buffer.len, &n));
-    return buffer[0..n];
+    try std.testing.expectEqual(@as(c_int, 0), function(input.ptr, input.len, &check_buffer, check_buffer.len, &n));
+    return check_buffer[0..n];
 }
-fn write(path: []const u8, data: []const u8) ![]const u8 {
+fn checkWrite(path: []const u8, data: []const u8) ![]const u8 {
     var n: usize = 0;
-    try std.testing.expectEqual(@as(c_int, 0), ny_write(path.ptr, path.len, data.ptr, data.len, &buffer, buffer.len, &n));
-    return buffer[0..n];
+    try std.testing.expectEqual(@as(c_int, 0), ny_write(path.ptr, path.len, data.ptr, data.len, &check_buffer, check_buffer.len, &n));
+    return check_buffer[0..n];
 }
 test "host library on Zig" {
+    ny_values = check_values.allocator();
     const path = ${JSON.stringify(join(work, "file.txt"))};
-    try std.testing.expectEqualStrings("ok", try write(path, "\\xc3\\xaf\\xc2\\xbb\\xc2\\xbfhi\\xc3\\xbf"));
-    try std.testing.expectEqualStrings("hi\\u{fffd}", try call(ny_readOr, path));
-    try std.testing.expectEqualStrings("missing", try call(ny_readOr, path ++ ".absent"));
-    try std.testing.expectEqualStrings("FileNotFound", try write("/nonexistent-directory/x", "a"));
-    try std.testing.expectEqualStrings("\\xc3\\xaf\\xc2\\xbb\\xc2\\xbfhi\\xc3\\xbf", try call(ny_readBytesOr, path));
-    try std.testing.expectEqualStrings("value", try call(ny_env, "NY_HOST_CHECK"));
-    try std.testing.expectEqualStrings("unset", try call(ny_env, "NY_HOST_CHECK_ABSENT"));
+    try std.testing.expectEqualStrings("ok", try checkWrite(path, "\\xc3\\xaf\\xc2\\xbb\\xc2\\xbfhi\\xc3\\xbf"));
+    try std.testing.expectEqualStrings("hi\\u{fffd}", try checkCall(ny_readOr, path));
+    try std.testing.expectEqualStrings("missing", try checkCall(ny_readOr, path ++ ".absent"));
+    try std.testing.expectEqualStrings("FileNotFound", try checkWrite("/nonexistent-directory/x", "a"));
+    try std.testing.expectEqualStrings("\\xc3\\xaf\\xc2\\xbb\\xc2\\xbfhi\\xc3\\xbf", try checkCall(ny_readBytesOr, path));
+    try std.testing.expectEqualStrings("value", try checkCall(ny_env, "NY_HOST_CHECK"));
+    try std.testing.expectEqualStrings("unset", try checkCall(ny_env, "NY_HOST_CHECK_ABSENT"));
     var code: i64 = 0;
     const script = "printf out; printf err >&2; printf %s \\"$NY_HOST_CHECK\\"; exit 3";
     try std.testing.expectEqual(@as(c_int, 0), ny_exitCode(script.ptr, script.len, &code));
     try std.testing.expectEqual(@as(i64, 3), code);
-    try std.testing.expectEqualStrings("outvalue", try call(ny_stdout, script));
-    try std.testing.expectEqualStrings("err", try call(ny_stderr, script));
-    try std.testing.expectEqualStrings("FileNotFound", try call(ny_runError, "/nonexistent-program"));
+    try std.testing.expectEqualStrings("outvalue", try checkCall(ny_stdout, script));
+    try std.testing.expectEqualStrings("err", try checkCall(ny_stderr, script));
+    try std.testing.expectEqualStrings("FileNotFound", try checkCall(ny_runError, "/nonexistent-program"));
     const marker = ${JSON.stringify(join(work, "spawned"))};
-    try std.testing.expectEqualStrings("ok", try call(ny_spawned, "printf done > " ++ marker));
+    try std.testing.expectEqualStrings("ok", try checkCall(ny_spawned, "printf done > " ++ marker));
     var tries: usize = 0;
     while (tries < 200) : (tries += 1) {
         // The shell creates the file before writing to it, so wait for the content, not the file.
-        if (std.mem.eql(u8, "done", try call(ny_readOr, marker))) break;
+        if (std.mem.eql(u8, "done", try checkCall(ny_readOr, marker))) break;
         try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(10) }, std.testing.io);
     }
-    try std.testing.expectEqualStrings("done", try call(ny_readOr, marker));
+    try std.testing.expectEqualStrings("done", try checkCall(ny_readOr, marker));
+    try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
 }
 `
-writeFileSync(join(work, "harness.zig"), harness)
+writeFileSync(join(work, "harness.zig"), readFileSync(emitted.path, "utf8") + harness)
 const zig = process.env.NYRWVY_ZIG || "zig"
-const library = join(work, "libcheck.so")
-const steps = [["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", emitted.path, `-femit-bin=${library}`],
-  ["test", join(work, "harness.zig"), library, "-lc", "-rpath", work]]
+const steps = [["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", emitted.path, `-femit-bin=${join(work, "libcheck.so")}`],
+  ["test", "-lc", "-O", "ReleaseSafe", join(work, "harness.zig")]]
 let status = 0
 for (const step of steps) {
   const run = spawnSync(zig, step, { cwd: repo, stdio: "inherit", env: { ...process.env, NY_HOST_CHECK: "value" } })

@@ -1,9 +1,10 @@
 // Library mode's C ABI (docs/decisions/zig-backend-memory-ownership.md, section 3 and the first
-// milestone). Arguments are borrowed for the call (copied into counted values the call consumes;
-// values live in the arena, `ny_values` stays null); a result is copied into caller buffers and the
-// arena is then reset, so memory per call stays bounded. One mutex serialises every export. Status:
-// 0 ok, 1 fault and 2 cancelled (message through `ny_last_failure`), 3 a result buffer too small
-// (the lengths written say what is needed). OOM, stack overflow and safety panics still abort.
+// milestone; docs/decisions/zig-stateful-exports.md, slice 1). Arguments are borrowed for the call
+// (copied into counted values the call consumes); a result is copied into caller buffers and then
+// released. Values are counted in `ny_values` (`smp_allocator` unless a harness set a checking one);
+// `ny_arena` keeps only runtime records. One mutex serialises every export. Status: 0 ok, 1 fault and
+// 2 cancelled (message through `ny_last_failure`), 3 a result buffer too small (the lengths written
+// say what is needed). OOM, stack overflow and safety panics still abort.
 
 var ny_export_lock: std.Io.Mutex = .init;
 threadlocal var ny_export_failure: []u8 = &.{};
@@ -13,13 +14,10 @@ fn nyExportEnter() void {
     const io = std.Io.Threaded.global_single_threaded.io();
     ny_export_lock.lockUncancelable(io);
     ny_io = io;
+    if (ny_values == null) ny_values = std.heap.smp_allocator;
 }
 
 fn nyExportLeave() void {
-    // The next call reuses the arena's addresses, so String caches keyed by address must not survive.
-    ny_cursor = .{};
-    ny_length = .{};
-    _ = ny_arena.reset(.retain_capacity);
     ny_export_lock.unlock(ny_io);
 }
 
@@ -35,15 +33,15 @@ export fn ny_last_failure(len: *usize) [*]const u8 {
     return ny_export_failure.ptr;
 }
 
-/// Bytes the runtime arena keeps between calls; flat across repeated calls of the same size.
+/// Bytes the runtime arena holds: runtime records only, values are not in it.
 export fn ny_arena_capacity() usize {
     nyExportEnter();
     defer ny_export_lock.unlock(ny_io);
     return ny_arena.queryCapacity();
 }
 
-// Host declarations (`<graph>.zig.json`) take the arena and plain Zig values and know no runtime type.
-// Their results are copied to counted storage; the arena is reset when the export returns.
+// Host declarations (`<graph>.zig.json`) take a per-call scratch arena and plain Zig values and know no
+// runtime type. Their results are copied to counted storage before the scratch is freed.
 fn nyHostValue(comptime T: type, value: anytype) NyError!T {
     if (T == NyUnit) return .{};
     if (T == NyBytes) return .{ .data = nyListMove(u8, value) };
@@ -78,12 +76,10 @@ fn nySlice(comptime T: type, ptr: ?[*]const T, len: usize) []const T {
     return if (len == 0) &.{} else nyListMove(T, ptr.?[0..len]);
 }
 
-// The runtime assumes valid UTF-8 (`catch unreachable`, `initUnchecked`), so text from C is checked here.
-fn nyText(ptr: ?[*]const u8, len: usize) ?[]const u8 {
-    const text = nySlice(u8, ptr, len);
-    if (std.unicode.utf8ValidateSlice(text)) return text;
-    nyRelease(text);
-    return null;
+// The runtime assumes valid UTF-8 (`catch unreachable`, `initUnchecked`), so text from C is checked
+// before any argument is copied: an early return would leak the copies made so far.
+fn nyValidText(ptr: ?[*]const u8, len: usize) bool {
+    return len == 0 or std.unicode.utf8ValidateSlice(ptr.?[0..len]);
 }
 
 fn nyExportInvalid(message: []const u8) c_int {

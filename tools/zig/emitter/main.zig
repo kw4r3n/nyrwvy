@@ -2304,7 +2304,7 @@ fn emitHostFunction(out: *List(u8), name: []const u8, fn_: Function, bound: Host
     checkHostResult(fn_.result);
     var parameters: List([]const u8) = .empty;
     var passed: List([]const u8) = .empty;
-    push([]const u8, &passed, "nyAllocator()");
+    push([]const u8, &passed, "ny_scratch.allocator()");
     for (fn_.parameters) |parameter| {
         const argument = identifier("p_", parameter.id);
         push([]const u8, &parameters, cat(&.{ argument, ": ", zigOf(parameter.value.type) orelse return }));
@@ -2312,6 +2312,8 @@ fn emitHostFunction(out: *List(u8), name: []const u8, fn_: Function, bound: Host
     }
     const result = zigOf(fn_.result) orelse return;
     lineCat(out, &.{ "fn ", name, "(", join(", ", parameters.items), ") ", if (failing(fn_.id)) "NyError!" else "", result, " {" });
+    line(out, "    var ny_scratch: std.heap.ArenaAllocator = .init(std.heap.smp_allocator);");
+    line(out, "    defer ny_scratch.deinit();");
     lineCat(out, &.{ "    const result = nyHost(", result, ", @import(\"", bound.source, "\").", bound.declaration, "(", join(", ", passed.items), ")) catch @panic(\"The host declaration ", bound.declaration, " failed.\");" });
     for (fn_.parameters) |parameter| lineCat(out, &.{ "    nyRelease(", identifier("p_", parameter.id), ");" });
     line(out, "    return result;");
@@ -2328,9 +2330,10 @@ fn hostCall(operation: Operation, arguments: []const []const u8) []const u8 {
     const r = operation.result;
     checkHostResult(r);
     var passed: List([]const u8) = .empty;
-    push([]const u8, &passed, "nyAllocator()");
+    push([]const u8, &passed, "ny_scratch.allocator()");
     for (operation.parameters, arguments) |parameter, argument| push([]const u8, &passed, hostArgument(parameter.type, argument));
-    return cat(&.{ "return nyHost(", zigType(r, false).?, ", @import(\"", binding.source, "\").", declaration, "(", join(", ", passed.items), "))," });
+    // The scratch is per call, not the shared arena, so a declaration may run with the lock released.
+    return cat(&.{ "{ var ny_scratch: std.heap.ArenaAllocator = .init(std.heap.smp_allocator); defer ny_scratch.deinit(); return nyHost(", zigType(r, false).?, ", @import(\"", binding.source, "\").", declaration, "(", join(", ", passed.items), ")); }," });
 }
 
 fn implementationIndex(origin: []const u8) usize {
@@ -2630,7 +2633,8 @@ fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]cons
             push([]const u8, &names, field.id);
             if (!abiResult(parameters, copies, doc, buffered, field.type, cat(&.{ name, "_", fieldName(field.id) }), cat(&.{ value, ".", fieldName(field.id) }), nested)) return false;
         }
-        if (fields.len == 0) lineCat(copies, &.{ "    _ = ", value, ";" });
+        // The export releases `result` itself, so only a nested empty Product needs a discard.
+        if (fields.len == 0 and !eql(value, "result")) lineCat(copies, &.{ "    _ = ", value, ";" });
         push([]const u8, doc, cat(&.{ name, " fields in this order: ", join(", ", names.items) }));
     } else return false;
     return true;
@@ -2660,6 +2664,7 @@ fn libraryExports(exports: []const Export) []const u8 {
         var parameters: List([]const u8) = .empty;
         var arguments: List([]const u8) = .empty;
         var doc: List([]const u8) = .empty;
+        var checks: List(u8) = .empty;
         for (fn_.parameters, 0..) |parameter, index| {
             const t = parameter.value.type;
             const p = std.fmt.allocPrint(a, "a{d}", .{index}) catch oom();
@@ -2668,7 +2673,8 @@ fn libraryExports(exports: []const Export) []const u8 {
                 push([]const u8, &arguments, p);
             } else if (isString(t)) {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const u8, ", p, "_len: usize" }));
-                push([]const u8, &arguments, cat(&.{ "nyText(", p, ", ", p, "_len) orelse return nyExportInvalid(\"", p, " is not UTF-8\")" }));
+                lineCat(&checks, &.{ "    if (!nyValidText(", p, ", ", p, "_len)) return nyExportInvalid(\"", p, " is not UTF-8\");" });
+                push([]const u8, &arguments, cat(&.{ "nySlice(u8, ", p, ", ", p, "_len)" }));
             } else if (abiListItem(t)) |zig_type| {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const ", zig_type, ", ", p, "_len: usize" }));
                 push([]const u8, &arguments, cat(&.{ "nySlice(", zig_type, ", ", p, ", ", p, "_len)" }));
@@ -2696,15 +2702,17 @@ fn libraryExports(exports: []const Export) []const u8 {
         var buffered = false;
         if (r.* != .primitive or !eql(r.primitive, "primitiveUnit")) {
             if (!abiResult(&parameters, &copies, &doc, &buffered, r, "out", "result", &.{})) problem(cat(&.{ "export result type ", typeDisplay(r) }));
-        } else line(&copies, "    _ = result;");
+        }
         for (doc.items) |text| lineCat(&out, &.{ "/// ", text });
         lineCat(&out, &.{ "export fn ", item.symbol, "(", join(", ", parameters.items), ") c_int {" });
+        out.appendSlice(a, checks.items) catch oom();
         line(&out, "    nyExportEnter();");
         line(&out, "    defer nyExportLeave();");
         const fail = if (failing(fn_.id)) " catch return nyExportFail()" else "";
         lineCat(&out, &.{ "    const result = ", instanceName(fn_.id, &.{}), "(", join(", ", arguments.items), ")", fail, ";" });
         if (buffered) line(&out, "    var fits = true;");
         out.appendSlice(a, copies.items) catch oom();
+        line(&out, "    nyRelease(result);");
         line(&out, if (buffered) "    return if (fits) 0 else 3;" else "    return 0;");
         line(&out, "}");
         line(&out, "");
