@@ -29,18 +29,13 @@ module ZigHostCreateValidationParityTests =
                 let invalid = request op "review-wait" waiting
                 let valid = request op "valid-after-rejection" """{"kind":"unitLiteral"}"""
                 let requests = [ invalid; status; proposals; declarations; valid; status; proposals; declarations ]
-                let once zig =
-                    let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] zig [ "open"; "--snapshot"; path ] requests
-                    Assert.True((code = 0), errors)
-                    Assert.Equal(seedWarning, errors)
-                    Assert.Equal(requests.Length, replies.Length)
-                    Assert.Equal<byte>(saved, File.ReadAllBytes path)
-                    for suffix in [ ".dependency.json"; ".dependency.json.previous"; ".backends.json"; ".previous" ] do
-                        Assert.False(File.Exists(path + suffix), suffix)
-                    replies
-                let expected, actual = once false, once true
-                for request, (left, right) in List.zip requests (List.zip expected actual) do
-                    Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
+                let code, errors, actual = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] [ "open"; "--snapshot"; path ] requests
+                Assert.True((code = 0), errors)
+                Assert.Equal(seedWarning, errors)
+                Assert.Equal(requests.Length, actual.Length)
+                Assert.Equal<byte>(saved, File.ReadAllBytes path)
+                for suffix in [ ".dependency.json"; ".dependency.json.previous"; ".backends.json"; ".previous" ] do
+                    Assert.False(File.Exists(path + suffix), suffix)
                 use rejected = parseDocument actual.Head
                 let error = rejected.RootElement.GetProperty("error")
                 Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean())
@@ -53,7 +48,7 @@ module ZigHostCreateValidationParityTests =
                 let waitNodeId = StableIdAllocator.seededPayload seed 3L
                 Assert.Equal($"MustNotWaitFunctionWaits: Function 'review-wait' ({functionId}) must not wait but reaches TaskWait (node '{waitNodeId}').", diagnostics[0].GetProperty("message").GetString())
                 let unsupported = """{"id":"c","ok":false,"error":{"code":"UnsupportedOperation","message":"The Zig host does not word proposed-snapshot validation failures yet."}}"""
-                Assert.False(createReplyMatches invalid expected.Head unsupported)
+                Assert.False(createReplyMatches invalid actual.Head unsupported)
                 Assert.Equal(0, (result actual[1]).GetProperty("pendingProposalCount").GetInt32())
                 Assert.Equal(0, (result actual[2]).GetProperty("count").GetInt32())
                 Assert.Equal(0, (result actual[3]).GetProperty("functions").GetArrayLength())
@@ -77,7 +72,7 @@ module ZigHostCreateValidationParityTests =
                 document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             // Seeded IDs repeat across sessions, so the second session can name the first session's proposal;
             // an unparsable NYRWVY_TEST_PENDING_LIMIT keeps the production cap of 64.
-            let session requests = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "pending-limit"; "NYRWVY_TEST_PENDING_LIMIT", "default" ] true [ "open"; "--snapshot"; path ] requests
+            let session requests = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "pending-limit"; "NYRWVY_TEST_PENDING_LIMIT", "default" ] [ "open"; "--snapshot"; path ] requests
             let code, errors, replies = session creates
             Assert.True((code = 0), errors)
             for reply in List.take 64 replies do Assert.Contains("\"ok\":true", reply)

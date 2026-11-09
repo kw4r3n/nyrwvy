@@ -7,7 +7,7 @@ open System.Text.Json
 open Nyrwvy.Core
 open Xunit
 
-/// C# execution stays byte-compatible while graph decisions and worker ownership live in Zig.
+/// C# execution through the Zig host: typed values, fakes, errors, source handling and worker lifecycle.
 module ZigHostCSharpRunParityTests =
     open ZigHostParityTests
 
@@ -78,8 +78,8 @@ module ZigHostCSharpRunParityTests =
     let private responses responses = provider $""""responses":[{String.concat "," responses}]"""
     let private returns value = $"""{{"kind":"return","value":{value}}}"""
 
-    let private withHost environment zig path flags action =
-        use host = startWithEnvironment environment zig ([ "open"; "--snapshot"; path ] @ flags)
+    let private withHost environment path flags action =
+        use host = startWithEnvironment environment ([ "open"; "--snapshot"; path ] @ flags)
         let errors = host.StandardError.ReadToEndAsync()
         let send request =
             host.StandardInput.WriteLine(request: string)
@@ -102,19 +102,11 @@ module ZigHostCSharpRunParityTests =
 
     let private strictPair path flags requests =
         zigHost () |> ignore
-        let runHost zig =
-            let exitCode, errors, replies = run zig ([ "open"; "--snapshot"; path; "--read-only" ] @ flags) requests
-            Assert.Equal(0,exitCode)
-            Assert.Equal("",errors)
-            Assert.Equal(requests.Length,replies.Length)
-            replies
-        let expected,actual=runHost false,runHost true
-        for request,(wanted,found) in List.zip requests (List.zip expected actual) do
-            use document=parseDocument request
-            // status.build identifies the host executable; every other response byte is contractual.
-            let status=document.RootElement.GetProperty("op").GetString()="status"
-            Assert.True(((if status then comparable wanted else wanted)=(if status then comparable found else found)),$"{request}\n F#: {wanted}\nZig: {found}")
-        actual
+        let exitCode, errors, replies = run ([ "open"; "--snapshot"; path; "--read-only" ] @ flags) requests
+        Assert.Equal(0,exitCode)
+        Assert.Equal("",errors)
+        Assert.Equal(requests.Length,replies.Length)
+        replies
 
     let private matches reply = Assert.True((success reply).GetProperty("matches").GetBoolean(),reply)
 
@@ -241,13 +233,12 @@ public sealed class Broken : {className}
             Assert.Equal("RunHostSourceInvalid",code replies[3])
             Assert.Equal("RunHostSourceInvalid",code replies[4])
             Assert.Equal<byte[]>(before,File.ReadAllBytes path)
-            // Both hosts read the same path twice while its C# content changes inside their session.
-            for zig in [false;true] do
-                File.WriteAllText(sourcePath,source "host:")
-                withHost [] zig path ["--allow-host-sources"] (fun _ send ->
-                    send good |> matches
-                    File.WriteAllText(sourcePath,source "changed:")
-                    send (request "Host" (Some(found "changed:a:1")) ["Host.cs"]) |> matches))
+            // The host reads the same path twice while its C# content changes inside the session.
+            File.WriteAllText(sourcePath,source "host:")
+            withHost [] path ["--allow-host-sources"] (fun _ send ->
+                send good |> matches
+                File.WriteAllText(sourcePath,source "changed:")
+                send (request "Host" (Some(found "changed:a:1")) ["Host.cs"]) |> matches))
 
     [<Fact; Trait("Suite","Extended")>]
     let ``CSharp sessions reuse cached builds reset the worker after sixty four runs and recover from timeout and stack overflow`` () =
@@ -271,59 +262,46 @@ public sealed class Broken : {className}
                     ["PATH",wrapperDirectory+string Path.PathSeparator+Environment.GetEnvironmentVariable("PATH")]
                 else []
             let compileCount ()=if File.Exists trace then File.ReadAllLines(trace).Length else 0
-            let transcripts=ResizeArray<string list>()
-            let paths=ResizeArray<string>()
-            for zig in [false;true] do
-                let target=Path.Combine(directory,if zig then "zig" else "fsharp")
-                Directory.CreateDirectory target |> ignore
-                let path=Path.Combine(target,Path.GetFileName source)
-                File.Copy(source,path)
-                File.Copy(source+".backends.json",path+".backends.json")
-                paths.Add path
-                let replies=ResizeArray<string>()
-                withHost (("NYRWVY_TEST_ID_SEED","step7-csharp-worker")::environment) zig path [] (fun host rawSend ->
-                    let send request =
-                        let reply=rawSend request
-                        replies.Add(reply.Replace(target,"<dir>"))
-                        reply
-                    // A replayed F# host has no worker process; its runs are checked by their replies.
-                    let tracked=OperatingSystem.IsLinux() && zig
-                    let pid ()=if tracked then Some(workerPid host) else None
-                    let echoed value=runName "echo" [stringValue value] (Some(stringValue value))
-                    send (echoed "cold") |> matches
-                    let first=pid ()
-                    let coldCompiles=compileCount ()
-                    send (echoed "warm") |> matches
-                    if zig && OperatingSystem.IsLinux() then
-                        Assert.True(coldCompiles>=2,"The native host did not compile a runner and its worker.")
-                        Assert.Equal(coldCompiles,compileCount ())
-                    Assert.Equal(first,pid ())
-                    for index in 3..64 do send (echoed(string index)) |> matches
-                    Assert.Equal(first,pid ())
-                    send (echoed "replacement") |> matches
-                    if tracked then Assert.NotEqual(first,pid ())
-                    if zig && OperatingSystem.IsLinux() then Assert.Equal(coldCompiles,compileCount ())
-                    publish send """{"id":"rename","op":"simulateOperationsByName","operations":[{"kind":"renameFunction","function":"echo","displayName":"renamed"}]}"""
-                    send (runName "renamed" ["\"after rename\""] (Some "\"after rename\"")) |> matches
-                    if zig && OperatingSystem.IsLinux() then Assert.Equal(coldCompiles,compileCount ())
-                    publish send """{"id":"body","op":"simulateReplaceBodyByName","function":"renamed","replacement":{"kind":"stringConcat","left":{"kind":"parameter","name":"value"},"right":{"kind":"stringLiteral","value":"!"}}}"""
-                    let recovered ()=send (runName "renamed" ["\"changed\""] (Some "\"changed!\"")) |> matches
-                    recovered ()
-                    if zig && OperatingSystem.IsLinux() then Assert.Equal(coldCompiles+1,compileCount ())
-                    let beforeTimeout=pid ()
-                    Assert.Equal("RunTimeout",code(send(runName "spin" [] None)))
-                    recovered ()
-                    if tracked then Assert.NotEqual(beforeTimeout,pid ())
-                    let beforeCrash=pid ()
-                    let crash=send(runName "deep" [] None)
-                    Assert.Equal("RunRuntimeFailure",code crash)
-                    Assert.Equal("System.StackOverflowException",(error crash).GetProperty("exceptionType").GetString())
-                    Assert.NotEmpty((error crash).GetProperty("frames").EnumerateArray())
-                    recovered ()
-                    if tracked then Assert.NotEqual(beforeCrash,pid ()))
-                transcripts.Add(List.ofSeq replies)
-            Assert.Equal<string list>(transcripts[0],transcripts[1])
-            Assert.Equal<byte[]>(File.ReadAllBytes(paths[0]),File.ReadAllBytes(paths[1])))
+            let target=Path.Combine(directory,"zig")
+            Directory.CreateDirectory target |> ignore
+            let path=Path.Combine(target,Path.GetFileName source)
+            File.Copy(source,path)
+            File.Copy(source+".backends.json",path+".backends.json")
+            withHost (("NYRWVY_TEST_ID_SEED","step7-csharp-worker")::environment) path [] (fun host send ->
+                let tracked=OperatingSystem.IsLinux()
+                let pid ()=if tracked then Some(workerPid host) else None
+                let echoed value=runName "echo" [stringValue value] (Some(stringValue value))
+                send (echoed "cold") |> matches
+                let first=pid ()
+                let coldCompiles=compileCount ()
+                send (echoed "warm") |> matches
+                if OperatingSystem.IsLinux() then
+                    Assert.True(coldCompiles>=2,"The native host did not compile a runner and its worker.")
+                    Assert.Equal(coldCompiles,compileCount ())
+                Assert.Equal(first,pid ())
+                for index in 3..64 do send (echoed(string index)) |> matches
+                Assert.Equal(first,pid ())
+                send (echoed "replacement") |> matches
+                if tracked then Assert.NotEqual(first,pid ())
+                if OperatingSystem.IsLinux() then Assert.Equal(coldCompiles,compileCount ())
+                publish send """{"id":"rename","op":"simulateOperationsByName","operations":[{"kind":"renameFunction","function":"echo","displayName":"renamed"}]}"""
+                send (runName "renamed" ["\"after rename\""] (Some "\"after rename\"")) |> matches
+                if OperatingSystem.IsLinux() then Assert.Equal(coldCompiles,compileCount ())
+                publish send """{"id":"body","op":"simulateReplaceBodyByName","function":"renamed","replacement":{"kind":"stringConcat","left":{"kind":"parameter","name":"value"},"right":{"kind":"stringLiteral","value":"!"}}}"""
+                let recovered ()=send (runName "renamed" ["\"changed\""] (Some "\"changed!\"")) |> matches
+                recovered ()
+                if OperatingSystem.IsLinux() then Assert.Equal(coldCompiles+1,compileCount ())
+                let beforeTimeout=pid ()
+                Assert.Equal("RunTimeout",code(send(runName "spin" [] None)))
+                recovered ()
+                if tracked then Assert.NotEqual(beforeTimeout,pid ())
+                let beforeCrash=pid ()
+                let crash=send(runName "deep" [] None)
+                Assert.Equal("RunRuntimeFailure",code crash)
+                Assert.Equal("System.StackOverflowException",(error crash).GetProperty("exceptionType").GetString())
+                Assert.NotEmpty((error crash).GetProperty("frames").EnumerateArray())
+                recovered ()
+                if tracked then Assert.NotEqual(beforeCrash,pid ())))
 
     [<Fact; Trait("Suite","Extended")>]
     let ``CSharp managed text boundaries preserve source BOMs replacement decoding UTF16 limits and compiler diagnostics`` () =

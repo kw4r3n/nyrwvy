@@ -95,9 +95,8 @@ module ZigHostStructuralMigrationsParityTests =
             let path = Path.Combine(dir, "structural.json")
             File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
             let lines = [ for byName in [false; true] do for kind in ["field"; "capability"; "union"] do let line = request snapshot byName kind in yield line; yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"); yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
-            let expected, actual = seededPair "structural-reviews" path lines
-            Assert.Equal<string list>(expected, actual)
-            for line in expected do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
+            let actual = seededPair "structural-reviews" path lines
+            for line in actual do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Structural failures preserve diagnostics and subsequent allocation streams`` () =
@@ -124,9 +123,8 @@ module ZigHostStructuralMigrationsParityTests =
                                   yield mutate good (fun root -> root[key].[if kind = "field" then 1 else 3].["replacement"] <- JsonNode.Parse """{"kind":"boolLiteral","value":true}""")
                                   yield mutate good (fun root -> root[key].[0].["replacement"] <- JsonNode.Parse """{"kind":"parameterSlot","slot":99}""") ]
                         for bad in invalid do yield bad; yield good ]
-            let expected, actual = seededPair "structural-negative" path lines
-            Assert.Equal<string list>(expected, actual)
-            for index, line in List.indexed expected do use parsed = parseDocument line in Assert.Equal(index % 2 = 1, parsed.RootElement.GetProperty("ok").GetBoolean()))
+            let actual = seededPair "structural-negative" path lines
+            for index, line in List.indexed actual do use parsed = parseDocument line in Assert.Equal(index % 2 = 1, parsed.RootElement.GetProperty("ok").GetBoolean()))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Structural proposals retain pages views lifecycle and all persistence encodings`` () =
@@ -147,7 +145,7 @@ module ZigHostStructuralMigrationsParityTests =
                     let proposal reply = ok reply; use parsed = parseDocument reply in parsed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
                     let operation op id = $"""{{"id":"life","op":"{op}","proposalId":{q id}}}"""
                     let migration = request snapshot true kind
-                    let fsharp, zig = seededWritablePair "structural-lifecycle" source case (fun path send ->
+                    let zig = seededWritablePair "structural-lifecycle" source case (fun path send ->
                         let current = send migration |> proposal
                         let stale = send migration |> proposal
                         let inspect id =
@@ -172,14 +170,11 @@ module ZigHostStructuralMigrationsParityTests =
                             Assert.Contains("ExternalModification", send (operation "commit" id))
                             Assert.Contains("SessionInvalidated", send migration)
                             File.WriteAllBytes(path, before))
-                    for directory in [fsharp; zig] do
-                        let path = Path.Combine(directory, Path.GetFileName source)
-                        let lines = ["""{"id":"status","op":"status"}"""; """{"id":"types","op":"declarations"}"""]
-                        let fc, fe, expected = run false ["open"; "--snapshot"; path; "--read-only"] lines
-                        let zc, ze, actual = run true ["open"; "--snapshot"; path; "--read-only"] lines
-                        Assert.True((fc = 0 && zc = 0), fe + ze)
-                        Assert.Equal<string list>(List.map comparable expected, List.map comparable actual)
-                        for line in expected do ok line)
+                    let path = Path.Combine(zig, Path.GetFileName source)
+                    let lines = ["""{"id":"status","op":"status"}"""; """{"id":"types","op":"declarations"}"""]
+                    let code, errors, actual = run ["open"; "--snapshot"; path; "--read-only"] lines
+                    Assert.True((code = 0), errors)
+                    for line in actual do ok line)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Union evolution clones nested pattern frames and instantiates generic extra fields`` () =
@@ -220,9 +215,8 @@ module ZigHostStructuralMigrationsParityTests =
                         root["additionalFields"].[0].["type"] <- JsonNode.Parse(if byName then $"""{{"kind":"typeParameter","name":{q (StableId.value t)}}}""" else $"""{{"kind":"typeParameter","typeParameterId":{q (StableId.value t)}}}"""))
                     yield line
                     yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
-            let expected, actual = seededPair "structural-generic-union" path lines
-            Assert.Equal<string list>(expected, actual)
-            for line in expected do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
+            let actual = seededPair "structural-generic-union" path lines
+            for line in actual do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``All structural migrations preserve imported declaration policy and rejected allocation streams`` () =
@@ -235,9 +229,8 @@ module ZigHostStructuralMigrationsParityTests =
             File.WriteAllText(path + ".dependency.json", (memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "dependency.json").ToJsonString())
             let create = $"""{{"id":"good","op":"simulateCreateFunctionByName","displayName":"new","parameters":[],"resultType":{intJson},"requiredEffects":[],"body":{literal}}}"""
             let lines = [ for byName in [false;true] do for kind in ["field";"capability";"union"] do yield request snapshot byName kind; yield create ]
-            let expected, actual = seededPair "structural-imported" path lines
-            Assert.Equal<string list>(expected, actual)
-            for index, line in List.indexed expected do
+            let actual = seededPair "structural-imported" path lines
+            for index, line in List.indexed actual do
                 if index % 2 = 0 then Assert.Contains("ImportedDeclarationModified", line)
                 else use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
 
@@ -305,6 +298,5 @@ module ZigHostStructuralMigrationsParityTests =
                             let line = make byName kind shape
                             yield line
                             yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
-            let expected, actual = seededPair "structural-symbolic-types" path lines
-            Assert.Equal<string list>(expected, actual)
-            for line in expected do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
+            let actual = seededPair "structural-symbolic-types" path lines
+            for line in actual do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))

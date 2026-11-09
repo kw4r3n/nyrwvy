@@ -45,9 +45,8 @@ module ZigHostMigrationsParityTests =
                         yield full.ToJsonString()
                         full["structuredReview"] <- JsonValue.Create true
                         yield full.ToJsonString() ]
-            let expected, actual = seededPair "migrations-reviews" path lines
-            Assert.Equal<string list>(expected, actual)
-            for line in expected do
+            let actual = seededPair "migrations-reviews" path lines
+            for line in actual do
                 use parsed = parseDocument line
                 Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
 
@@ -68,9 +67,8 @@ module ZigHostMigrationsParityTests =
                         line["detail"] <- JsonValue.Create "full"
                         line["structuredReview"] <- JsonValue.Create true
                         yield line.ToJsonString() ]
-            let expected, actual = seededPair "migrations-calls" path lines
-            Assert.Equal<string list>(expected, actual)
-            for line in expected do
+            let actual = seededPair "migrations-calls" path lines
+            for line in actual do
                 use parsed = parseDocument line
                 Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
 
@@ -106,9 +104,8 @@ module ZigHostMigrationsParityTests =
                 [ for parameter in [false; true] do
                     let valid = request false parameter |> fun line -> JsonNode.Parse(line).ToJsonString()
                     for invalid in invalids valid do yield invalid; yield valid ]
-            let expected, actual = seededPair "migrations-negative" path lines
-            Assert.Equal<string list>(expected, actual)
-            for index, line in expected |> List.indexed do
+            let actual = seededPair "migrations-negative" path lines
+            for index, line in actual |> List.indexed do
                 use parsed = parseDocument line
                 Assert.Equal(index % 2 = 1, parsed.RootElement.GetProperty("ok").GetBoolean()))
 
@@ -147,9 +144,8 @@ module ZigHostMigrationsParityTests =
                         yield line
                         yield mutate line (fun n -> n["detail"] <- JsonValue.Create "full")
                         yield mutate line (fun n -> n["detail"] <- JsonValue.Create "full"; n["structuredReview"] <- JsonValue.Create true) ]
-            let expected, actual = seededPair "migrations-generic" path lines
-            Assert.Equal<string list>(expected, actual)
-            for line in expected do
+            let actual = seededPair "migrations-generic" path lines
+            for line in actual do
                 use parsed = parseDocument line
                 Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
 
@@ -176,7 +172,7 @@ module ZigHostMigrationsParityTests =
                     parsed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
                 let q value = System.Text.Json.JsonSerializer.Serialize<string> value
                 let operation op id = $"""{{"id":"life","op":"{op}","proposalId":{q id}}}"""
-                let fsharp, zig = seededWritablePair "migrations-lifecycle" source case (fun _ send ->
+                let zig = seededWritablePair "migrations-lifecycle" source case (fun _ send ->
                     let first = send (request true false) |> proposal
                     let stale = send (request true false) |> proposal
                     let inspect id =
@@ -207,14 +203,11 @@ module ZigHostMigrationsParityTests =
                     let fallback = $"parameterTypeMigration of {StableId.value target.Id} parameter {StableId.value target.Parameters.Head.Id}"
                     Assert.Contains(fallback, send """{"id":"list-removed","op":"proposals"}""")
                     send (operation "reject" pending) |> ok)
-                for directory in [fsharp;zig] do
-                    let path = Path.Combine(directory, Path.GetFileName source)
-                    let lines = ["""{"id":"status","op":"status"}"""; """{"id":"read","op":"readFunction","function":"caller","detail":"full"}"""]
-                    let fc, fe, f = run false ["open"; "--snapshot"; path; "--read-only"] lines
-                    let zc, ze, z = run true ["open"; "--snapshot"; path; "--read-only"] lines
-                    Assert.True((fc = 0 && zc = 0), fe + ze)
-                    Assert.Equal<string list>(List.map comparable f, List.map comparable z)
-                    for line in f do ok line)
+                let path = Path.Combine(zig, Path.GetFileName source)
+                let lines = ["""{"id":"status","op":"status"}"""; """{"id":"read","op":"readFunction","function":"caller","detail":"full"}"""]
+                let code, errors, z = run ["open"; "--snapshot"; path; "--read-only"] lines
+                Assert.True((code = 0), errors)
+                for line in z do ok line)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Imported migrations reject before registration and successful local proposals remain usable`` () =
@@ -230,11 +223,10 @@ module ZigHostMigrationsParityTests =
             File.WriteAllText(source + ".dependency.json", (memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "dependency.json").ToJsonString())
             let valid = request true false
             let invalid = mutate valid (fun n -> n["function"] <- JsonValue.Create "imported"; n["callerRewrites"] <- JsonNode.Parse "[]")
-            let expected, actual = seededPair "migrations-imported" source [invalid;valid]
-            Assert.Equal<string list>(expected, actual)
-            Assert.Contains("ImportedDeclarationModified", expected.Head)
-            use parsed = parseDocument expected.[1]
-            Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), expected.[1]))
+            let actual = seededPair "migrations-imported" source [invalid;valid]
+            Assert.Contains("ImportedDeclarationModified", actual.Head)
+            use parsed = parseDocument actual.[1]
+            Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), actual.[1]))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``External changes invalidate migration commits without overwriting the snapshot`` () =

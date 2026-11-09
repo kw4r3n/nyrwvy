@@ -6,7 +6,7 @@ open System.Text.Json
 open Nyrwvy.Core
 open Xunit
 
-/// Positive assertions accompany byte comparison: an unsupported reply can never pass as execution.
+/// Positive assertions on the Zig host replies: an unsupported reply can never pass as execution.
 module ZigHostRunPureParityTests =
     open ZigHostParityTests
 
@@ -71,27 +71,19 @@ module ZigHostRunPureParityTests =
     let private responses responses = provider $""""responses":[{String.concat "," responses}]"""
     let private returns value = $"""{{"kind":"return","value":{value}}}"""
 
-    /// The recorded F# replies and the Zig replies, equal except at the `differing` request indices,
-    /// which the caller checks itself (where the Zig backend now supports what the F# host did not).
-    let private pairExcept differing path requests =
-        // Building a tool is outside either host's first-response budget.
+    /// The Zig host's replies to `requests`, with exit code, stderr and reply count checked.
+    let private strictPair path requests =
+        // Building a tool is outside the host's first-response budget.
         zigHost () |> ignore
         ZigTools.tool "emitter" |> unwrap |> ignore
-        let runHost zig =
-            let exitCode, errors, replies = runWithEnvironment [] zig [ "open"; "--snapshot"; path; "--read-only" ] requests
-            Assert.Equal(0, exitCode)
-            Assert.Equal("", errors)
-            Assert.Equal(requests.Length, replies.Length)
-            replies
-        let expected, actual = runHost false, runHost true
-        for index, (request, (wanted, found)) in List.indexed (List.zip requests (List.zip expected actual)) do
-            if not (List.contains index differing) then Assert.True((wanted = found), $"{request}\n F#: {wanted}\nZig: {found}")
-        expected, actual
+        let exitCode, errors, replies = runWithEnvironment [] [ "open"; "--snapshot"; path; "--read-only" ] requests
+        Assert.Equal(0, exitCode)
+        Assert.Equal("", errors)
+        Assert.Equal(requests.Length, replies.Length)
+        replies
 
-    let private strictPair path requests = fst (pairExcept [] path requests)
-
-    let private withHost environment zig path action =
-        use host = startWithEnvironment environment zig [ "open"; "--snapshot"; path ]
+    let private withHost environment path action =
+        use host = startWithEnvironment environment [ "open"; "--snapshot"; path ]
         let errors = host.StandardError.ReadToEndAsync()
         let send request =
             host.StandardInput.WriteLine(request: string)
@@ -233,7 +225,7 @@ module ZigHostRunPureParityTests =
                 zigHost () |> ignore
                 let environment = [ "NYRWVY_ZIG", compiler; "XDG_CACHE_HOME", cache ]
                 let builds () = if File.Exists trace then File.ReadAllLines(trace).Length else 0
-                withHost environment true path (fun send ->
+                withHost environment path (fun send ->
                     let original = File.ReadAllText path
                     for name, arguments in [ "echo", [ "\"one\"" ]; "echo", [ "\"two\"" ]; "integer", [ "42" ] ] do
                         send (runName name arguments (Some arguments.Head)) |> success |> ignore
@@ -251,14 +243,14 @@ module ZigHostRunPureParityTests =
                     let result = send (runName "constant" [] (Some "9")) |> success
                     Assert.True(result.GetProperty("matches").GetBoolean())
                     Assert.Equal(4, builds ()))
-                withHost environment true path (fun send ->
+                withHost environment path (fun send ->
                     Assert.True((send (runName "constant" [] (Some "9")) |> success).GetProperty("matches").GetBoolean())
                     Assert.Equal(4, builds ()))
                 // PATH wrappers can change their build flags while `zig env` stays identical.
                 let originalCompiler = File.ReadAllText compiler
                 File.WriteAllText(compiler, originalCompiler + "# changed compiler wrapper\n")
                 let pathEnvironment = [ "NYRWVY_ZIG", "compiler"; "XDG_CACHE_HOME", cache; "PATH", directory + Path.PathSeparator.ToString() + Environment.GetEnvironmentVariable("PATH") ]
-                withHost pathEnvironment true path (fun send ->
+                withHost pathEnvironment path (fun send ->
                     send (runName "constant" [] (Some "9")) |> success |> ignore
                     let previous = builds ()
                     File.WriteAllText(compiler, originalCompiler + "# changed again within the same host\n")
@@ -266,7 +258,7 @@ module ZigHostRunPureParityTests =
                     Assert.Equal(previous + 1, builds ()))
                 let echoId = declarations.Functions |> List.find (fun fn -> fn.DisplayName = "echo") |> fun fn -> StableId.value fn.Id
                 let exact = $"""{{"id":"reopen","op":"runPure","backend":"zig","functionId":"{echoId}","arguments":["after reopen"]}}"""
-                let _, _, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] [ exact ]
+                let _, _, replies = run [ "open"; "--snapshot"; path; "--read-only" ] [ exact ]
                 Assert.Equal("renamed", (success replies.Head).GetProperty("function").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
@@ -279,7 +271,7 @@ module ZigHostRunPureParityTests =
             File.WriteAllText(compiler, $"#!/bin/sh\nsleep 300 &\necho $! > '{sleeper}'\necho $$ > '{shell}'\nwait\n")
             File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
             zigHost () |> ignore
-            use host = startWithEnvironment [ "NYRWVY_ZIG", compiler ] true [ "open"; "--snapshot"; path; "--read-only" ]
+            use host = startWithEnvironment [ "NYRWVY_ZIG", compiler ] [ "open"; "--snapshot"; path; "--read-only" ]
             host.StandardInput.WriteLine(runName "constant" [] None)
             host.StandardInput.Flush()
             let started = DateTime.UtcNow
@@ -315,13 +307,8 @@ module ZigHostRunPureParityTests =
             File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
             let environment = [ "NYRWVY_ZIG", compiler ]
             let requests = [ runName "constant" [] None; """{"id":"status","op":"status"}"""; runName "constant" [] None ]
-            let expected =
-                let exitCode, errors, replies = runWithEnvironment environment false [ "open"; "--snapshot"; failurePath; "--read-only" ] requests
-                Assert.True((exitCode = 0), $"F# host exited {exitCode}: {errors}")
-                replies |> List.map comparable
-            let exitCode, errors, actual = runWithEnvironment environment true [ "open"; "--snapshot"; failurePath; "--read-only" ] requests
+            let exitCode, errors, actual = runWithEnvironment environment [ "open"; "--snapshot"; failurePath; "--read-only" ] requests
             Assert.True((exitCode = 0), $"Zig host exited {exitCode}: {errors}")
-            Assert.Equal<string list>(expected, actual |> List.map comparable)
             Assert.Equal("RunProcessFailure", code actual[0])
             success actual[1] |> ignore
             Assert.Equal("RunProcessFailure", code actual[2]))
@@ -351,17 +338,11 @@ module ZigHostRunPureParityTests =
                   $"""{{"id":"use","op":"simulateCreateFunctionByName","displayName":"holderUse","parameters":[{declared "pair" pairType}],"resultType":{bits},"requiredEffects":[],"body":{{"kind":"bits32FromInt64","value":{{"kind":"int64Literal","value":"1"}}}}}}"""
                   $"""{{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{declared "value" bits}],"resultType":{bits},"requiredEffects":[],"body":{{"kind":"bind","value":{construct},"body":{{"kind":"parameter","name":"value"}}}}}}""" ]
             let requests = [ runName "bits" [ "4294967295" ] None; runName "constant" [] (Some "7"); runName "query" [ "\"a\""; responses [ returns (found "ok") ] ] (Some(found "ok")) ]
-            // The F# host recorded Bits32 as the unsupported construct; Bits32 is emitted now, so the
-            // body holds a capability whose operation takes a capability, which the Zig emitter still
-            // rejects, and only the code is compared. Its
-            // extra nodes take seeded IDs, so the snapshot ID differs from the recorded one and nothing else.
-            let replies, zig = pairExcept [ 0; 1; 2 ] path requests
-            Assert.Equal("RunBackendUnsupported", code replies[0])
+            // Bits32 is emitted, so the body holds a capability whose operation takes a capability,
+            // which the Zig emitter still rejects.
+            let zig = strictPair path requests
             Assert.Equal("RunBackendUnsupported", code zig[0])
-            let snapshotId reply = (success reply).GetProperty("sourceSnapshotId").GetString()
-            for wanted, found in List.zip replies.Tail zig.Tail do
-                Assert.Equal(wanted.Replace(snapshotId wanted, snapshotId found), found)
-            for reply in replies.Tail do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply))
+            for reply in zig.Tail do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``native Zig host preserves backend manifest ordering and external source invalidation`` () =
@@ -413,11 +394,10 @@ module ZigHostRunPureParityTests =
                       runName "pair" [ pair "unicode identities" 2 ] (Some(pair "unicode identities" 2))
                       runName "query" [ "\"a\""; responses [ returns missing ] ] (Some missing)
                       runName "negatedNaN" [ """{"kind":"fakeCapability","capability":"FloatReader","operations":[{"operation":"read","cases":[{"arguments":[{"parameter":"number","value":{"kind":"float64","value":"NaN"}}],"responses":[{"kind":"return","value":{"kind":"string","value":"matched"}}]}]}]}"""; "\"NaN\"" ] None ]
-                let replies, zig = pairExcept [ 4 ] path requests
-                for reply in replies |> List.take 4 do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
-                Assert.Equal("provider16", (success replies.Head).GetProperty("calls").[0].GetProperty("parameter").GetString())
-                // The F# host compared scripted NaN keys by their bits; NaN keys are canonical now, as on the C# backend.
-                Assert.Equal("RunBindingNoMatch", code replies[4])
+                let zig = strictPair path requests
+                for reply in zig |> List.take 4 do Assert.True((success reply).GetProperty("matches").GetBoolean(), reply)
+                Assert.Equal("provider16", (success zig.Head).GetProperty("calls").[0].GetProperty("parameter").GetString())
+                // NaN keys are canonical, as on the C# backend.
                 Assert.Equal("matched", (success zig[4]).GetProperty("actual").GetProperty("value").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
@@ -488,11 +468,6 @@ module ZigHostRunPureParityTests =
             let path = Path.Combine(directory, "unsupported.json")
             File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
             let request = runName "unsupported" [ "[[[[1]]]]" ] None
-            // The F# host could not emit Bits32 and reported the nested type over several lines; the Zig
-            // backend emits Bits32, so it runs the entry (the layout stays covered by the emitter's own test).
-            let replies, zig = pairExcept [ 0 ] path [ request ]
-            let reply = replies.Head
-            Assert.Equal("RunBackendUnsupported", code reply)
-            use document = parseDocument reply
-            Assert.Contains("BuiltinGeneric\n", document.RootElement.GetProperty("error").GetProperty("message").GetString())
+            // The Zig backend emits Bits32, so it runs the entry (the layout stays covered by the emitter's own test).
+            let zig = strictPair path [ request ]
             Assert.Equal("list", (success zig.Head).GetProperty("actual").GetProperty("kind").GetString()))

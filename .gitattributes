@@ -1,4 +1,4 @@
-# Zig embeds tables and sources byte for byte (and goldens compare bytes), so every platform checks out LF.
+# Zig embeds tables and sources byte for byte, so every platform checks out LF.
 * text=auto eol=lf
 # Preserve the exact authenticated compressed offline input bytes on checkout.
 examples/offline-session-replay/fixtures/retained-inputs/**/*.gz binary

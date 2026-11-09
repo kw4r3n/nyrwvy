@@ -10,7 +10,7 @@ Run during ordinary development (the on-demand `CI` workflow runs the same check
 ./scripts/test-fast.fish
 ```
 
-The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project. It does compile most of the solution: besides the four `src` projects, `Nyrwvy.Core.Tests` references `Nyrwvy.ViewerExport`, built but not linked. The Zig host parity tests compare the Zig host with the F# host's recorded answers (`tests/goldens/zig-host`). It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
+The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project. It does compile most of the solution: besides the four `src` projects, `Nyrwvy.Core.Tests` references `Nyrwvy.ViewerExport`, built but not linked. The Zig host parity tests run the Zig host alone; they no longer compare it with the F# host's recorded answers, which were removed on 2026-11-09. It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
 
 A few broad execution tests remain in their feature files to avoid duplicating fixture/setup code. Mark these methods `[<Fact; Trait("Suite", "Extended")>]`. `fast.runsettings` selects `Suite!=Extended`; `extended.runsettings` selects `Suite=Extended`. Routing never depends on a display name or module-name substring, so renaming a test does not change suite ownership.
 

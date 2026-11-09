@@ -646,7 +646,7 @@ module ZigBackendComparisonTests =
                     let indexed = List.collect snd groups
                     let requests = indexed |> List.map (fun (_, _, request) -> request)
                     Threading.Tasks.Task.Run(fun () ->
-                        let code, errors, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
+                        let code, errors, replies = run [ "open"; "--snapshot"; path; "--read-only" ] requests
                         Assert.Equal(0, code)
                         Assert.Equal("", errors)
                         Assert.Equal(requests.Length, replies.Length)

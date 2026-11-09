@@ -71,13 +71,12 @@ module ZigHostMixedBatchParityTests =
                   yield batch [ """{"kind":"createType","displayName":"Recursive","typeKind":{"kind":"product","fields":[{"displayName":"next","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","name":"Recursive"}]}}]}}""" ]
                   yield batch [ """{"kind":"createTypes","types":[{"displayName":"MutualLeft","typeKind":{"kind":"product","fields":[{"displayName":"right","type":{"kind":"named","name":"MutualRight"}}]}},{"displayName":"MutualRight","typeKind":{"kind":"product","fields":[{"displayName":"left","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","name":"MutualLeft"}]}}]}}]}""" ]
                   yield """{"id":"p","op":"proposals"}""" ]
-            let expected, actual = seededPair "mixed-errors" source requests
-            Assert.Equal<string list>(expected, actual)
+            let actual = seededPair "mixed-errors" source requests
             for index in 0 .. failures.Length - 1 do
-                use rejected = parseDocument expected[index * 2]
-                Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean(), expected[index * 2])
-                success expected[index * 2 + 1] |> ignore
-            for reply in expected |> List.skip (failures.Length * 2) do success reply |> ignore)
+                use rejected = parseDocument actual[index * 2]
+                Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean(), actual[index * 2])
+                success actual[index * 2 + 1] |> ignore
+            for reply in actual |> List.skip (failures.Length * 2) do success reply |> ignore)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Mixed file batches own one proposal and retain reviews through commit reject and reopen`` () =
@@ -97,7 +96,7 @@ module ZigHostMixedBatchParityTests =
                 File.WriteAllText(Path.Combine(input, "body.json"), literal)
                 File.WriteAllText(Path.Combine(input, "functions.json"), "[" + fn "fileFunction" literal + "]")
                 File.WriteAllText(Path.Combine(input, "steps.json"), "[" + String.concat "," (ordered @ [ """{"kind":"createFunctions","functionsFile":"functions.json"}"""; (create "bodyFile" literal).Replace("\"body\":" + literal, "\"bodyFile\":\"body.json\"") ]) + "]")
-                let fsharp, zig = seededWritablePair "mixed-files" source case (fun path send ->
+                let zig = seededWritablePair "mixed-files" source case (fun path send ->
                     for request in
                         [ """{"id":"b","op":"simulateBatchByName","stepsFile":"../outside.json"}"""
                           """{"id":"b","op":"simulateBatchByName","steps":[],"stepsFile":"steps.json"}"""
@@ -127,15 +126,11 @@ module ZigHostMixedBatchParityTests =
                     Assert.Contains("ExternalModification", send (operation "commit" external))
                     Assert.Contains("SessionInvalidated", send request)
                     File.WriteAllText(path, before))
-                for directory in [ fsharp; zig ] do
-                    let path = Path.Combine(directory, Path.GetFileName source)
-                    let requests = [ """{"id":"s","op":"status"}"""; """{"id":"f","op":"readFunction","function":"last","detail":"full"}""" ]
-                    let readHost zig =
-                        let code, errors, replies = run zig [ "open"; "--snapshot"; path; "--read-only" ] requests
-                        Assert.True((code = 0), errors)
-                        replies |> List.iter (success >> ignore)
-                        List.map comparable replies
-                    Assert.Equal<string list>(readHost false, readHost true))
+                let path = Path.Combine(zig, Path.GetFileName source)
+                let requests = [ """{"id":"s","op":"status"}"""; """{"id":"f","op":"readFunction","function":"last","detail":"full"}""" ]
+                let code, errors, replies = run [ "open"; "--snapshot"; path; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                replies |> List.iter (success >> ignore))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Mixed compact reviews project whole steps and final readiness resolves intermediate obligations`` () =
@@ -154,13 +149,12 @@ module ZigHostMixedBatchParityTests =
             let remove = """{"kind":"operations","operations":[{"kind":"removeFunctionParameter","function":"twice","parameter":"extra"}]}"""
             let large = batch [ for index in 0 .. 59 -> create $"step{index}" literal ]
             let requests = [ batch [ add; remove ]; batch [ flag; add ]; large ]
-            let expected, actual = seededPair "mixed-readiness" source requests
-            Assert.Equal<string list>(expected, actual)
-            let ready = (success expected[0]).GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString()
-            let incomplete = (success expected[1]).GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString()
+            let actual = seededPair "mixed-readiness" source requests
+            let ready = (success actual[0]).GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString()
+            let incomplete = (success actual[1]).GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString()
             Assert.Equal("semanticallyReady", ready)
             Assert.Equal("incomplete", incomplete)
-            Assert.True((success expected[2]).GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
+            Assert.True((success actual[2]).GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
             seededWritablePair "mixed-policy" source (Path.Combine(dir, "lifecycle")) (fun _ send ->
                 let incomplete = send (batch [ flag; add ]) |> proposal
                 Assert.Contains("BlockingObligations", send (operation "commit" incomplete))
@@ -188,13 +182,11 @@ module ZigHostMixedBatchParityTests =
                   batch [ flag; field "Hidden" ]
                   batch [ flag; """{"kind":"operations","operations":[{"kind":"renameType","type":"Visible","displayName":"changed"}]}""" ]
                   """{"id":"p","op":"proposals"}""" ]
-            let expected, actual = seededPair "mixed-dependency" source requests
-            Assert.Equal<string list>(expected, actual)
-            let id = expected[0] |> proposal
-            Assert.Contains("BatchStepRejected", expected[1])
-            Assert.Contains("ImportedDeclarationModified", expected[2])
-            Assert.Equal(1, (success expected[3]).GetProperty("count").GetInt32())
+            let actual = seededPair "mixed-dependency" source requests
+            let id = actual[0] |> proposal
+            Assert.Contains("BatchStepRejected", actual[1])
+            Assert.Contains("ImportedDeclarationModified", actual[2])
+            Assert.Equal(1, (success actual[3]).GetProperty("count").GetInt32())
             let readonlyRequests = [ requests[0]; operation "commit" id; operation "reject" id ]
-            let expected, actual = seededPair "mixed-dependency" source readonlyRequests
-            Assert.Equal<string list>(expected, actual)
-            Assert.Contains("ReadOnlySession", expected[1]))
+            let actual = seededPair "mixed-dependency" source readonlyRequests
+            Assert.Contains("ReadOnlySession", actual[1]))

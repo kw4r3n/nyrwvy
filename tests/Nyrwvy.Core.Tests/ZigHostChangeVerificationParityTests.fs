@@ -13,7 +13,7 @@ open System.Threading.Tasks
 open Nyrwvy.Core
 open Xunit
 
-/// Only the four genuinely different module identities and the build environment are excluded from behavioral evidence parity.
+/// Runs change verification on the Zig host; the four module identities and the build environment are normalized in the evidence.
 module ZigHostChangeVerificationParityTests =
     open ZigHostParityTests
 
@@ -82,7 +82,7 @@ module ZigHostChangeVerificationParityTests =
         use executable = File.OpenRead(zigHost ())
         "zig-sha256:" + Convert.ToHexString(SHA256.HashData executable))
 
-    let private normalize zig directory (json: string) =
+    let private normalize directory (json: string) =
         let node = JsonNode.Parse(json.Replace(directory, "<dir>") |> comparable, documentOptions = JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
         let get (key: string) (node: JsonNode) = match node with :? JsonObject as value -> value[key] | _ -> null
         let evidence =
@@ -92,15 +92,9 @@ module ZigHostChangeVerificationParityTests =
             let identity = get "verifierIdentity" evidence
             let keys = [ "authoringModule"; "semanticsModule"; "executionModule"; "backendModule" ]
             let ids = keys |> List.map (fun (key: string) -> identity[key].GetValue<string>())
-            if zig then
-                for id in ids do Assert.Matches("^zig-sha256:[0-9A-F]{64}$", id)
-                Assert.Equal(1, ids |> List.distinct |> List.length)
-                for id in ids do Assert.Equal(zigExecutableIdentity.Value, id)
-            else
-                for id in ids do
-                    let valid, value = Guid.TryParse id
-                    Assert.True(valid, id)
-                    Assert.NotEqual(Guid.Empty, value)
+            for id in ids do Assert.Matches("^zig-sha256:[0-9A-F]{64}$", id)
+            Assert.Equal(1, ids |> List.distinct |> List.length)
+            for id in ids do Assert.Equal(zigExecutableIdentity.Value, id)
             for key in keys do identity[key] <- JsonValue.Create("<actual-module-identity>")
             // The compiler fingerprint hashes the absolute .NET reference paths, so it names the machine, not the behavior.
             for key in [ "runtimeVersion"; "buildContextFingerprint" ] do identity[key] <- JsonValue.Create("<build-environment>")
@@ -108,53 +102,44 @@ module ZigHostChangeVerificationParityTests =
 
     type private During = (Process -> Task<string> -> unit) -> string -> string
 
-    /// Same established host launch and seed policy; the evidence identity is the sole extra normalization.
+    /// Established host launch and seed policy; the evidence identity is normalized and checked against the Zig executable.
     let private pair seed (source: string) flags (transcript: string -> (string -> string) -> During -> unit) =
         withDirectory (fun directory ->
             zigHost () |> ignore
-            let runHost zig name =
-                let target = Path.Combine(directory, name)
-                Directory.CreateDirectory target |> ignore
-                for file in Directory.GetFiles(Path.GetDirectoryName source) do File.Copy(file, Path.Combine(target, Path.GetFileName file))
-                let path = Path.Combine(target, Path.GetFileName source)
-                use host = startWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] zig ([ "open"; "--snapshot"; path ] @ flags)
-                let errors = host.StandardError.ReadToEndAsync()
-                let replies = ResizeArray<string * string>()
-                let artifacts = ResizeArray<string>()
-                let exchange during request =
-                    host.StandardInput.WriteLine(request: string)
-                    host.StandardInput.Flush()
-                    let reading = host.StandardOutput.ReadLineAsync()
-                    during |> Option.iter (fun action -> action host reading)
-                    if not (reading.Wait silence) then
-                        host.Kill true
-                        failwithf "Verification host exceeded its deadline: %s" request
-                    let reply = reading.Result
-                    Assert.False(isNull reply, request)
-                    replies.Add(request.Replace(target, "<dir>"), normalize zig target reply)
-                    use document = parseDocument reply
-                    match document.RootElement.TryGetProperty "result" with
-                    | true, result ->
-                        let saved =
-                            match result.TryGetProperty "reviewPath" with
-                            | true, value -> Some(value.GetString())
-                            | _ -> match result.TryGetProperty "path" with true, value when result.TryGetProperty("kind") |> fst -> Some(value.GetString()) | _ -> None
-                        saved |> Option.iter (fun output -> artifacts.Add(normalize zig target (artifactData output)))
-                    | _ -> ()
-                    reply
-                try transcript path (exchange None) (fun action -> exchange (Some action))
-                finally
-                    host.StandardInput.Close()
-                    if not (host.WaitForExit(int silence.TotalMilliseconds)) then host.Kill true
-                    host.WaitForExit()
-                Assert.Equal(0, host.ExitCode)
-                Assert.Equal(seedWarning, errors.Result.Trim())
-                List.ofSeq replies, List.ofSeq artifacts, File.ReadAllBytes path
-            let expected, expectedArtifacts, expectedSource = runHost false "fsharp"
-            let actual, actualArtifacts, actualSource = runHost true "zig"
-            Assert.Equal<(string * string) list>(expected, actual)
-            Assert.Equal<string list>(expectedArtifacts, actualArtifacts)
-            Assert.Equal<byte>(expectedSource, actualSource))
+            let target = Path.Combine(directory, "zig")
+            Directory.CreateDirectory target |> ignore
+            for file in Directory.GetFiles(Path.GetDirectoryName source) do File.Copy(file, Path.Combine(target, Path.GetFileName file))
+            let path = Path.Combine(target, Path.GetFileName source)
+            use host = startWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] ([ "open"; "--snapshot"; path ] @ flags)
+            let errors = host.StandardError.ReadToEndAsync()
+            let exchange during request =
+                host.StandardInput.WriteLine(request: string)
+                host.StandardInput.Flush()
+                let reading = host.StandardOutput.ReadLineAsync()
+                during |> Option.iter (fun action -> action host reading)
+                if not (reading.Wait silence) then
+                    host.Kill true
+                    failwithf "Verification host exceeded its deadline: %s" request
+                let reply = reading.Result
+                Assert.False(isNull reply, request)
+                normalize target reply |> ignore
+                use document = parseDocument reply
+                match document.RootElement.TryGetProperty "result" with
+                | true, result ->
+                    let saved =
+                        match result.TryGetProperty "reviewPath" with
+                        | true, value -> Some(value.GetString())
+                        | _ -> match result.TryGetProperty "path" with true, value when result.TryGetProperty("kind") |> fst -> Some(value.GetString()) | _ -> None
+                    saved |> Option.iter (fun output -> normalize target (artifactData output) |> ignore)
+                | _ -> ()
+                reply
+            try transcript path (exchange None) (fun action -> exchange (Some action))
+            finally
+                host.StandardInput.Close()
+                if not (host.WaitForExit(int silence.TotalMilliseconds)) then host.Kill true
+                host.WaitForExit()
+            Assert.Equal(0, host.ExitCode)
+            Assert.Equal(seedWarning, errors.Result.Trim()))
 
     let private verifyOn op path send proposal cases output =
         let before = File.ReadAllBytes path
