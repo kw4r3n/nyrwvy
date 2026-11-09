@@ -273,7 +273,7 @@ const sessions = new Map<string, AuthoringClient>()
 /** Reserved open slots; their promise resolves once a child is owned or startup fails. */
 const opening = new Map<string, Promise<void>>()
 /**
- * Closes in flight, so an open or request issued after one in the same turn waits for it. Open and request order
+ * Closes in flight, so an open issued after one in the same turn waits for it and a request without such an open is refused. Open and request order
  * follow from the `opening` slot (reserved synchronously) and the client's FIFO; none of them waits for a reply.
  */
 const closing = new Map<string, Promise<unknown>>()
@@ -410,7 +410,8 @@ export async function requestAuthoring(request: Request, context: AuthoringConte
   // An open in the same turn has already queued its status request, so this one follows it on the client's FIFO.
   await opening.get(sessionKey)
   const client = sessions.get(sessionKey)
-  if (!client) throw new Error("Open a Nyrwvy authoring session first.")
+  // A request after a close with no open between it is refused, not sent to the closing child.
+  if (!client || (closing.has(sessionKey) && !opening.has(sessionKey))) throw new Error("Open a Nyrwvy authoring session first.")
   const payload = request.op.startsWith("simulate")
     ? { structuredReview: true, ...request }
     : request

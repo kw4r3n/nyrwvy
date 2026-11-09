@@ -474,6 +474,7 @@ test("a close before spawn waits for the owned child and keeps duplicate opens o
   let closeFinished = false
   const closed = closeAuthoring(context).then(value => { closeFinished = true; return value })
   results = Promise.allSettled([opened, closed])
+  await assert.rejects(openAuthoring("create", "duplicate.json", context), /already open/)
   assert.equal(children.length, 0)
   assert.equal(closeFinished, false)
   releaseStat()
