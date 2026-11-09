@@ -9,7 +9,7 @@ module ZigToolSourceHashTests =
     let ``test host build identity names no commit, so commits reuse the cached host`` () =
         let root = ZigModelReaderSupport.root ()
         let snapshot = Path.Combine(root, "examples", "task-cancellation-outcome", "fixtures", "task-outcomes.nyrec")
-        let code, errors, lines = ZigHostParityTests.run true [ "open"; "--snapshot"; snapshot; "--read-only" ] [ "{\"id\":\"1\",\"op\":\"status\"}" ]
+        let code, errors, lines = ZigHostParityTests.run [ "open"; "--snapshot"; snapshot; "--read-only" ] [ "{\"id\":\"1\",\"op\":\"status\"}" ]
         Assert.Equal(0, code)
         Assert.Equal("", errors)
         use reply = ZigHostParityTests.parseDocument (List.exactlyOne lines)

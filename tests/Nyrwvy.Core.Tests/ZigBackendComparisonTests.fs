@@ -223,7 +223,7 @@ module ZigBackendComparisonTests =
         let count = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"count","arguments":[]}}"""
         // A tail self call: sum(n, acc) = n < 1 ? acc : sum(n - 1, acc + n), a loop on both backends.
         // grow(n, total, t) = n < 1 ? total + |t| : grow(n - 1, total + |t|, t + "é😀ab"): a long String measured
-        // after each append, which the Zig runtime counts from where its last count ended.
+        // after each append (Zig counts only the new tail, C# carries the count through the concatenation).
         let growBody =
             let measured = $"""{{"kind":"int64WrappingAdd","left":{p "total"},"right":{unary "stringLength" "t"}}}"""
             let appended = $"""{{"kind":"stringConcat","left":{p "t"},"right":{{"kind":"stringLiteral","value":"é😀ab"}}}}"""
@@ -646,7 +646,7 @@ module ZigBackendComparisonTests =
                     let indexed = List.collect snd groups
                     let requests = indexed |> List.map (fun (_, _, request) -> request)
                     Threading.Tasks.Task.Run(fun () ->
-                        let code, errors, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
+                        let code, errors, replies = run [ "open"; "--snapshot"; path; "--read-only" ] requests
                         Assert.Equal(0, code)
                         Assert.Equal("", errors)
                         Assert.Equal(requests.Length, replies.Length)

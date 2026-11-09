@@ -89,15 +89,11 @@ module ZigHostDependencySimulationParityTests =
         action root
         root.ToJsonString()
     let private strictPair path requests =
-        let runHost zig =
-            let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-simulation" ] zig [ "open"; "--snapshot"; path; "--read-only" ] requests
-            Assert.True((code = 0), $"zig={zig}, exit={code}, stderr={errors}")
-            Assert.Equal(seedWarning, errors)
-            Assert.Equal(requests.Length, answers.Length)
-            answers
-        let expected, actual = runHost false, runHost true
-        for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
-        expected
+        let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-simulation" ] [ "open"; "--snapshot"; path; "--read-only" ] requests
+        Assert.True((code = 0), $"exit={code}, stderr={errors}")
+        Assert.Equal(seedWarning, errors)
+        Assert.Equal(requests.Length, answers.Length)
+        answers
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency repair exact symbolic batch and selection reviews preserve all local repair shapes`` () =
@@ -166,7 +162,7 @@ module ZigHostDependencySimulationParityTests =
                 File.WriteAllText(path + ".dependency.json.previous", "old-recovery-sentinel")
                 File.WriteAllText(path + ".backends.json", "backend-sentinel")
                 let first = request named true source
-                let fsharp, zig = seededWritablePair "dependency-simulation-lifecycle" path case (fun _ send ->
+                let zig = seededWritablePair "dependency-simulation-lifecycle" path case (fun _ send ->
                     let id = send first |> proposal
                     send """{"id":"listing","op":"proposals"}""" |> success |> ignore
                     send (sendProposal "readProposal" id) |> success |> ignore
@@ -184,17 +180,14 @@ module ZigHostDependencySimulationParityTests =
                     Assert.Equal("DependencyFailure", send (sendProposal "commit" stale) |> rejected)
                     send (sendProposal "reject" stale) |> success |> ignore
                     Assert.Equal("ProposalNotFound", send (sendProposal "commit" committed) |> rejected))
-                for folder in [ fsharp; zig ] do
-                    let reopened = Path.Combine(folder, Path.GetFileName path)
-                    Assert.False(File.Exists(reopened + ".dependency.json.previous"))
-                    Assert.Equal("backend-sentinel", File.ReadAllText(reopened + ".backends.json"))
-                    let lines = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"f","op":"readFunction","function":"relay","detail":"full"}""" ]
-                    let fc, fe, left = run false [ "open"; "--snapshot"; reopened; "--read-only" ] lines
-                    let zc, ze, right = run true [ "open"; "--snapshot"; reopened; "--read-only" ] lines
-                    Assert.True((fc = 0 && zc = 0), fe + ze)
-                    Assert.Equal("", fe + ze)
-                    Assert.Equal<string list>(left |> List.map comparable, right |> List.map comparable)
-                    for reply in left @ right do success reply |> ignore)
+                let reopened = Path.Combine(zig, Path.GetFileName path)
+                Assert.False(File.Exists(reopened + ".dependency.json.previous"))
+                Assert.Equal("backend-sentinel", File.ReadAllText(reopened + ".backends.json"))
+                let lines = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"f","op":"readFunction","function":"relay","detail":"full"}""" ]
+                let code, errors, replies = run [ "open"; "--snapshot"; reopened; "--read-only" ] lines
+                Assert.True((code = 0), errors)
+                Assert.Equal("", errors)
+                for reply in replies do success reply |> ignore)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency source approval and persisted base guards refuse changed reviews without discarding proposals`` () =
@@ -227,7 +220,7 @@ module ZigHostDependencySimulationParityTests =
         withDirectory (fun dir ->
             let path, source = writeFixture (Path.Combine(dir, "input")) false
             let line = request true true source
-            let code, _, first = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-simulation" ] false [ "open"; "--snapshot"; path; "--read-only" ] [ line ]
+            let code, _, first = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-simulation" ] [ "open"; "--snapshot"; path; "--read-only" ] [ line ]
             Assert.Equal(0, code)
             let id = proposal first.Head
             let replies = strictPair path [ line; sendProposal "commit" id; sendProposal "reject" id; sendProposal "readProposal" id ]
@@ -315,10 +308,10 @@ module ZigHostDependencySimulationParityTests =
             let line = request true true source
             let sourceBytes = File.ReadAllBytes path
             let manifestBytes = File.ReadAllBytes(path + ".dependency.json")
-            let transcript zig =
+            let transcript () =
                 File.WriteAllBytes(path, sourceBytes)
                 File.WriteAllBytes(path + ".dependency.json", manifestBytes)
-                use host = startWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-pair-io" ] zig [ "open"; "--snapshot"; path ]
+                use host = startWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-pair-io" ] [ "open"; "--snapshot"; path ]
                 let send request =
                     host.StandardInput.WriteLine(request: string)
                     host.StandardInput.Flush()
@@ -341,5 +334,4 @@ module ZigHostDependencySimulationParityTests =
                 Assert.Equal(0, host.ExitCode)
                 Assert.Equal(seedWarning, host.StandardError.ReadToEnd().Trim())
                 Assert.False(File.Exists(path + ".dependency.json.previous"))
-                File.ReadAllBytes path, File.ReadAllBytes(path + ".dependency.json")
-            Assert.Equal(transcript false, transcript true))
+            transcript ())

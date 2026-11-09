@@ -88,9 +88,8 @@ module ZigHostOperationsParityTests =
                         yield line
                         yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full")
                         yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
-            let expected, actual = seededPair "operations-all-kinds" source lines
-            Assert.Equal<string list>(expected, actual)
-            for reply in expected do
+            let actual = seededPair "operations-all-kinds" source lines
+            for reply in actual do
                 use parsed = parseDocument reply
                 Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), reply))
 
@@ -138,9 +137,8 @@ module ZigHostOperationsParityTests =
             let firstField = """{"kind":"addProductField","typeId":"zig-Point","displayName":"first","type":{"kind":"primitive","primitive":"int64"},"constructions":[{"constructNodeId":"op-construct","valueNodeId":"op-seed-value"}]}"""
             let secondField = firstField.Replace("first", "second")
             let lines = lines @ [ request false [ firstField; secondField ] ]
-            let expected, actual = seededPair "operations-plan-recipes" source lines
-            Assert.Equal<string list>(expected, actual)
-            for reply in expected do
+            let actual = seededPair "operations-plan-recipes" source lines
+            for reply in actual do
                 use parsed = parseDocument reply
                 Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), reply))
 
@@ -185,9 +183,8 @@ module ZigHostOperationsParityTests =
                   yield request false [ """{"kind":"addRequiredEffect","functionId":"zig-twice","effectId":"zig-io"}"""; """{"kind":"removeRequiredEffect","functionId":"zig-twice","effectId":"zig-io"}""" ]
                   yield mutate valid (fun root -> root["expectedSnapshotId"] <- JsonValue.Create "stale") ]
             let lines = malformed |> List.collect (fun invalid -> [ invalid; valid ])
-            let expected, actual = seededPair "operations-failures" source lines
-            Assert.Equal<string list>(expected, actual)
-            for index, reply in expected |> List.indexed do
+            let actual = seededPair "operations-failures" source lines
+            for index, reply in actual |> List.indexed do
                 use parsed = parseDocument reply
                 Assert.Equal(index % 2 = 1, parsed.RootElement.GetProperty("ok").GetBoolean()))
 
@@ -216,7 +213,7 @@ module ZigHostOperationsParityTests =
                     parsed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
                 let operation op id = $"""{{"id":"lifecycle","op":"{op}","proposalId":{q id}}}"""
                 let commit id = $"""{{"id":"commit","op":"commit","proposalId":{q id},"allowIncomplete":true}}"""
-                let fsharp, zig =
+                let zig =
                     seededWritablePair "operations-lifecycle" source case (fun _ send ->
                         let change name = request true [ $"""{{"kind":"renameFunction","function":"twice","displayName":{q name}}}""" ]
                         let first = send (change "changed") |> proposal
@@ -304,15 +301,11 @@ module ZigHostOperationsParityTests =
                         let removed = send (request true [ """{"kind":"deleteFunction","function":"caller"}""" ]) |> proposal
                         send (commit removed) |> succeed
                         send """{"id":"d","op":"declarations"}""" |> succeed)
-                for output in [ fsharp; zig ] do
-                    let path = Path.Combine(output, Path.GetFileName source)
-                    let lines = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"f","op":"readFunction","function":"maker","detail":"full"}""" ]
-                    let read zigHost =
-                        let code, errors, replies = run zigHost [ "open"; "--snapshot"; path; "--read-only" ] lines
-                        Assert.True((code = 0), errors)
-                        replies |> List.iter succeed
-                        replies |> List.map comparable
-                    Assert.Equal<string list>(read false, read true))
+                let path = Path.Combine(zig, Path.GetFileName source)
+                let lines = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"f","op":"readFunction","function":"maker","detail":"full"}""" ]
+                let code, errors, replies = run [ "open"; "--snapshot"; path; "--read-only" ] lines
+                Assert.True((code = 0), errors)
+                replies |> List.iter succeed)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Generic shared union arms preserve enclosing frames and recipe failure allocations`` () =
@@ -354,9 +347,8 @@ module ZigHostOperationsParityTests =
                 operation["arms"] <- JsonNode.Parse("[]"))
             let stale = mutate valid (fun root -> root["expectedSnapshotId"] <- JsonValue.Create "stale")
             let lines = valid :: ([ duplicate; missing; stale ] @ malformed |> List.collect (fun invalid -> [ invalid; valid ]))
-            let expected, actual = seededPair "operations-generic-plans" source lines
-            Assert.Equal<string list>(expected, actual)
-            for index, reply in expected |> List.indexed do
+            let actual = seededPair "operations-generic-plans" source lines
+            for index, reply in actual |> List.indexed do
                 use parsed = parseDocument reply
                 Assert.True(((index = 0 || index % 2 = 0) = parsed.RootElement.GetProperty("ok").GetBoolean()), reply))
 
@@ -381,9 +373,8 @@ module ZigHostOperationsParityTests =
                   request true [ """{"kind":"addFunctionParameter","function":"twice","displayName":"hidden","type":{"kind":"named","name":"HiddenType"},"callSites":[{"kind":"leaveMissing","callNodeId":"op-call"}]}""" ]
                   request true [ """{"kind":"renameType","type":{"name":"ImportedType","ownership":"imported"},"displayName":"changed"}""" ] ]
             let lines = invalids |> List.collect (fun line -> [ line; valid ])
-            let expected, actual = seededPair "operations-dependency" source lines
-            Assert.Equal<string list>(expected, actual)
-            for index, reply in expected |> List.indexed do
+            let actual = seededPair "operations-dependency" source lines
+            for index, reply in actual |> List.indexed do
                 use parsed = parseDocument reply
                 Assert.Equal(index % 2 = 1, parsed.RootElement.GetProperty("ok").GetBoolean()))
 
@@ -396,8 +387,8 @@ module ZigHostOperationsParityTests =
             let variant = $"""{{"kind":"addUnionVariant","type":"Shape","displayName":"New","fields":[{fields}],"arms":[]}}"""
             let capability = $"""{{"kind":"addCapabilityOperation","capability":"IO","displayName":"new","parameters":[{fields}],"resultType":{integer},"effect":"io","implementations":[]}}"""
             let lines = [ request true [ variant ]; request true [ capability ] ] |> List.map (fun line -> mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true))
-            for zig in [ false; true ] do
-                let code, errors, replies = run zig [ "open"; "--snapshot"; source; "--read-only" ] lines
+            do
+                let code, errors, replies = run [ "open"; "--snapshot"; source; "--read-only" ] lines
                 Assert.True((code = 0), errors)
                 use variantReply = parseDocument replies.[0]
                 Assert.True(variantReply.RootElement.GetProperty("ok").GetBoolean(), replies.[0])
@@ -465,9 +456,8 @@ module ZigHostOperationsParityTests =
                   request true [ named.Replace("\"ownership\":\"local\"", "\"ownership\":\"imported\"") ] ]
             let valid = successes.Head
             let lines = successes @ (failures |> List.collect (fun invalid -> [ invalid; valid ]))
-            let expected, actual = seededPair "operations-ordinary-plans" source lines
-            Assert.Equal<string list>(expected, actual)
-            for index, reply in expected |> List.indexed do
+            let actual = seededPair "operations-ordinary-plans" source lines
+            for index, reply in actual |> List.indexed do
                 let shouldSucceed = index < successes.Length || (index - successes.Length) % 2 = 1
                 use parsed = parseDocument reply
                 Assert.True((shouldSucceed = parsed.RootElement.GetProperty("ok").GetBoolean()), reply))
@@ -507,8 +497,7 @@ module ZigHostOperationsParityTests =
             let exactMissing = request false [ """{"kind":"addProductField","typeId":"zig-Point","displayName":"z","type":{"kind":"primitive","primitive":"int64"},"constructions":[{"constructNodeId":"op-construct","valueNodeId":"missing"}]}""" ]
             let invalids = [ duplicate; missing; badType; aborting; badScope; tooDeep; tooWide; conflicts; exactMissing; valid.Replace("op-construct", "missing"); valid.Replace("\"type\":\"Point\"", "\"type\":{\"name\":\"Point\"}") ]
             let lines = invalids |> List.collect (fun invalid -> [ invalid; valid ])
-            let expected, actual = seededPair "operations-product-plan-errors" source lines
-            Assert.Equal<string list>(expected, actual)
-            for index, reply in expected |> List.indexed do
+            let actual = seededPair "operations-product-plan-errors" source lines
+            for index, reply in actual |> List.indexed do
                 use parsed = parseDocument reply
                 Assert.True(((index % 2 = 1) = parsed.RootElement.GetProperty("ok").GetBoolean()), reply))

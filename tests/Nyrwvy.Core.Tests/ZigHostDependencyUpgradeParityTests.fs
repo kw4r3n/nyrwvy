@@ -78,20 +78,16 @@ module ZigHostDependencyUpgradeParityTests =
                   yield declarations
                   yield $"""{{"id":"duplicate","op":"previewDependencyUpgrades","selection":{{"sources":[{quoted hidden}],"sources":[{quoted removed}],"replaces":[]}}}}"""
                   yield declarations ]
-            let runHost zig =
-                let code, errors, answers = run zig [ "open"; "--snapshot"; path; "--read-only" ] requests
-                Assert.True((code = 0), $"host zig={zig}, exit={code}, stderr={errors}")
-                Assert.Equal("", errors)
-                Assert.Equal(requests.Length, answers.Length)
-                answers
-            let expected, actual = runHost false, runHost true
-            for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
-            for index in [ 1; 3; 5 ] do Assert.False((success expected[index]).GetProperty("compatible").GetBoolean())
-            success expected[15] |> ignore
-            Assert.Equal(1, (success expected[17]).GetProperty("changed").GetArrayLength())
+            let code, errors, actual = run [ "open"; "--snapshot"; path; "--read-only" ] requests
+            Assert.True((code = 0), $"exit={code}, stderr={errors}")
+            Assert.Equal("", errors)
+            Assert.Equal(requests.Length, actual.Length)
+            for index in [ 1; 3; 5 ] do Assert.False((success actual[index]).GetProperty("compatible").GetBoolean())
+            success actual[15] |> ignore
+            Assert.Equal(1, (success actual[17]).GetProperty("changed").GetArrayLength())
             for index in [ 7; 9; 11; 13; 19; 21; 23 ] do
-                use doc = parseDocument expected[index]
-                Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), expected[index]))
+                use doc = parseDocument actual[index]
+                Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), actual[index]))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency previews invalidate externally changed snapshots and pins before loading new sources`` () =
@@ -102,10 +98,10 @@ module ZigHostDependencyUpgradeParityTests =
             let manifest = (memberOf old (Some("snapshotJson", SnapshotCodec.serialize old |> unwrap)) "provenance-only.json").ToJsonString()
             let request = $"""{{"id":"p","op":"previewDependencyUpgrade","source":{quoted (Path.Combine(dir, "missing.json"))}}}"""
             for sidecar in [ false; true ] do
-                let transcript zig =
+                let transcript () =
                     File.WriteAllText(path, saved)
                     File.WriteAllText(path + ".dependency.json", manifest)
-                    use host = start zig [ "open"; "--snapshot"; path; "--read-only" ]
+                    use host = start [ "open"; "--snapshot"; path; "--read-only" ]
                     let send request =
                         host.StandardInput.WriteLine(request: string)
                         host.StandardInput.Flush()
@@ -124,9 +120,8 @@ module ZigHostDependencyUpgradeParityTests =
                     Assert.Equal(0, host.ExitCode)
                     Assert.Equal("", host.StandardError.ReadToEnd())
                     [ rejected; invalidated; declarations ]
-                let expected, actual = transcript false, transcript true
-                Assert.Equal<string list>(expected, actual)
-                use first = parseDocument expected[0]
+                let actual = transcript ()
+                use first = parseDocument actual[0]
                 Assert.Equal((if sidecar then "DependencyFailure" else "ExternalModification"), first.RootElement.GetProperty("error").GetProperty("code").GetString())
-                use second = parseDocument expected[1]
+                use second = parseDocument actual[1]
                 Assert.Equal("SessionInvalidated", second.RootElement.GetProperty("error").GetProperty("code").GetString()))

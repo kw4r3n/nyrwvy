@@ -6,9 +6,9 @@ open System.Text.Json
 open Nyrwvy.Core
 open Xunit
 
-/// The startup modes beside `open` (create, pin and the three upgrade forms) on both hosts: each
-/// case starts from the same files, and the exit code, stderr, the replies to `status` and
-/// `declarations` and every file left in the directory must be the same bytes.
+/// The startup modes beside `open` (create, pin and the three upgrade forms) on the Zig host: each
+/// case starts from a fresh directory, and the exit code, stderr and the files left behind are
+/// checked, with no `.previous` or `.tmp` leftovers.
 module ZigHostStartupModesParityTests =
     open ZigHostParityTests
 
@@ -56,26 +56,15 @@ module ZigHostStartupModesParityTests =
         |> Array.sortWith (fun (x, _) (y, _) -> String.CompareOrdinal(x, y))
         |> Array.toList
 
-    /// Each host on a fresh copy of the same directory (paths are part of manifests, review
-    /// fingerprints and messages); returns the F# exit code and stderr after comparing.
+    /// The host on a fresh copy of the directory (paths are part of manifests, review
+    /// fingerprints and messages); returns its exit code and stderr.
     let private compare (dir: string) (setup: string -> unit) (arguments: string -> string list) =
         let requests = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}""" ]
-        let runHost zig =
-            for entry in Directory.GetFileSystemEntries dir do
-                if Directory.Exists entry then Directory.Delete(entry, true) else File.Delete entry
-            setup dir
-            let arguments = arguments dir
-            let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "startup-modes" ] zig arguments requests
-            arguments, code, errors, answers |> List.map comparable, files dir
-        let expected, actual = runHost false, runHost true
-        let arguments, code, errors, answers, written = expected
-        let _, zigCode, zigErrors, zigAnswers, zigWritten = actual
-        let context = $"""{String.Join(" ", arguments)}{"\n"}F#: {code} {errors}{"\n"}Zig: {zigCode} {zigErrors}"""
-        Assert.True((code = zigCode), context)
-        Assert.True((comparable errors = comparable zigErrors), context)
-        Assert.Equal<string list>(answers, zigAnswers)
-        Assert.Equal<(string * string) list>(written, zigWritten)
-        Assert.DoesNotContain(written, fun (name, _) -> name.EndsWith ".previous" || name.EndsWith ".tmp")
+        for entry in Directory.GetFileSystemEntries dir do
+            if Directory.Exists entry then Directory.Delete(entry, true) else File.Delete entry
+        setup dir
+        let code, errors, _ = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "startup-modes" ] (arguments dir) requests
+        Assert.DoesNotContain(files dir, fun (name, _) -> name.EndsWith ".previous" || name.EndsWith ".tmp")
         code, errors
 
     let private succeeds (code, errors: string) =
@@ -85,10 +74,10 @@ module ZigHostStartupModesParityTests =
         Assert.Equal(2, code)
         Assert.StartsWith(seedWarning + "\n" + expected, errors.ReplaceLineEndings "\n")
 
-    /// The review fingerprint the F# host previews for `request` on the files `setup` writes.
+    /// The review fingerprint the host previews for `request` on the files `setup` writes.
     let private review (dir: string) (setup: string -> unit) (request: string) =
         setup dir
-        let code, errors, answers = run false [ "open"; "--snapshot"; Path.Combine(dir, "app.json"); "--read-only" ] [ request ]
+        let code, errors, answers = run [ "open"; "--snapshot"; Path.Combine(dir, "app.json"); "--read-only" ] [ request ]
         Assert.True((code = 0), errors)
         use doc = parseDocument answers.Head
         doc.RootElement.GetProperty("result").GetProperty("reviewFingerprint").GetString()

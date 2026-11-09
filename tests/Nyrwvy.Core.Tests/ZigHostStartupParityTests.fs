@@ -33,21 +33,17 @@ module ZigHostStartupCommandParityTests =
         for suffix in [ ""; ".dependency.json"; ".dependency.json.previous"; ".backends.json"; ".previous"; ".backends.json.previous" ] do
             if File.Exists(path + suffix) then File.Delete(path + suffix)
     let private compare path prepare arguments input expectedCode =
-        let once zig =
-            clear path
-            prepare ()
-            let before = files path
-            let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "startup-parity" ] zig arguments input
-            Assert.True((code = expectedCode), $"zig={zig}, exit={code}, stderr={errors}")
-            if expectedCode = 0 then
-                Assert.Equal(seedWarning, errors)
-                Assert.Equal(input.Length, answers.Length)
-                answers |> List.iter (result >> ignore)
-            else Assert.Equal<string option list>(before, files path)
-            (code, comparable errors, answers |> List.map comparable), files path
-        let expected, actual = once false, once true
-        Assert.True((expected = actual), $"args={arguments}\nF#: {expected}\nZig: {actual}")
-        actual
+        clear path
+        prepare ()
+        let before = files path
+        let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "startup-parity" ] arguments input
+        Assert.True((code = expectedCode), $"exit={code}, stderr={errors}")
+        if expectedCode = 0 then
+            Assert.Equal(seedWarning, errors)
+            Assert.Equal(input.Length, answers.Length)
+            answers |> List.iter (result >> ignore)
+        else Assert.Equal<string option list>(before, files path)
+        (code, comparable errors, answers |> List.map comparable), files path
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Native create matches snapshots sidecars dependency selection and allocator consumption`` () =
@@ -175,8 +171,8 @@ module ZigHostStartupCliParityTests =
           """{"id":"dependency","op":"dependency"}"""
           """{"id":"create","op":"simulateCreateType","displayName":"Next","typeKind":{"kind":"product","fields":[]}}""" ]
 
-    /// `path` relative to the working directory, padded to the 11 leading ".." the goldens were recorded
-    /// with (the recording checkout's depth); ".." above the root stays at the root, so it names the same file.
+    /// `path` relative to the working directory, padded to 11 leading ".." (a fixed depth, so the
+    /// argument does not depend on where the checkout lives); ".." above the root stays at the root, so it names the same file.
     /// shortcut: assumes `path` shares only the root with a working directory at most 11 deep; record the depth if that changes.
     let private relativeFromCwd (path: string) =
         let relative = Path.GetRelativePath(Environment.CurrentDirectory, path)
@@ -185,18 +181,13 @@ module ZigHostStartupCliParityTests =
         String.replicate (max 0 (11 - depth)) up + relative
 
     let private compareStartup directory setup arguments =
-        let capture zig =
-            setup ()
-            let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "startup-parity" ] zig arguments requests
-            let files =
-                Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
-                |> Array.sort
-                |> Array.map (fun file -> Path.GetRelativePath(directory, file), Convert.ToHexString(File.ReadAllBytes file))
-            code, errors, replies |> List.map comparable, files
-        let expected = capture false
-        let actual = capture true
-        Assert.Equal(expected, actual)
-        expected
+        setup ()
+        let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "startup-parity" ] arguments requests
+        let files =
+            Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
+            |> Array.sort
+            |> Array.map (fun file -> Path.GetRelativePath(directory, file), Convert.ToHexString(File.ReadAllBytes file))
+        code, errors, replies |> List.map comparable, files
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Startup create preserves sources manifests backend declarations allocator and no overwrite`` () =
