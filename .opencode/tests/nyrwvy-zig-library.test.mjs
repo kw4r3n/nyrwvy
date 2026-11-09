@@ -78,8 +78,7 @@ test "exports" {
 }
 `
 
-const skip = process.platform !== "linux" ? "the harness links a Linux .so with -rpath"
-  : /\.dll$/i.test(process.env.NYRWVY_HOST_EXECUTABLE ?? "") ? "emitZigLibrary exists only in the Zig session host" : false
+const skip = process.platform !== "linux" ? "the harness links a Linux .so with -rpath" : false
 
 const hostSource = `const std = @import("std");
 pub fn readText(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {

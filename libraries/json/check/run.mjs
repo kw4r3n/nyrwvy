@@ -2,7 +2,7 @@
 // with the expected values. Usage: node libraries/json/check/run.mjs [<host executable>]
 import { spawn } from "node:child_process"
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs"
-import { createInterface } from "node:readline"
+import { hostExchange } from "../../host-client.mjs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -13,11 +13,9 @@ const executable = process.argv[2] ?? join(repo, "tools/zig/host/bin/nyrwvy-host
 const work = mkdtempSync(join(tmpdir(), "nyr-json-check-"))
 copyFileSync(join(here, "../json.json"), join(work, "json.json"))
 const cli = spawn(executable, ["create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "json.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
-const lines = createInterface({ input: cli.stdout })[Symbol.asyncIterator]()
-let n = 0
+const exchange = hostExchange(cli)
 const send = async request => {
-  cli.stdin.write(JSON.stringify({ id: String(n++), ...request }) + "\n")
-  const reply = JSON.parse((await lines.next()).value)
+  const reply = await exchange(request)
   if (!reply.ok) throw new Error(`${request.op} ${request.displayName ?? ""}: ${JSON.stringify(reply.error)}`)
   return reply.result
 }

@@ -13,9 +13,7 @@ pub const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <
 
 const Mode = enum { open, read_only, create, pin, single, batch, selection };
 const Command = struct { mode: Mode, path: []const u8, sources: []const []const u8 = &.{}, payload: []const u8 = "", fingerprint: []const u8 = "", replaces: ?[]const u8 = null };
-fn same(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
+const same = @import("materialize.zig").same;
 fn exact(root: Json, names: []const []const u8) bool {
     if (root != .object or root.object.count() != names.len) return false;
     for (names) |name| if (root.object.get(name) == null) return false;

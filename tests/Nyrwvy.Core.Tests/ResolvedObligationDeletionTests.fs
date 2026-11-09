@@ -105,4 +105,6 @@ module ResolvedObligationDeletionTests =
         // Resolving the specific open choice before deletion is valid in one ordered transaction.
         let combined = simulate opened [SemanticOperation.ResolveMissingArgument {TargetObligationId=left.Obligation;ResolutionValueNodeId=left.Value};SemanticOperation.DeleteFunction left.Caller.Id]
         let retired = (Assert.Single combined.Diff.FunctionsRemoved).RetiredObligations |> Assert.Single
+        Assert.Empty combined.Diff.ArgumentsAttached
+        Assert.Empty combined.Diff.ObligationsResolved
         Assert.Equal(ObligationStatus.Resolved {TransactionId=combined.TransactionId;ValueNodeId=left.Value},retired.Status)

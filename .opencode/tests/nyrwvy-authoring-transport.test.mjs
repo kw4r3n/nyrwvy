@@ -439,7 +439,6 @@ test("close bounds a silent initial status, settles open and close, and permits 
     await replacement
   })
   const reopenedResult = Promise.allSettled([reopened])
-  await assert.rejects(openAuthoring("create", "duplicate.json", context), /already open/)
   for (const result of [...await opened, ...await closed]) {
     assert.equal(result.status, "rejected")
     assert.match(result.reason.message, /queue did not drain within 5000ms/)

@@ -71,6 +71,10 @@ const NyCapped = struct {
     fn give(self: *NyCapped, bytes: usize) void {
         _ = self.budget.used.fetchSub(bytes, .monotonic);
     }
+    /// The checked allocator rounds a small block up to a power of two, so that is what the block really holds.
+    fn charge(len: usize) usize {
+        return if (len <= std.heap.page_size_min / 4) std.math.ceilPowerOfTwoAssert(usize, @max(len, 1)) else len;
+    }
     fn of(ctx: *anyopaque) *NyCapped {
         return @ptrCast(@alignCast(ctx));
     }
@@ -78,9 +82,9 @@ const NyCapped = struct {
         .alloc = struct {
             fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret: usize) ?[*]u8 {
                 const self = of(ctx);
-                if (!self.take(len)) return null;
+                if (!self.take(charge(len))) return null;
                 return self.child.rawAlloc(len, alignment, ret) orelse {
-                    self.give(len);
+                    self.give(charge(len));
                     return null;
                 };
             }
@@ -88,24 +92,28 @@ const NyCapped = struct {
         .resize = struct {
             fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) bool {
                 const self = of(ctx);
-                if (new_len > memory.len and !self.take(new_len - memory.len)) return false;
+                const old = charge(memory.len);
+                const new = charge(new_len);
+                if (new > old and !self.take(new - old)) return false;
                 if (!self.child.rawResize(memory, alignment, new_len, ret)) {
-                    if (new_len > memory.len) self.give(new_len - memory.len);
+                    if (new > old) self.give(new - old);
                     return false;
                 }
-                if (new_len < memory.len) self.give(memory.len - new_len);
+                if (new < old) self.give(old - new);
                 return true;
             }
         }.resize,
         .remap = struct {
             fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
                 const self = of(ctx);
-                if (new_len > memory.len and !self.take(new_len - memory.len)) return null;
+                const old = charge(memory.len);
+                const new = charge(new_len);
+                if (new > old and !self.take(new - old)) return null;
                 const moved = self.child.rawRemap(memory, alignment, new_len, ret) orelse {
-                    if (new_len > memory.len) self.give(new_len - memory.len);
+                    if (new > old) self.give(new - old);
                     return null;
                 };
-                if (new_len < memory.len) self.give(memory.len - new_len);
+                if (new < old) self.give(old - new);
                 return moved;
             }
         }.remap,
@@ -113,7 +121,7 @@ const NyCapped = struct {
             fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret: usize) void {
                 const self = of(ctx);
                 self.child.rawFree(memory, alignment, ret);
-                self.give(memory.len);
+                self.give(charge(memory.len));
             }
         }.free,
     };

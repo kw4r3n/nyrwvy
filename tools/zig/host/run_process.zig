@@ -69,6 +69,9 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
     // Keep the leader unreaped until the monitor can no longer signal its group ID.
     try lifetime.waitForExit(io, &child);
     lifetime.unregister(io, .foreground);
+    // The leader is already dead; a cancel here would drop the wait and leave it a zombie.
+    const cancelable = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(cancelable);
     const term = try child.wait(io);
     return .{ .term = term, .stdout = try streams.toOwnedSlice(0), .stderr = try streams.toOwnedSlice(1) };
 }
@@ -95,7 +98,7 @@ pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []
     while (!done.isSet()) done.waitTimeout(io, deadline) catch |e| {
         if (e == error.Timeout and std.Io.Clock.Timestamp.compare(.now(io, .awake), .lt, deadline.toTimestamp(io).?)) continue;
         lifetime.kill(io, .foreground);
-        _ = running.await(io) catch {};
+        _ = running.cancel(io) catch {};
         return .{ .failed = .{ .code = "RunTimeout", .message = try std.fmt.allocPrint(a, "The {s} exceeded its time limit of {d} s.", .{ phase, seconds }) } };
     };
     const result = running.await(io) catch |e| return .{ .failed = switch (e) {

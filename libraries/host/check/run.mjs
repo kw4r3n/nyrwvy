@@ -2,7 +2,7 @@
 // Program.cs, which calls every host class and a Nyrwvy function driving a pty. Linux, needs dotnet and cat.
 // Usage: node libraries/host/check/run.mjs [<host executable>] (default: the Zig host, `npm run build:host`)
 import { spawn, spawnSync } from "node:child_process"
-import { createInterface } from "node:readline"
+import { hostExchange } from "../../host-client.mjs"
 import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -15,11 +15,9 @@ const work = mkdtempSync(join(tmpdir(), "nyr-host-check-"))
 copyFileSync(join(here, "../host.json"), join(work, "host.json"))
 
 const cli = spawn(executable, ["create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"] })
-const lines = createInterface({ input: cli.stdout })[Symbol.asyncIterator]()
-let n = 0
+const exchange = hostExchange(cli)
 const send = async request => {
-  cli.stdin.write(JSON.stringify({ id: String(n++), ...request }) + "\n")
-  const reply = JSON.parse((await lines.next()).value)
+  const reply = await exchange(request)
   if (!reply.ok) throw new Error(`${request.op}: ${JSON.stringify(reply.error)}`)
   return reply.result
 }

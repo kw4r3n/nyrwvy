@@ -30,6 +30,13 @@ fn nyDecodeText(token: []const u8) []const u8 {
     const units = nyAllocator().alloc(u16, size / 2) catch @panic("out of memory");
     std.base64.standard.Decoder.decode(std.mem.sliceAsBytes(units), encoded) catch @panic("bad String token");
     for (units) |*unit| unit.* = std.mem.littleToNative(u16, unit.*);
+    // A lone surrogate becomes U+FFFD, as the C# runner's NyStr does.
+    var at: usize = 0;
+    while (at < units.len) : (at += 1) {
+        if (units[at] & 0xFC00 == 0xD800 and at + 1 < units.len and units[at + 1] & 0xFC00 == 0xDC00) {
+            at += 1;
+        } else if (units[at] & 0xF800 == 0xD800) units[at] = 0xFFFD;
+    }
     return nyAdopt(u8, std.unicode.utf16LeToUtf8Alloc(nyRaw(), units) catch @panic("bad String token"));
 }
 

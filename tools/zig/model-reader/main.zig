@@ -179,8 +179,8 @@ const Parser = struct {
 
     fn hex4(p: *Parser) Failure!u16 {
         if (p.i + 4 > p.s.len) return invalidJson("invalid escape");
-        const unit = std.fmt.parseInt(u16, p.s[p.i .. p.i + 4], 16) catch return invalidJson("invalid escape");
-        if (p.s[p.i] == '+' or p.s[p.i] == '-') return invalidJson("invalid escape");
+        for (p.s[p.i .. p.i + 4]) |c| if (!std.ascii.isHex(c)) return invalidJson("invalid escape");
+        const unit = std.fmt.parseInt(u16, p.s[p.i .. p.i + 4], 16) catch unreachable;
         p.i += 4;
         return unit;
     }
@@ -7394,4 +7394,13 @@ test "effect order takes the chain fast path and still names an unordered pair; 
     try functions.append(allocator, "{\"id\":\"user\",\"displayName\":\"User\",\"parameters\":[],\"resultType\":{\"kind\":\"builtinGeneric\",\"generic\":\"list\",\"arguments\":[" ++ int ++ "]},\"requiredEffects\":[],\"body\":{\"nodes\":[{\"id\":\"one\",\"kind\":\"int64Literal\",\"value\":1},{\"id\":\"list\",\"kind\":\"listConstruct\",\"itemType\":" ++ int ++ ",\"itemNodeIds\":[\"one\"]},{\"id\":\"m1\",\"kind\":\"listMap\",\"sourceListNodeId\":\"list\",\"mapperFunctionId\":\"p1\"},{\"id\":\"m2\",\"kind\":\"listMap\",\"sourceListNodeId\":\"list\",\"mapperFunctionId\":\"q1\"}],\"resultNodeId\":\"m2\"}}");
     const read = readDocument(allocator, try std.mem.concat(allocator, u8, &.{ head, try std.mem.join(allocator, ",", functions.items), "]}" }));
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, read.lines, "CallbackEffectsNotAllowed"));
+}
+
+test "a \\u escape takes exactly four hex digits" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    _ = try parseDocument("\"\\u00e9\\uABCD\"");
+    for ([_][]const u8{ "\"\\u1_23\"", "\"\\u+123\"", "\"\\u-123\"", "\"\\u12\"" }) |bad|
+        try std.testing.expectError(error.Json, parseDocument(bad));
 }

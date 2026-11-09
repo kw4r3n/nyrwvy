@@ -111,7 +111,15 @@ fn nyHostValue(comptime T: type, value: anytype) NyError!T {
         .pointer => |info| {
             if (info.size == .one) return nyHostProduct(info.child, value);
             const out = nyAlloc(info.child, value.len);
-            for (out, value) |*slot, item| slot.* = try nyHostValue(info.child, item);
+            var filled: usize = 0;
+            errdefer {
+                for (out[0..filled]) |item| nyRelease(item);
+                if (out.len > 0) nyFree(info.child, out.ptr);
+            }
+            for (out, value) |*slot, item| {
+                slot.* = try nyHostValue(info.child, item);
+                filled += 1;
+            }
             return out;
         },
         // A handle capability: the declaration returned a pointer to its state.

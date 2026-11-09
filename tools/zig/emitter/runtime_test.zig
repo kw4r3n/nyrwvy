@@ -9,17 +9,23 @@ const Node = union(enum) {
 const Pair = struct { text: []const u8, items: []const []const u8 };
 
 test "a capped allocator fails past its budget and returns freed bytes" {
-    var budget: NyBudget = .{ .cap = 100 };
+    // Sizes past DebugAllocator's largest small-object slot are charged exactly.
+    var budget: NyBudget = .{ .cap = 16_000 };
     var capped: NyCapped = .{ .child = std.testing.allocator, .budget = &budget };
     const a = capped.allocator();
-    const first = try a.alloc(u8, 60);
-    try std.testing.expectError(error.OutOfMemory, a.alloc(u8, 60));
-    try std.testing.expectEqual(@as(usize, 60), budget.used.load(.monotonic));
-    const grown = try a.realloc(first, 90);
-    try std.testing.expectEqual(@as(usize, 90), budget.used.load(.monotonic));
+    const first = try a.alloc(u8, 9_000);
+    try std.testing.expectError(error.OutOfMemory, a.alloc(u8, 9_000));
+    try std.testing.expectEqual(@as(usize, 9_000), budget.used.load(.monotonic));
+    a.free(first);
+    try std.testing.expectEqual(@as(usize, 0), budget.used.load(.monotonic));
+    a.free(try a.alloc(u8, 16_000));
+    // A small allocation is charged its rounded slot, and growing within the slot costs nothing.
+    const small = try a.alloc(u8, 33);
+    try std.testing.expectEqual(@as(usize, 64), budget.used.load(.monotonic));
+    const grown = try a.realloc(small, 60);
+    try std.testing.expectEqual(@as(usize, 64), budget.used.load(.monotonic));
     a.free(grown);
     try std.testing.expectEqual(@as(usize, 0), budget.used.load(.monotonic));
-    a.free(try a.alloc(u8, 100));
 }
 
 test "counted runtime frees everything" {

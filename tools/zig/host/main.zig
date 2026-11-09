@@ -710,26 +710,36 @@ pub fn load(io: std.Io, a: std.mem.Allocator, path: []const u8, hints: bool) !vo
 }
 
 fn loadUsing(io: std.Io, a: std.mem.Allocator, path: []const u8, source_override: ?[]const u8, hints: bool) !void {
-    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
-    // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
-    const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
-    const source: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)});
-    persisted_source = source;
-    ids.observe(source);
-    const record = std.mem.endsWith(u8, path, ".nyrec");
-    const read = openSourceUsing(io, a, path, record, source, source_override) catch {
-        // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
-        const failed = failure_line;
-        if (!hints) startupFailure("{s}", .{failed});
-        const previous = try std.mem.concat(a, u8, &.{ path, ".dependency.json.previous" });
-        if (exists(io, previous) and matches(io, a, previous, record, source))
-            startupFailure("DependencyFailure: The dependency sidecar '{s}.dependency.json' does not match the snapshot, but '{s}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.", .{ path, previous });
-        if (exists(io, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) and (if (readSource(a, record, source, null)) |_| true else |_| false))
-            startupFailure("DependencyFailure: The snapshot '{s}' has no dependency, but '{s}.dependency.json' exists: adding a first dependency was interrupted. Delete the sidecar to recover the workspace without it, then add the dependency again.", .{ path, path });
-        startupFailure("{s}", .{failed});
-    };
-    dependency_manifest = if (selection != null) try readText(a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) else null;
-    try install(a, path, source, read, selection);
+    // A writer swaps the sidecar, then the snapshot (a temp write and fsync apart); a few spaced retries ride out a read between the two renames.
+    var retries: u8 = 0;
+    while (true) {
+        const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
+        // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
+        const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
+        const source: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)});
+        persisted_source = source;
+        ids.observe(source);
+        const record = std.mem.endsWith(u8, path, ".nyrec");
+        const read = openSourceUsing(io, a, path, record, source, source_override) catch {
+            // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
+            if (hints and retries < 5) {
+                retries += 1;
+                std.Io.sleep(io, .fromMilliseconds(50), .awake) catch {};
+                continue;
+            }
+            const failed = failure_line;
+            if (!hints) startupFailure("{s}", .{failed});
+            const previous = try std.mem.concat(a, u8, &.{ path, ".dependency.json.previous" });
+            if (exists(io, previous) and matches(io, a, previous, record, source))
+                startupFailure("DependencyFailure: The dependency sidecar '{s}.dependency.json' does not match the snapshot, but '{s}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.", .{ path, previous });
+            if (exists(io, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) and (if (readSource(a, record, source, null)) |_| true else |_| false))
+                startupFailure("DependencyFailure: The snapshot '{s}' has no dependency, but '{s}.dependency.json' exists: adding a first dependency was interrupted. Delete the sidecar to recover the workspace without it, then add the dependency again.", .{ path, path });
+            startupFailure("{s}", .{failed});
+        };
+        dependency_manifest = if (selection != null) try readText(a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) else null;
+        try install(a, path, source, read, selection);
+        return;
+    }
 }
 
 pub fn install(a: std.mem.Allocator, path: []const u8, source: []const u8, read: model_reader.DocumentRead, selected: ?Dependency) !void {
@@ -758,6 +768,10 @@ fn fail(a: std.mem.Allocator, comptime format: []const u8, args: anytype) Startu
     failure_details = "";
     failure_line = std.fmt.allocPrint(a, format, args) catch "out of memory";
     return error.Startup;
+}
+
+pub fn isFile(io: std.Io, path: []const u8) bool {
+    return if (std.Io.Dir.cwd().statFile(io, path, .{})) |stat| stat.kind == .file else |_| false;
 }
 
 pub fn exists(io: std.Io, path: []const u8) bool {
@@ -956,7 +970,7 @@ fn loadMemberUsing(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMa
         break :blk try decodeDependency(a, std.mem.eql(u8, key, "snapshotRecords"), content, values[0].?, true);
     } else blk: {
         const source_path = selected_path;
-        if (!std.fs.path.isAbsolute(source_path) or !exists(io, source_path))
+        if (!std.fs.path.isAbsolute(source_path) or !isFile(io, source_path))
             return fail(a, "DependencyFailure: The selected dependency is unavailable. Use pin with an exact copy of the original version to recover a legacy selection.", .{});
         const bytes = std.Io.Dir.cwd().readFileAlloc(io, source_path, a, .unlimited) catch |e| return fail(a, "IoFailure: {s}", .{@errorName(e)});
         const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
