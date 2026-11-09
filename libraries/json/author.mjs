@@ -198,9 +198,10 @@ await replace("jsonSerialize", matchJson(P("value"), [
 await define("jsonMemberHasKey", { member: Member, key: string }, bool, eq(field(P("member"), "JsonMember", "key"), P("key")))
 await define("jsonMembers", { value: Json }, option(list(Member)), matchJson(P("value"), [arm("Object", "members", some(R("members")))], none(list(Member))), true)
 await define("jsonItems", { value: Json }, option(list(Json)), matchJson(P("value"), [arm("Array", "items", some(R("items")))], none(list(Json))), true)
-await define("jsonField", { value: Json, key: string }, option(Json), someOr(call("jsonMembers", { value: P("value") }), "members",
+// The last member with the key wins, as in System.Text.Json and JavaScript.
+await define("jsonField", { value: Json, key: string }, option(Json), someOr(call("jsonMembers", { value: P("value") }), "all", bind("members", { kind: "listReverse", value: R("all") },
   someOr({ kind: "listFindIndex", source: R("members"), function: "jsonMemberHasKey", context: [{ parameter: "key", value: P("key") }] }, "i",
-    someOr({ kind: "listItemAt", list: R("members"), index: R("i") }, "m", some(field(R("m"), "JsonMember", "value")), none(Json)), none(Json)), none(Json)), true)
+    someOr({ kind: "listItemAt", list: R("members"), index: R("i") }, "m", some(field(R("m"), "JsonMember", "value")), none(Json)), none(Json))), none(Json)), true)
 await define("jsonItem", { value: Json, index: int64 }, option(Json), someOr(call("jsonItems", { value: P("value") }), "items", { kind: "listItemAt", list: R("items"), index: P("index") }, none(Json)), true)
 await define("jsonText", { value: Json }, option(string), matchJson(P("value"), [arm("Text", "value", some(R("value")))], none(string)), true)
 await define("jsonNumber", { value: Json }, option(float64), matchJson(P("value"), [arm("Number", "value", some(R("value")))], none(float64)), true)

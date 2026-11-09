@@ -96,6 +96,7 @@ const cases = [
   ...roundTrips.map(([text, expected]) => ["roundTrip", [text], expected]),
   ["pricing", [JSON.stringify(sample, null, 2)], "USD per_million_tokens rates claude:claude-sonnet-5-5=3.0,0.3,15.0,3.75;gpt:gpt-5=1.25,0.125,10.0,0.0"],
   ["pricing", ["{\"currency\":\"USD\",\"unit\":\"per_million_tokens\",\"models\":{\"m\":{\"input\":\"1\",\"output\":2}}}"], "USD per_million_tokens missing m=notNumber,missing,2.0,missing"],
+  ["pricing", ["{\"currency\":\"EUR\",\"unit\":\"u\",\"currency\":\"USD\"}"], "USD u missing "],
   ["pricing", ["{\"currency\":1}"], "notText missing missing "], ["pricing", ["{\"currency\":"], "error 12: unexpected end of input"],
   ...["null", "bool:true", "text:s", "number:2", "array", "object", "none"].map((expected, index) => ["kindAt", ["[null,true,\"s\",2,[],{}]", index], expected]),
   ["kindAt", ["{\"a\":1}", 0], "none"], ["kindAt", ["[1]", -1], "none"],

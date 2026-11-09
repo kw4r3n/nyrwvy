@@ -20,7 +20,7 @@ Match on `Json` directly, or use the accessors.
 | `jsonSerialize(value)` | `String`: compact JSON, no whitespace |
 | `jsonQuote(text)` | `String`: `text` as a JSON string literal, quotes included |
 | `jsonNumberText(value)` | `String`: a Float64 as `jsonSerialize` writes it |
-| `jsonField(value, key)` | `Option<Json>`: the first member named `key`; `None` for a missing key or a non-object |
+| `jsonField(value, key)` | `Option<Json>`: the last member named `key`, as in System.Text.Json and JavaScript; `None` for a missing key or a non-object |
 | `jsonItem(value, index)` | `Option<Json>`: the item at a zero-based index; `None` out of range or for a non-array |
 | `jsonMembers(value)`, `jsonItems(value)` | `Option<List<JsonMember>>`, `Option<List<Json>>` of an object or array |
 | `jsonText(value)`, `jsonNumber(value)`, `jsonBool(value)` | `Option` of the scalar, `None` for another variant |
@@ -36,9 +36,9 @@ A parse never fails the run: every malformed input is an `Err`. `position` is th
 - **Nesting is capped at 512** arrays and objects, because a nested value recurses (two frames per level) and a stack overflow ends the run. Without the cap, `[[…]]` overflowed the C# stack between 4,000 and 8,000 levels and the Zig one past 16,000. `jsonSerialize` also recurses per level and has no cap, so a value built by hand far deeper than 512 can still overflow it.
 - **Surrogates must pair.** `😀` becomes one code point; a lone or mismatched `\uD800`…`\uDFFF` escape is `unpaired surrogate`, since a String cannot hold one.
 - **No byte-order mark** or other non-JSON whitespace: only space, tab, LF and CR are skipped.
-- **Duplicate keys** stay in `members`; `jsonField` returns the first.
+- **Duplicate keys** stay in `members`; `jsonField` returns the last.
 - **Serializing** escapes only `"`, `\` and the controls below U+0020 (as `\u00XX`); everything else, `/` and non-ASCII included, is written as is. A number is `Float64ToString` (Python `repr`) without a trailing `.0`: `100`, `-0`, `0.1`, `1e+21`, `1.5e-05`. NaN and the infinities, which JSON lacks, are written `null`. So parse then serialize returns the same value, not always the same text.
-- **Memory.** The parser first splits the input into a `List` of one-code-point Strings, because positional String operations (`StringSlice`, `StringSpan`) scan from the start on the Zig backend, which would make a scan over the text quadratic. Parsing is linear in time on both backends: 600,000-character inputs parse in well under the 5 s `runPure` limit.
+- **Memory.** The parser first splits the input into a `List` of one-code-point Strings, because positional String operations (`StringSlice`, `StringSpan`) scan from the start on the Zig backend, which would make a scan over the text quadratic. Parsing is linear in time on both backends: the check's 600,000-character inputs parse and serialize back within the 5 s `runPure` limit, in ReleaseSafe and Debug Zig builds.
 
 ## Using it
 
