@@ -124,7 +124,7 @@ The current extended entry point is:
 ./scripts/test-extended.fish
 ```
 
-While iterating, `NYRWVY_ZIG_RUNNER_OPTIMIZE=Debug` makes the host build Zig `runPure` runners in Debug instead of ReleaseSafe: about 0.4 s per runner instead of 15 s, and the backend comparison takes under 5 minutes instead of about 15. Any other value is ignored, and the mode is part of the runner cache key. Run without it before merging a change to the emitter or its runtime, because the runners a program actually gets are ReleaseSafe.
+While iterating, `NYRWVY_ZIG_RUNNER_OPTIMIZE=Debug` makes the host build Zig `runPure` runners in Debug instead of ReleaseSafe: about 0.4 s per runner instead of 5.5 s (ReleaseSafe runners are built without debug info, `-fstrip`, which took them from 16 s; a crash reply reads only the runner's `panic:` line). Any other value is ignored, and the mode is part of the runner cache key. Run without it before merging a change to the emitter or its runtime, because the runners a program actually gets are ReleaseSafe.
 
 For an opt-in full-solution build/test with a shareable log, use `bash scripts/verify-local-20260825-1427.sh --clean`. This includes the extended project once and is not the routine CI fallback.
 
