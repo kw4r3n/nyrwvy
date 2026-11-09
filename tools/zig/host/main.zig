@@ -712,8 +712,10 @@ pub fn load(io: std.Io, a: std.mem.Allocator, path: []const u8, hints: bool) !vo
 }
 
 fn loadUsing(io: std.Io, a: std.mem.Allocator, path: []const u8, source_override: ?[]const u8, hints: bool) !void {
-    // A writer swaps the sidecar, then the snapshot (a temp write and fsync apart); a few spaced retries ride out a read between the two renames.
-    var retries: u8 = 0;
+    // A writer swaps the sidecar, then the snapshot (a temp write and fsync apart), holding the workspace lock for its
+    // whole session. A read-only open that fails while that lock is held retries, so a read between the two renames
+    // settles; with no live writer the failure is real and is reported at once.
+    var retries: u16 = 0;
     while (true) {
         const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
         // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
@@ -724,7 +726,8 @@ fn loadUsing(io: std.Io, a: std.mem.Allocator, path: []const u8, source_override
         const record = std.mem.endsWith(u8, path, ".nyrec");
         const read = openSourceUsing(io, a, path, record, source, source_override) catch {
             // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
-            if (hints and retries < 5) {
+            // shortcut: gives up after 10 s of a held lock; a writer that slow is reported as an interruption.
+            if (hints and !writable and retries < 200 and writerHolds(io, a, path)) {
                 retries += 1;
                 std.Io.sleep(io, .fromMilliseconds(50), .awake) catch {};
                 continue;
@@ -770,6 +773,14 @@ fn fail(a: std.mem.Allocator, comptime format: []const u8, args: anytype) Startu
     failure_details = "";
     failure_line = std.fmt.allocPrint(a, format, args) catch "out of memory";
     return error.Startup;
+}
+
+/// Whether another process holds the workspace lock of `path`: a writable session is open on it.
+fn writerHolds(io: std.Io, a: std.mem.Allocator, path: []const u8) bool {
+    const lock = std.mem.concat(a, u8, &.{ path, ".lock" }) catch return false;
+    const file = std.Io.Dir.cwd().openFile(io, lock, .{ .lock = .shared, .lock_nonblocking = true }) catch |e| return e == error.WouldBlock;
+    file.close(io);
+    return false;
 }
 
 pub fn isFile(io: std.Io, path: []const u8) bool {
