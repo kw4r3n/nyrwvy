@@ -2,7 +2,7 @@
 // host.zig.json, and calls its exports from a Zig test with a checking allocator. Linux, needs zig and sh.
 // Usage: node libraries/host/check/run-zig.mjs [<host executable>] (default: the Zig host, `npm run build:host`)
 import { spawn, spawnSync } from "node:child_process"
-import { createInterface } from "node:readline"
+import { hostExchange } from "../../host-client.mjs"
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -19,11 +19,9 @@ writeFileSync(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"],
     "openShell", "ptyRead", "ptyWrite", "ptyResize", "ptyForeground", "ptyClose"] }))
 
 const cli = spawn(executable, ["create", "--snapshot", snapshot, "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
-const lines = createInterface({ input: cli.stdout })[Symbol.asyncIterator]()
-let n = 0
+const exchange = hostExchange(cli)
 const send = async request => {
-  cli.stdin.write(JSON.stringify({ id: String(n++), ...request }) + "\n")
-  const reply = JSON.parse((await lines.next()).value)
+  const reply = await exchange(request)
   if (!reply.ok) throw new Error(`${request.op}: ${JSON.stringify(reply.error)}`)
   return reply.result
 }

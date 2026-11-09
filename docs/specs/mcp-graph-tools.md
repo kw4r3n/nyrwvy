@@ -22,7 +22,7 @@ The ordinary server launch command is:
 node --experimental-strip-types /absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs
 ```
 
-`--allow-host-sources` (or `NYRWVY_ALLOW_HOST_SOURCES=1` in the server's environment) is an optional server-level opt-in that lets `runPure`/`runPureByName` compile and run `hostSources` C# files; it is off by default. See [Host sources run arbitrary code](#host-sources-run-arbitrary-code) before enabling it.
+`--allow-host-sources` (the server ignores `NYRWVY_ALLOW_HOST_SOURCES`) is an optional server-level opt-in that lets `runPure`/`runPureByName` compile and run `hostSources` C# files; it is off by default. See [Host sources run arbitrary code](#host-sources-run-arbitrary-code) before enabling it.
 
 Use an absolute server path. Relative snapshot paths default to the MCP server process's working directory. For local CLI clients that launch stdio servers in the active project, this makes `nyrwvy_open {snapshot:"planner.snapshot.json"}` naturally create or open `./planner.snapshot.json` in that project. Snapshot workspace resolution remains independent of the host executable override.
 
@@ -64,7 +64,7 @@ That server-scoped correction allowed the follow-up to complete while retaining 
 
 #### Host sources run arbitrary code
 
-Server-wide auto-approval also approves every `nyrwvy_request`, which reaches the whole AuthoringSession protocol, including `runPure`. With `hostSources`, `runPure` compiles the named C# files beside the generated program and runs them with the user's permissions. An auto-approved model could therefore write a `.cs` file and execute it. For that reason the server rejects `hostSources` and `hostCapability` bindings with `RunHostSourcesDisabled` unless it was started with `--allow-host-sources` (or `NYRWVY_ALLOW_HOST_SOURCES=1`); the opt-in is server configuration, never a tool argument, and `nyrwvy_open` reports it as `hostSourcesAllowed`. Do not combine `--allow-host-sources` with auto-approval unless the host code and the model's file writes are otherwise sandboxed. Scripted `fakeCapability` bindings need no opt-in.
+Server-wide auto-approval also approves every `nyrwvy_request`, which reaches the whole AuthoringSession protocol, including `runPure`. With `hostSources`, `runPure` compiles the named C# files beside the generated program and runs them with the user's permissions. An auto-approved model could therefore write a `.cs` file and execute it. For that reason the server rejects `hostSources` and `hostCapability` bindings with `RunHostSourcesDisabled` unless it was started with `--allow-host-sources`; the opt-in is server configuration, never a tool argument, and `nyrwvy_open` reports it as `hostSourcesAllowed`. Do not combine `--allow-host-sources` with auto-approval unless the host code and the model's file writes are otherwise sandboxed. Scripted `fakeCapability` bindings need no opt-in.
 
 Reference: [Codex MCP configuration](https://developers.openai.com/codex/mcp/).
 
