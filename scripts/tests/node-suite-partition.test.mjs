@@ -81,7 +81,7 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
   const calls = join(fixture, "calls")
   mkdirSync(commands)
   mkdirSync(join(repo, "scripts"), { recursive: true })
-  for (const command of ["dotnet", "node", "npm"]) {
+  for (const command of ["dotnet", "node", "npm", "zig"]) {
     writeFileSync(join(commands, command), `#!/bin/sh\nprintf '%s\\n' '${command}' "$PWD" "$@" >> "$SUITE_CALLS"\nexit "$SUITE_${command.toUpperCase()}_STATUS"\n`, { mode: 0o755 })
   }
   try {
@@ -92,7 +92,7 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
         writeFileSync(calls, "")
         const result = spawnSync("fish", ["--no-config", join(repo, "scripts", wrapper), ...args], {
           cwd: fixture, encoding: "utf8",
-          env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, SUITE_CALLS: calls, SUITE_DOTNET_STATUS: String(dotnetStatus), SUITE_NODE_STATUS: String(nodeStatus), SUITE_NPM_STATUS: String(npmStatus), NYRWVY_HOST_EXECUTABLE: host },
+          env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, SUITE_CALLS: calls, SUITE_DOTNET_STATUS: String(dotnetStatus), SUITE_NODE_STATUS: String(nodeStatus), SUITE_NPM_STATUS: String(npmStatus), SUITE_ZIG_STATUS: "0", NYRWVY_HOST_EXECUTABLE: host },
         })
         if (result.error) throw result.error
         return { status: result.status, calls: readFileSync(calls, "utf8").trim().split("\n"), stderr: result.stderr }
