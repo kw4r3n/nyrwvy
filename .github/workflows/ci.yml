@@ -73,6 +73,14 @@ jobs:
       - name: Build fast test graph
         run: dotnet build tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --no-restore
 
+      # zig build-exe with -femit-bin does not reuse Zig's cache, so the built host is cached; build:host
+      # skips the build when the stamp beside it matches the host sources (and rebuilds a stale one).
+      - name: Restore the native session host
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: tools/zig/host/bin
+          key: zig-host-${{ runner.os }}-${{ hashFiles('tools/zig/**', 'src/Nyrwvy.Viewer/**', 'mise.toml', 'scripts/build-zig-host.mjs') }}
+
       - name: Build the native session host
         run: npm run build:host
 
@@ -135,6 +143,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Prime the standalone C# compiler packages
         run: dotnet build tools/zig/host/csharp/Compiler.csproj --configuration Release
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: tools/zig/host/bin
+          key: zig-host-${{ runner.os }}-${{ hashFiles('tools/zig/**', 'src/Nyrwvy.Viewer/**', 'mise.toml', 'scripts/build-zig-host.mjs') }}
       - run: npm run build:host
       - run: npm run test:host
       - name: Test native process lifetime
