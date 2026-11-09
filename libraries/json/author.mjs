@@ -2,7 +2,7 @@
 // nodes only. Usage: node libraries/json/author.mjs [<host executable>]; run it again after a change.
 import { spawn } from "node:child_process"
 import { rmSync } from "node:fs"
-import { createInterface } from "node:readline"
+import { hostExchange } from "../host-client.mjs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -12,11 +12,9 @@ const snapshot = join(here, "json.json")
 rmSync(snapshot, { force: true })
 rmSync(snapshot + ".backends.json", { force: true })
 const cli = spawn(executable, ["create", "--snapshot", snapshot], { stdio: ["pipe", "pipe", "inherit"], cwd: resolve(here, "../..") })
-const lines = createInterface({ input: cli.stdout })[Symbol.asyncIterator]()
-let n = 0
+const exchange = hostExchange(cli)
 const send = async request => {
-  cli.stdin.write(JSON.stringify({ id: String(n++), ...request }) + "\n")
-  const reply = JSON.parse((await lines.next()).value)
+  const reply = await exchange(request)
   if (!reply.ok) throw new Error(`${request.op} ${request.displayName ?? request.function ?? ""}: ${JSON.stringify(reply.error)}`)
   return reply.result
 }

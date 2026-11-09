@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface } from "node:readline"
 import { readFile, stat } from "node:fs/promises"
-import { resolve } from "node:path"
+import { isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 /**
@@ -34,12 +34,12 @@ export function staleToolWarning(loadedCommit: string | undefined, sessionBuild:
 /**
  * allowHostSources is operator configuration, never a per-request argument: when true, the session
  * starts with --allow-host-sources and runPure hostSources compile and run arbitrary C# with the
- * user's permissions. NYRWVY_ALLOW_HOST_SOURCES=1 in the adapter's environment enables it too.
+ * user's permissions. When the adapter leaves it undefined, NYRWVY_ALLOW_HOST_SOURCES=1 in its environment enables it.
  */
 export type AuthoringContext = { sessionID: string; worktree: string; repositoryRoot?: string; abort?: AbortSignal; allowHostSources?: boolean }
 
 export function hostSourcesAllowed(context: AuthoringContext): boolean {
-  return context.allowHostSources === true || process.env.NYRWVY_ALLOW_HOST_SOURCES === "1"
+  return context.allowHostSources ?? process.env.NYRWVY_ALLOW_HOST_SOURCES === "1"
 }
 export type DependencyUpgrade = { source: string; replaces: string }
 export type DependencySelectionUpgrade = { sources: string[]; replaces: string[] }
@@ -54,6 +54,18 @@ const requestTimeoutMs = 900_000
 const stderrLimit = 8_192
 const replyLimit = 64 * 1024 * 1024
 const recoveryAdvice = "A sent request's outcome is unknown if its response was lost. Reopen and inspect committed state before retrying; requests are never replayed."
+
+/**
+ * Resolves a snapshot or dependency path against the workspace, refusing a relative path that climbs out of it.
+ * shortcut: absolute paths are explicit and several callers pass temp-dir ones, so only relative escapes are
+ * refused; confine absolute ones too once those callers pass a workspace.
+ */
+function within(base: string, path: string, what: string): string {
+  const resolved = resolve(base, path)
+  const outside = relative(base, resolved)
+  if (!isAbsolute(path) && (outside === ".." || outside.startsWith(`..${sep}`))) throw new Error(`${what} must stay inside the workspace ${base}: ${path}`)
+  return resolved
+}
 
 async function settlesWithin(promise: Promise<unknown>): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -94,7 +106,7 @@ export class AuthoringClient {
     if (this.spawnError?.code === "ENOENT") {
       return this.defaultHost
         ? `Native host executable was not found: ${this.executable}. Run npm run build:host from the repository root.`
-        : `Host executable could not be started: ${this.executable} (${this.spawnError.message}).${this.executable === "dotnet" ? " Install .NET or make dotnet available on PATH." : " Check NYRWVY_HOST_EXECUTABLE."}`
+        : `Host executable could not be started: ${this.executable} (${this.spawnError.message}). Check NYRWVY_HOST_EXECUTABLE.`
     }
     if (this.spawnError) return `Host executable could not be started: ${this.executable} (${this.spawnError.message}). Check executable permissions and NYRWVY_HOST_EXECUTABLE.`
     // A child killed by this client (a signal, not an exit code) hung rather than failed to start.
@@ -108,7 +120,7 @@ export class AuthoringClient {
   private executable: string
   private defaultHost: boolean
 
-  constructor(child: ChildProcessWithoutNullStreams, executable = "dotnet", defaultHost = false) {
+  constructor(child: ChildProcessWithoutNullStreams, executable = "nyrwvy-host", defaultHost = false) {
     this.child = child
     this.executable = executable
     this.defaultHost = defaultHost
@@ -260,6 +272,11 @@ export class AuthoringClient {
 const sessions = new Map<string, AuthoringClient>()
 /** Reserved open slots; their promise resolves once a child is owned or startup fails. */
 const opening = new Map<string, Promise<void>>()
+/**
+ * Closes in flight, so an open or request issued after one in the same turn waits for it. Open and request order
+ * follow from the `opening` slot (reserved synchronously) and the client's FIFO; none of them waits for a reply.
+ */
+const closing = new Map<string, Promise<unknown>>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
 export async function openAuthoring(
@@ -294,8 +311,9 @@ export async function openAuthoring(
   const sessionKey = key(context)
   // The slot is reserved before the first await, so a concurrent open of the same session fails
   // instead of spawning a second child whose ownership the map would silently drop.
-  if (sessions.get(sessionKey)?.isReaped) sessions.delete(sessionKey)
-  if (sessions.has(sessionKey) || opening.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
+  const closed = closing.get(sessionKey)
+  if (closed === undefined && sessions.get(sessionKey)?.isReaped) sessions.delete(sessionKey)
+  if ((closed === undefined && sessions.has(sessionKey)) || opening.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
   let resolveStarted!: () => void
   const started = new Promise<void>(resolve => { resolveStarted = resolve })
   const markStarted = () => {
@@ -305,6 +323,9 @@ export async function openAuthoring(
   }
   opening.set(sessionKey, started)
   try {
+    await closed
+    if (sessions.get(sessionKey)?.isReaped) sessions.delete(sessionKey)
+    if (sessions.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
     return await launchAuthoring(sessionKey, mode, snapshot, context, workspaceOverride, dependency, dependencies, upgrade, markStarted)
   } finally {
     markStarted() // A failure before spawn also releases a waiting close.
@@ -320,27 +341,24 @@ async function launchAuthoring(
   const worktree = resolve(context.worktree, workspaceOverride ?? ".")
   // Node reports a missing cwd as ENOENT on the executable; name the real problem instead.
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
-  const workspace = resolve(worktree, snapshot)
+  const workspace = within(worktree, snapshot, "snapshot")
   const root = resolve(context.repositoryRoot ?? context.worktree)
-  // The native host; an explicit NYRWVY_HOST_EXECUTABLE (relative to the repository root; a `.dll`
-  // launches through dotnet) overrides it. The F# host was removed (tag fsharp-host-final).
+  // The native host; an explicit NYRWVY_HOST_EXECUTABLE (relative to the repository root) overrides it. The F# host was removed (tag fsharp-host-final).
   const selection = process.env.NYRWVY_HOST || "zig"
   if (selection !== "zig") throw new Error(`NYRWVY_HOST must be zig, not ${selection}; the F# host was removed (tag fsharp-host-final).`)
   const selected = process.env.NYRWVY_HOST_EXECUTABLE
   const host = resolve(root, selected || `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`)
-  const managed = /\.dll$/i.test(host)
-  const executable = managed ? "dotnet" : host
   // Mode read is open without the workspace lock; the session cannot commit.
   const args = mode === "read" ? ["open", "--snapshot", workspace, "--read-only"] : [mode, "--snapshot", workspace]
   for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
-    args.push("--dependency", resolve(worktree, source))
+    args.push("--dependency", within(worktree, source, "dependency"))
   }
   if (upgrade !== undefined) {
     if ("upgrades" in upgrade) {
-      args.push("--upgrades", JSON.stringify(upgrade.upgrades.map(item => ({ source: resolve(worktree, item.source), replaces: item.replaces }))),
+      args.push("--upgrades", JSON.stringify(upgrade.upgrades.map(item => ({ source: within(worktree, item.source, "upgrade source"), replaces: item.replaces }))),
         "--review", upgrade.reviewFingerprint)
     } else if ("selection" in upgrade) {
-      args.push("--selection", JSON.stringify({ sources: upgrade.selection.sources.map(source => resolve(worktree, source)), replaces: upgrade.selection.replaces }),
+      args.push("--selection", JSON.stringify({ sources: upgrade.selection.sources.map(source => within(worktree, source, "upgrade source")), replaces: upgrade.selection.replaces }),
         "--review", upgrade.reviewFingerprint)
     } else {
       args.push("--expect", upgrade.expectedFingerprint)
@@ -357,10 +375,10 @@ async function launchAuthoring(
   const allowHostSources = hostSourcesAllowed(context)
   if (allowHostSources) args.push("--allow-host-sources")
   if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
-  const client = new AuthoringClient(spawn(executable, managed ? [host, ...args] : args, {
+  const client = new AuthoringClient(spawn(host, args, {
     cwd: worktree, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, NYRWVY_REPOSITORY_ROOT: root },
-  }), executable, !selected && selection === "zig")
+  }), host, !selected && selection === "zig")
   sessions.set(sessionKey, client)
   markStarted()
   try {
@@ -387,8 +405,11 @@ async function launchAuthoring(
   }
 }
 
-export function requestAuthoring(request: Request, context: AuthoringContext): Promise<string> {
-  const client = sessions.get(key(context))
+export async function requestAuthoring(request: Request, context: AuthoringContext): Promise<string> {
+  const sessionKey = key(context)
+  // An open in the same turn has already queued its status request, so this one follows it on the client's FIFO.
+  await opening.get(sessionKey)
+  const client = sessions.get(sessionKey)
   if (!client) throw new Error("Open a Nyrwvy authoring session first.")
   const payload = request.op.startsWith("simulate")
     ? { structuredReview: true, ...request }
@@ -396,8 +417,16 @@ export function requestAuthoring(request: Request, context: AuthoringContext): P
   return client.request(payload, context.abort)
 }
 
-export async function closeAuthoring(context: AuthoringContext): Promise<string> {
+export function closeAuthoring(context: AuthoringContext): Promise<string> {
   const sessionKey = key(context)
+  const closed = finishCloseAuthoring(sessionKey)
+  const settled = closed.catch(() => undefined)
+  closing.set(sessionKey, settled)
+  void settled.then(() => { if (closing.get(sessionKey) === settled) closing.delete(sessionKey) })
+  return closed
+}
+
+async function finishCloseAuthoring(sessionKey: string): Promise<string> {
   // Wait for ownership, not the first reply: close itself bounds a silent request queue.
   await opening.get(sessionKey)
   const client = sessions.get(sessionKey)
