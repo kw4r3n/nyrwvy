@@ -112,7 +112,14 @@ fn nyAllocCap(comptime T: type, count: usize, cap: usize) []T {
 fn nyFree(comptime T: type, ptr: anytype) void {
     const header = nyHeader(ptr);
     const bytes: [*]align(8) u8 = @ptrCast(@alignCast(header));
+    nyCursorForget(T, ptr);
     nyRaw().free(bytes[0 .. @sizeOf(NyHeader) + nyCap(header) * @sizeOf(T)]);
+}
+
+/// Drops the String cursor when it points into the storage of `ptr`, which is freed or rewritten.
+fn nyCursorForget(comptime T: type, ptr: anytype) void {
+    const start = @intFromPtr(ptr);
+    if (ny_cursor.ptr >= start and ny_cursor.ptr < start + nyCap(nyHeader(ptr)) * @sizeOf(T)) ny_cursor = .{};
 }
 
 fn nyBox(comptime T: type, value: T) *const T {
@@ -875,6 +882,7 @@ fn nyExtend(comptime T: type, list: []const T, extra: usize) []T {
     const len = list.len + extra;
     if (list.len > 0 and nyHeader(list.ptr).count == 1) {
         const header = nyHeader(list.ptr);
+        nyCursorForget(T, list.ptr);
         // Items a longer, now dead, list left past this one are owned by the storage alone.
         if (comptime nyCounted(T)) for (list.ptr[list.len..nyUsed(T, list.ptr)]) |item| nyRelease(item);
         if (nyCap(header) >= len) {
@@ -940,6 +948,7 @@ fn nyListSliceOwned(comptime T: type, list: []const T, start: i64, end: i64) []c
         return nyListSlice(T, list, start, end);
     }
     const header = nyHeader(list.ptr);
+    nyCursorForget(T, list.ptr);
     const items = @constCast(list.ptr)[0..nyUsed(T, list.ptr)];
     for (items[0..from]) |item| nyRelease(item);
     for (items[to..]) |item| nyRelease(item);
@@ -1341,16 +1350,49 @@ fn nyWidth(text: []const u8, offset: usize) usize {
     return std.unicode.utf8ByteSequenceLength(text[offset]) catch unreachable;
 }
 
-/// The byte offset of a code-point position clamped to [0, length].
-fn nyOffsetOf(text: []const u8, position: i64) usize {
-    var offset: usize = 0;
-    var reached: i64 = 0;
-    while (reached < position and offset < text.len) : (reached += 1) offset += nyWidth(text, offset);
-    return offset;
+/// The last (offset, position) pair reached in one String, so a loop that steps a position over that
+/// String walks only the step (spec: positional String operations are near-constant time after the
+/// first call). One thread runs at a time; storage that is freed or rewritten in place drops it
+/// (`nyCursorForget`). shortcut: one global cursor, so alternating between distant positions or several
+/// large Strings walks again; upgrade to per-String checkpoints (C# `MapOf`) when such a pattern shows up.
+var ny_cursor: struct { ptr: usize = 0, len: usize = 0, offset: usize = 0, position: i64 = 0 } = .{};
+
+fn nyCursorStart(text: []const u8) void {
+    if (ny_cursor.ptr == @intFromPtr(text.ptr) and ny_cursor.len == text.len) return;
+    ny_cursor = .{ .ptr = @intFromPtr(text.ptr), .len = text.len };
 }
 
+fn nyCursorBack(text: []const u8) void {
+    var previous = ny_cursor.offset - 1;
+    while (text[previous] & 0xC0 == 0x80) previous -= 1;
+    ny_cursor.offset = previous;
+    ny_cursor.position -= 1;
+}
+
+/// The byte offset of a code-point position clamped to [0, length].
+fn nyOffsetOf(text: []const u8, position: i64) usize {
+    if (position <= 0 or text.len == 0) return 0;
+    nyCursorStart(text);
+    if (position < @divTrunc(ny_cursor.position, 2)) ny_cursor = .{ .ptr = ny_cursor.ptr, .len = text.len };
+    while (ny_cursor.position < position and ny_cursor.offset < text.len) {
+        ny_cursor.offset += nyWidth(text, ny_cursor.offset);
+        ny_cursor.position += 1;
+    }
+    while (ny_cursor.position > position) nyCursorBack(text);
+    return ny_cursor.offset;
+}
+
+/// The code-point position of a code-point boundary `offset`.
 fn nyPositionOf(text: []const u8, offset: usize) i64 {
-    return nyStringLength(text[0..offset]);
+    if (offset == 0) return 0;
+    nyCursorStart(text);
+    if (offset < ny_cursor.offset / 2) ny_cursor = .{ .ptr = ny_cursor.ptr, .len = text.len };
+    while (ny_cursor.offset < offset) {
+        ny_cursor.offset += nyWidth(text, ny_cursor.offset);
+        ny_cursor.position += 1;
+    }
+    while (ny_cursor.offset > offset) nyCursorBack(text);
+    return ny_cursor.position;
 }
 
 /// Whether the code point at the start of `point` (one whole code point) is in `set`.

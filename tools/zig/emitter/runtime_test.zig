@@ -551,3 +551,37 @@ test "three waiters deadlocked at once, waited out of start order, each unwind a
     }
     try std.testing.expect(gpa.deinit() == .ok);
 }
+
+test "stepping a position over one String is linear and survives freeing it" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        // 300k code points of widths 1, 2 and 4; walking from byte 0 per call would take minutes.
+        const unit = "a\u{e9}\u{1F600}";
+        const repeats = 100_000;
+        const text = nyAlloc(u8, unit.len * repeats);
+        for (0..repeats) |i| @memcpy(text[i * unit.len ..][0..unit.len], unit);
+        const length: i64 = 3 * repeats;
+        var position: i64 = 0;
+        while (position < length) : (position += 1) {
+            const point = nyStringSlice(text, position, position + 1);
+            try std.testing.expectEqual(@as(usize, switch (@mod(position, 3)) {
+                0 => 1,
+                1 => 2,
+                else => 4,
+            }), point.len);
+            nyRelease(point);
+            try std.testing.expectEqual(position + 1, nyStringSpan(text, nyStatic("a"), position) + @intFromBool(@mod(position, 3) != 0));
+        }
+        while (position > 0) : (position -= 3) try std.testing.expectEqual(position - 1, nyStringIndexOf(text, nyStatic("\u{1F600}"), position - 1).?);
+        try std.testing.expectEqual(length - 1, nyStringLastIndexOfBefore(text, nyStatic("\u{1F600}"), length).?);
+        nyRelease(@as([]const u8, text));
+        try std.testing.expectEqual(@as(usize, 0), ny_cursor.ptr);
+        // Same size, other widths: a cursor left from the freed String must not be reused.
+        const other = nyAlloc(u8, unit.len * repeats);
+        @memset(other, 'b');
+        try std.testing.expectEqual(@as(i64, 7), nyStringIndexOf(other, nyStatic("b"), 7).?);
+        nyRelease(@as([]const u8, other));
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
