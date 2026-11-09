@@ -20,13 +20,13 @@ verify the build/tests with that version when updating the pin.
 framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
 
-GitHub Actions minutes are billed, so the only workflow,
-[`ci.yml`](../../.github/workflows/ci.yml), does not run on push or pull request: it
-runs only on demand (`workflow_dispatch`), at major milestones (owner decision,
-2026-10-05). The extended suite runs locally only; its GitHub workflow was removed
-on 2026-10-17 (owner decision). Before
-opening a pull request, run the fast suite and the tests related to the change
-in a local or cloud session; a PR does not wait on GitHub Actions.
+The only workflow, [`ci.yml`](../../.github/workflows/ci.yml), runs its fast job
+(`F# foundation build and fast tests`) on every pull request and push to `main`, and
+that job is a required check for `main` (owner decision, 2026-11-09: the repository
+is public, so Actions minutes are not a concern). The extended suites and the native
+platform checks run on demand (`workflow_dispatch` with `extended` or
+`native_platforms`) or locally. Before opening a pull request, still run the fast
+suite and the tests related to the change in a local or cloud session.
 
 The verification entry points require Node 22.6+ (22.22.2 recommended, see
 `.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts,
