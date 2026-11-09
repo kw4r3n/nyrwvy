@@ -222,6 +222,13 @@ module ZigBackendComparisonTests =
         let get key = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"get","arguments":[{{"parameter":"key","value":{key}}},{{"parameter":"slot","value":{lit 1}}}]}}"""
         let count = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"count","arguments":[]}}"""
         // A tail self call: sum(n, acc) = n < 1 ? acc : sum(n - 1, acc + n), a loop on both backends.
+        // grow(n, total, t) = n < 1 ? total + |t| : grow(n - 1, total + |t|, t + "é😀ab"): a long String measured
+        // after each append, which the Zig runtime counts from where its last count ended.
+        let growBody =
+            let measured = $"""{{"kind":"int64WrappingAdd","left":{p "total"},"right":{unary "stringLength" "t"}}}"""
+            let appended = $"""{{"kind":"stringConcat","left":{p "t"},"right":{{"kind":"stringLiteral","value":"é😀ab"}}}}"""
+            let next = call "grow" [ "n", $"""{{"kind":"int64WrappingSubtract","left":{p "n"},"right":{lit 1}}}"""; "total", measured; "t", appended ]
+            $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{lit 1}}},"whenTrue":{measured},"whenFalse":{next}}}"""
         let sumBody =
             let next = call "sum" [ "n", $"""{{"kind":"int64WrappingSubtract","left":{p "n"},"right":{lit 1}}}"""; "acc", $"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{p "n"}}}""" ]
             $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{lit 1}}},"whenTrue":{p "acc"},"whenFalse":{next}}}"""
@@ -245,6 +252,7 @@ module ZigBackendComparisonTests =
           fn "same" [ "a", pointType; "b", pointType ] boolType (binary "valueEqual")
           fn "greet" [ "name", stringType ] stringType $"""{{"kind":"stringConcat","left":{{"kind":"stringLiteral","value":"héllo, "}},"right":{p "name"}}}"""
           fn "size" [ "name", stringType ] int64Type (unary "stringLength" "name")
+          $"""{{"id":"g","op":"simulateCreateFunctionsByName","functions":[{{"displayName":"grow","exported":true,"parameters":[{declare [ "n", int64Type; "total", int64Type; "t", stringType ]}],"resultType":{int64Type},"requiredEffects":[],"body":{growBody}}}]}}"""
           fn "describe" [ "n", int64Type ] stringType (unary "int64ToString" "n")
           fn "positive" [ "n", int64Type ] optionInt
               $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{lit 0}}},"whenTrue":{{"kind":"optionNone","itemType":{int64Type}}},"whenFalse":{{"kind":"optionSome","value":{p "n"}}}}}"""
@@ -474,6 +482,7 @@ module ZigBackendComparisonTests =
               true, "size", [ name ]
           // Its token is over Linux's 128 KiB argv string limit, so it must reach the runner by file.
           true, "size", [ json (String('a', 60000)) ]
+          true, "grow", [ int64 60L; int64 0L; json (String.replicate 100 "ä😀z") ]
           for n in [ "-9223372036854775808"; "-1"; "0"; "42" ] do
               for name in [ "describe"; "positive"; "checked" ] do true, name, [ n ]
           for o in [ "null"; "7" ] do true, "orZero", [ o ]

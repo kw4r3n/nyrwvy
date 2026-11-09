@@ -627,6 +627,45 @@ test "consumed dropLast and Bytes updates reuse unique storage; a long String's 
     try std.testing.expect(gpa.deinit() == .ok);
 }
 
+test "a long String measured after each append counts only the new tail, never bytes rewritten under it" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        const start = nyAlloc(u8, 300);
+        @memset(start, 'x');
+        var text: []const u8 = start;
+        var expected: i64 = 300;
+        for (0..40) |_| {
+            text = nyConcatOwned(text, nyStatic("\u{e9}\u{1F600}ab"));
+            expected += 4;
+            try std.testing.expectEqual(expected, nyStringLength(text));
+        }
+        try std.testing.expectEqual(@intFromPtr(text.ptr), ny_length.ptr);
+
+        // A longer String claimed the spare bytes, was measured and died; the survivor overwrites them
+        // with fewer code points at the same address and byte length.
+        const longer = nyConcatOwned(nyShare(text), nyStatic("abc"));
+        try std.testing.expectEqual(text.ptr, longer.ptr);
+        try std.testing.expectEqual(expected + 3, nyStringLength(longer));
+        nyRelease(longer);
+        text = nyConcatOwned(text, nyStatic("\u{e9}a"));
+        try std.testing.expectEqual(text.ptr, longer.ptr);
+        try std.testing.expectEqual(longer.len, text.len);
+        try std.testing.expectEqual(expected + 2, nyStringLength(text));
+
+        // Bytes rewritten in place by setAt and insertAt: one code point more each time.
+        text = nyListSetAtOwned(u8, nyListSetAtOwned(u8, text, 300, 'a'), 301, 'b');
+        try std.testing.expectEqual(expected + 3, nyStringLength(text));
+        // Ending in a multi-byte code point, so counting only the shifted last byte would be wrong.
+        text = nyConcatOwned(text, nyStatic("\u{e9}"));
+        try std.testing.expectEqual(expected + 4, nyStringLength(text));
+        text = nyListInsertAtOwned(u8, text, 0, 'c');
+        try std.testing.expectEqual(expected + 5, nyStringLength(text));
+        nyRelease(text);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
+
 test "removing from a unique set or list closes the gap in place and keeps every lookup" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     ny_values = gpa.allocator();
