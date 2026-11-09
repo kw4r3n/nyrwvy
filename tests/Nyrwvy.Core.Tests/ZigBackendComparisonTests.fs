@@ -188,6 +188,17 @@ module ZigBackendComparisonTests =
           inScope "manyStuckCancelBody" waited
               (parkAll (bind $"""{{"kind":"taskCancel","task":{value 1}}}""" (bind $"""{{"kind":"taskWait","tasks":{tasks [ 1; 4; 3; 2 ]},"mode":"all"}}""" (ok (value 0)))))
           scoped "manyStuckCancel" waited "manyStuckCancelBody"
+          // The body and four tasks deadlocked at once, each catching it and logging its item through `work`:
+          // they unwind one at a time in start order, so each gets the next scripted response.
+          effectful "logUnwind" [ "svc", svcType; "n", int64Type; "failure", exceptionType ] outcome (ok (work (p "n")))
+          effectful "parkedOnce" [ "svc", svcType; "cell", cellType; "n", int64Type; "start", unitType ] outcome (bind $"""{{"kind":"oneShotWait","cell":{p "cell"}}}""" (ok (p "n")))
+          let caught cell n =
+              $"""{{"kind":"exceptionCatch","body":"parkedOnce","bodyContext":[{{"parameter":"svc","value":{p "svc"}}},{{"parameter":"cell","value":{cell}}},{{"parameter":"n","value":{n}}}],"handler":"logUnwind","handlerContext":[{{"parameter":"svc","value":{p "svc"}}},{{"parameter":"n","value":{n}}}]}}"""
+          effectful "loggedPark" [ "svc", svcType; "cell", cellType; "n", int64Type ] outcome (caught (p "cell") (p "n"))
+          inScope "unwindInOrderBody" waited
+              (bind create (bind (startOn "loggedPark" 1 0) (bind (startOn "loggedPark" 2 1) (bind (startOn "loggedPark" 3 2) (bind (startOn "loggedPark" 4 3)
+                  (bind (caught (value 4) (lit 0)) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 4; 3; 2; 1 ]},"mode":"all"}}""" (ok (value 0)))))))))
+          scoped "unwindInOrder" waited "unwindInOrderBody"
           inScope "failWaitBody" waited (bind (start "job" 1) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 0 ]},"mode":"all"}}""" (ok (value 0))))
           scoped "failWait" waited "failWaitBody"
           inScope "failCloseBody" outcome (bind (start "job" 1) (bind (start "job" 2) (ok (lit 0))))
@@ -438,6 +449,7 @@ module ZigBackendComparisonTests =
           false, "stuck", [ fake [] [] ]
           false, "manyStuck", [ fake [] [] ]
           false, "manyStuckCancel", [ fake [] [] ]
+          true, "unwindInOrder", [ fake [ for n in 1 .. 5 -> response (10 * n) None ] [] ]
           false, "failWait", [ fake [ throws ] [] ]
           false, "failClose", [ fake [ response 1 (Some 5); throws ] [] ]
           false, "failClose", [ fake [ throws; response 2 None ] [] ]
