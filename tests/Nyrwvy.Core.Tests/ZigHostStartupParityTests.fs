@@ -171,14 +171,12 @@ module ZigHostStartupCliParityTests =
           """{"id":"dependency","op":"dependency"}"""
           """{"id":"create","op":"simulateCreateType","displayName":"Next","typeKind":{"kind":"product","fields":[]}}""" ]
 
-    /// `path` relative to the working directory, padded to 11 leading ".." (a fixed depth, so the
-    /// argument does not depend on where the checkout lives); ".." above the root stays at the root, so it names the same file.
-    /// shortcut: assumes `path` shares only the root with a working directory at most 11 deep; record the depth if that changes.
+    /// `path` relative to the working directory as a fixed 11 ".." climbs to the root plus the rooted path, so the
+    /// argument does not depend on where the checkout or the temporary directory lives (".." above the root stays at the root).
+    /// shortcut: assumes a working directory at most 11 deep; deeper ones get as many ".." as they need.
     let private relativeFromCwd (path: string) =
-        let relative = Path.GetRelativePath(Environment.CurrentDirectory, path)
-        let up = ".." + string Path.DirectorySeparatorChar
-        let depth = Seq.length (Seq.unfold (fun (rest: string) -> if rest.StartsWith up then Some((), rest.Substring up.Length) else None) relative)
-        String.replicate (max 0 (11 - depth)) up + relative
+        let depth = Environment.CurrentDirectory.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries).Length
+        String.replicate (max 11 depth) (".." + string Path.DirectorySeparatorChar) + path.Substring((Path.GetPathRoot path).Length)
 
     let private compareStartup directory setup arguments =
         setup ()
