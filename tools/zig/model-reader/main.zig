@@ -4326,26 +4326,48 @@ const effectful_kinds = "parallelAll cancellationRequested useResource exception
 
 /// `PureFunctions.isPure`: the function and every function its nodes name, transitively, are
 /// known, require no effect and hold no intrinsically effectful node.
+/// Whether a function and every function it reaches through function references and capability
+/// implementations exist, require no effects and hold no effectful node.
 fn isPure(function_id: Str) bool {
-    var seen: Set = .empty;
+    if (!functions_by_id.contains(idKey(function_id))) return false;
+    if (impure_functions == null) impure_functions = impureFunctions();
+    return !impure_functions.?.contains(idKey(function_id));
+}
+
+/// The functions `isPure` rejects, found once per `functions_by_id` by a reverse worklist from the
+/// ones that require effects, hold an effectful node or reference an unknown function.
+var impure_functions: ?Set = null;
+fn impureFunctions() Set {
+    var impure: Set = .empty;
+    var callers: std.StringHashMapUnmanaged(List(Str)) = .empty;
     var pending: List(Str) = .empty;
-    pending.append(a, function_id) catch oom();
-    while (pending.pop()) |id| {
-        if ((seen.getOrPut(a, idKey(id)) catch oom()).found_existing) continue;
-        const function = functions_by_id.get(idKey(id)) orelse return false;
-        if (function.requiredEffects().len > 0) return false;
+    for (functions_by_id.values()) |function| {
+        const id = function.id();
+        var seed = function.requiredEffects().len > 0;
         var nodes: List(Model) = .empty;
         collectNodes(function.body(), &nodes);
+        var targets: List(Str) = .empty;
         for (nodes.items) |node| {
-            if (kindIs(node.kindText(), effectful_kinds)) return false;
+            if (kindIs(node.kindText(), effectful_kinds)) seed = true;
             var payload = node.data.node.payload();
-            while (payload.next()) |field| if (field.read.domain == .function) {
-                pending.append(a, node.reference(field.read.name)) catch oom();
-            };
-            for (node.implementations()) |implementation| pending.append(a, implementation.reference("functionId")) catch oom();
+            while (payload.next()) |field| if (field.read.domain == .function) targets.append(a, node.reference(field.read.name)) catch oom();
+            for (node.implementations()) |implementation| targets.append(a, implementation.reference("functionId")) catch oom();
         }
+        for (targets.items) |target| {
+            if (!functions_by_id.contains(idKey(target))) {
+                seed = true;
+                continue;
+            }
+            const entry = callers.getOrPut(a, idKey(target)) catch oom();
+            if (!entry.found_existing) entry.value_ptr.* = .empty;
+            entry.value_ptr.append(a, id) catch oom();
+        }
+        if (seed and !(impure.getOrPut(a, idKey(id)) catch oom()).found_existing) pending.append(a, id) catch oom();
     }
-    return true;
+    while (pending.pop()) |id| if (callers.get(idKey(id))) |list| for (list.items) |caller| {
+        if (!(impure.getOrPut(a, idKey(caller)) catch oom()).found_existing) pending.append(a, caller) catch oom();
+    };
+    return impure;
 }
 
 /// `callbackEffectsHint`.
@@ -5112,6 +5134,46 @@ fn nodeObservable(node: Model, observable: *const Set) bool {
     return result;
 }
 
+/// `tryUnorderedPair`'s `totallyOrdered`: whether, in a topological order of the graph, each
+/// effectful node depends on the effectful node before it, so every pair is ordered with k walks
+/// instead of k². A cycle, or an effectful node outside the graph, leaves the pairwise search to decide.
+fn totallyOrdered(edges: *const Edges, effectful: []const Str, visited: *Set, pending: *List(Str)) bool {
+    for (effectful) |id| if (!edges.contains(idKey(id))) return false;
+    const count = edges.count();
+    const remaining = a.alloc(usize, count) catch oom();
+    const dependents = a.alloc(List(usize), count) catch oom();
+    @memset(dependents, .empty);
+    for (edges.values(), 0..) |deps, at| {
+        visited.clearRetainingCapacity();
+        remaining[at] = 0;
+        for (deps) |dep| {
+            const from = edges.getIndex(idKey(dep)) orelse continue;
+            if ((visited.getOrPut(a, idKey(dep)) catch oom()).found_existing) continue;
+            remaining[at] += 1;
+            dependents[from].append(a, at) catch oom();
+        }
+    }
+    var order: List(usize) = .empty;
+    for (remaining, 0..) |left, at| if (left == 0) order.append(a, at) catch oom();
+    var head: usize = 0;
+    while (head < order.items.len) : (head += 1) for (dependents[order.items[head]].items) |dependent| {
+        remaining[dependent] -= 1;
+        if (remaining[dependent] == 0) order.append(a, dependent) catch oom();
+    };
+    if (order.items.len != count) return false;
+    var wanted: Set = .empty;
+    for (effectful) |id| wanted.put(a, idKey(id), {}) catch oom();
+    var earlier: ?Str = null;
+    for (order.items) |at| {
+        const key = edges.keys()[at];
+        if (!wanted.contains(key)) continue;
+        const later = keyId(key);
+        if (earlier) |before| if (!dependsOn(edges, later, before, visited, pending)) return false;
+        earlier = later;
+    }
+    return true;
+}
+
 /// `GraphOrder.tryUnorderedEffects`: the first unordered observable pair of the graph's own nodes,
 /// else of its nested graphs in order.
 fn unorderedEffects(nodes: []const Model, observable: *const Set, by_id: bool) ?[2]Str {
@@ -5127,16 +5189,16 @@ fn unorderedEffects(nodes: []const Model, observable: *const Set, by_id: bool) ?
         edges.put(a, idKey(node.id()), memoDependencies(node)) catch oom();
         if (nodeObservable(node, observable)) effectful.append(a, node.id()) catch oom();
     }
-    // `tryUnorderedPair` without its fast path (a topological walk), which only skips this search
-    // when every pair is ordered and so cannot change the pair it names.
-    // shortcut: k² reachability walks of O(n) each (scratch reused, so memory stays O(n)), unlike
-    // F#'s ~k; port `totallyOrdered` when a function with hundreds of effects is slow (1000: ~10 s).
-    std.mem.sort(Str, effectful.items, {}, lessStr);
+    // `tryUnorderedPair`: the pairwise search runs only when the fast path cannot show every pair
+    // ordered, so it names the same pair.
     var visited: Set = .empty;
     var pending: List(Str) = .empty;
-    for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
-        if (!dependsOn(&edges, first, second, &visited, &pending) and !dependsOn(&edges, second, first, &visited, &pending)) return .{ first, second };
-    };
+    if (!totallyOrdered(&edges, effectful.items, &visited, &pending)) {
+        std.mem.sort(Str, effectful.items, {}, lessStr);
+        for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
+            if (!dependsOn(&edges, first, second, &visited, &pending) and !dependsOn(&edges, second, first, &visited, &pending)) return .{ first, second };
+        };
+    }
     // The typed view lists a graph's nodes by ID and union arms by their first variant, the semantic
     // one both in document order.
     const ordered = if (by_id) blk: {
@@ -5530,6 +5592,7 @@ fn prepareContext(root: Model) void {
     for (capabilities) |capability| operations.appendSlice(a, capability.operations()) catch oom();
     effect_names = byId(root.effects());
     functions_by_id = byId(functions);
+    impure_functions = null;
     types_by_id = byId(types);
     all_types = types;
     capability_ids = idSet(capabilities);
@@ -6827,6 +6890,7 @@ fn resetState() void {
     type_parameter_names = .empty;
     variant_owners = .empty;
     functions_by_id = .empty;
+    impure_functions = null;
     operations_by_id = .empty;
     product_fields_by_id = .empty;
     product_field_owners = .empty;
@@ -7299,4 +7363,35 @@ test "a nested graph's nodes leave scope when the graph ends" {
     );
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, read.lines, "ValueNodeOutOfScope"));
     try std.testing.expect(std.mem.indexOf(u8, read.lines, "'y' references value node 'x'") != null);
+}
+
+test "effect order takes the chain fast path and still names an unordered pair; impure callbacks are found transitively" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const int = "{\"kind\":\"primitive\",\"primitive\":\"int64\"}";
+    const head = "{\"schemaVersion\":24,\"snapshotId\":\"s\",\"types\":[],\"effects\":[{\"id\":\"e\",\"displayName\":\"IO\"}],\"capabilities\":[],\"obligations\":[],\"functions\":[";
+    const tick = "{\"id\":\"tick\",\"displayName\":\"Tick\",\"parameters\":[{\"id\":\"tx\",\"displayName\":\"x\",\"type\":" ++ int ++ "}],\"resultType\":" ++ int ++ ",\"requiredEffects\":[\"e\"],\"body\":{\"nodes\":[{\"id\":\"tr\",\"kind\":\"parameterReference\",\"parameterId\":\"tx\"}],\"resultNodeId\":\"tr\"}}";
+    const calls = "{\"id\":\"l\",\"kind\":\"int64Literal\",\"value\":0},{\"id\":\"c1\",\"kind\":\"directCall\",\"targetFunctionId\":\"tick\",\"arguments\":[{\"targetParameterId\":\"tx\",\"valueNodeId\":\"l\"}]},{\"id\":\"c2\",\"kind\":\"directCall\",\"targetFunctionId\":\"tick\",\"arguments\":[{\"targetParameterId\":\"tx\",\"valueNodeId\":\"c1\"}]},{\"id\":\"c3\",\"kind\":\"directCall\",\"targetFunctionId\":\"tick\",\"arguments\":[{\"targetParameterId\":\"tx\",\"valueNodeId\":";
+    // c3 after c2 is a chain; c3 from the literal is unordered with c1 and c2.
+    for ([_][2][]const u8{ .{ "\"c2\"", "c3" }, .{ "\"l\"", "c2" } }, 0..) |variant, unordered| {
+        const document = try std.mem.concat(allocator, u8, &.{ head, tick, ",{\"id\":\"main\",\"displayName\":\"Main\",\"parameters\":[],\"resultType\":", int, ",\"requiredEffects\":[\"e\"],\"body\":{\"nodes\":[", calls, variant[0], "}]}],\"resultNodeId\":\"", variant[1], "\"}}]}" });
+        const read = readDocument(allocator, document);
+        try std.testing.expectEqual(unordered, std.mem.count(u8, read.lines, "AmbiguousEffectOrder"));
+    }
+    // p1 reaches only the pure p0; q1 reaches `bad`, which requires an effect.
+    const pure_call = "{\"id\":\"NAME\",\"displayName\":\"NAME\",\"parameters\":[{\"id\":\"NAMEx\",\"displayName\":\"x\",\"type\":" ++ int ++ "}],\"resultType\":" ++ int ++ ",\"requiredEffects\":[],\"body\":{\"nodes\":[{\"id\":\"NAMEr\",\"kind\":\"parameterReference\",\"parameterId\":\"NAMEx\"},{\"id\":\"NAMEc\",\"kind\":\"directCall\",\"targetFunctionId\":\"CALLEE\",\"arguments\":[{\"targetParameterId\":\"CALLEEx\",\"valueNodeId\":\"NAMEr\"}]}],\"resultNodeId\":\"NAMEc\"}}";
+    var functions: List([]const u8) = .empty;
+    for ([_][2][]const u8{ .{ "p1", "p0" }, .{ "q1", "bad" } }) |pair| {
+        const renamed = try std.mem.replaceOwned(u8, allocator, pure_call, "NAME", pair[0]);
+        try functions.append(allocator, try std.mem.replaceOwned(u8, allocator, renamed, "CALLEE", pair[1]));
+    }
+    const leaf = "{\"id\":\"ID\",\"displayName\":\"ID\",\"parameters\":[{\"id\":\"IDx\",\"displayName\":\"x\",\"type\":" ++ int ++ "}],\"resultType\":" ++ int ++ ",\"requiredEffects\":[EFFECTS],\"body\":{\"nodes\":[{\"id\":\"IDr\",\"kind\":\"parameterReference\",\"parameterId\":\"IDx\"}],\"resultNodeId\":\"IDr\"}}";
+    for ([_][2][]const u8{ .{ "p0", "" }, .{ "bad", "\"e\"" } }) |pair| {
+        const renamed = try std.mem.replaceOwned(u8, allocator, leaf, "ID", pair[0]);
+        try functions.append(allocator, try std.mem.replaceOwned(u8, allocator, renamed, "EFFECTS", pair[1]));
+    }
+    try functions.append(allocator, "{\"id\":\"user\",\"displayName\":\"User\",\"parameters\":[],\"resultType\":{\"kind\":\"builtinGeneric\",\"generic\":\"list\",\"arguments\":[" ++ int ++ "]},\"requiredEffects\":[],\"body\":{\"nodes\":[{\"id\":\"one\",\"kind\":\"int64Literal\",\"value\":1},{\"id\":\"list\",\"kind\":\"listConstruct\",\"itemType\":" ++ int ++ ",\"itemNodeIds\":[\"one\"]},{\"id\":\"m1\",\"kind\":\"listMap\",\"sourceListNodeId\":\"list\",\"mapperFunctionId\":\"p1\"},{\"id\":\"m2\",\"kind\":\"listMap\",\"sourceListNodeId\":\"list\",\"mapperFunctionId\":\"q1\"}],\"resultNodeId\":\"m2\"}}");
+    const read = readDocument(allocator, try std.mem.concat(allocator, u8, &.{ head, try std.mem.join(allocator, ",", functions.items), "]}" }));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, read.lines, "CallbackEffectsNotAllowed"));
 }
