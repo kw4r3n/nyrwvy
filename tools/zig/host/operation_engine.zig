@@ -1186,3 +1186,22 @@ test "typed removal narrows shared union arms and derives native field bindings"
     try std.testing.expectEqual(@as(usize, 3), generation.types[0].variants.len);
     try std.testing.expectEqual(@as(usize, 2), result.candidate.data.snapshot.types[0].variants.len);
 }
+
+test "a resolution on a call deleted in the same transaction is not in the diff" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const read = model.readDocument(a,
+        \\{"schemaVersion":24,"snapshotId":"s","types":[],"effects":[],"capabilities":[],"obligations":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}},{"id":"g","displayName":"G","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"v","kind":"unitLiteral"},{"id":"call","kind":"directCall","targetFunctionId":"f","arguments":[]}],"resultNodeId":"call"}}]}
+    );
+    var interner: tm.Interner = .{ .gpa = a };
+    const generation = try tm.load(a, &interner, read.root, null);
+    var request: query.Request = .{ .a = a, .line = "", .root = .empty, .provenance = null, .generation = &generation, .interner = &interner, .snapshot_id = "s" };
+    const added = try simulate(&request, &.{.{ .add_function_parameter = .{ .function = "f", .field = .{ .name = "p", .type = .{ .primitive = "unit" } }, .calls = &.{.{ .leave_missing = "call" }} } }}, request.snapshot_id);
+    const obligation = added.candidate.data.snapshot.obligations[0];
+    request.generation = added.candidate.data.snapshot;
+    request.snapshot_id = model.utf8(added.snapshot.string);
+    const both = try simulate(&request, &.{ .{ .resolve_missing_argument = .{ .obligation = model.utf8(interner.idText(.obligation, obligation.id)), .value = "v" } }, .{ .delete_function = "g" } }, request.snapshot_id);
+    try std.testing.expectEqual(@as(usize, 0), model.arrayItems(both.diff, "argumentsAttached").len);
+    try std.testing.expectEqual(@as(usize, 0), model.arrayItems(both.diff, "obligationsResolved").len);
+}
