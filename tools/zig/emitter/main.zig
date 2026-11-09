@@ -2239,12 +2239,23 @@ fn hostSelector(capability_id: []const u8) ?usize {
     return null;
 }
 
-/// The types a host declaration can name without the runtime's: scalars, String, and Option or List of them.
+/// The binding of an operation of `capability_id` when the table marks that capability as a handle.
+fn handleBinding(capability_id: []const u8) ?HostBinding {
+    for (host_bindings) |binding| if (binding.handle != null and eql(binding.capability, capability_id)) return binding;
+    return null;
+}
+
+/// The types a host declaration can name without the runtime's: scalars, String, and Option or List of them,
+/// a handle capability (its state's pointer) and, as an argument, `Map<String, String>` (keys and values).
 /// An argument cannot convert a nested Bytes (a direct one passes `.data`) or Unit, which it could not name.
 fn hostValue(t: *const Type, argument: bool) bool {
     return switch (t.*) {
         .primitive => |kind| !argument or !(eql(kind, "primitiveBytes") or eql(kind, "primitiveUnit")),
-        .builtin => |builtin| (eql(builtin.kind, "option") or eql(builtin.kind, "list")) and hostValue(builtin.args[0], argument),
+        .capability => |id| handleBinding(id) != null,
+        .builtin => |builtin| if (eql(builtin.kind, "map"))
+            argument and isString(builtin.args[0]) and isString(builtin.args[1])
+        else
+            (eql(builtin.kind, "option") or eql(builtin.kind, "list")) and hostValue(builtin.args[0], argument),
         // A declaration returns a Product as a struct with the type's display names.
         .named => |named| {
             if (argument or named.args.len > 0) return false;
@@ -2293,9 +2304,17 @@ fn checkHostResult(r: *const Type) void {
 }
 
 fn hostArgument(t: *const Type, argument: []const u8) []const u8 {
-    const is_bytes = t.* == .primitive and eql(t.primitive, "primitiveBytes");
-    if (!is_bytes and !hostValue(t, true)) problem(cat(&.{ "host binding parameter type ", typeDisplay(t) }));
-    return if (is_bytes) cat(&.{ argument, ".data" }) else argument;
+    if (isBytes(t)) return cat(&.{ argument, ".data" });
+    if (!hostValue(t, true) or t.* == .capability) problem(cat(&.{ "host binding parameter type ", typeDisplay(t) }));
+    if (t.* == .builtin and eql(t.builtin.kind, "map")) return cat(&.{ ".{ .keys = ", argument, ".keys, .values = ", argument, ".values }" });
+    return argument;
+}
+
+/// The state pointer behind a handle, checked open (or closed now) under the lock, as the declaration's type.
+fn hostHandle(binding: HostBinding, prelude: *List(u8), handle: []const u8, closes: bool) []const u8 {
+    const name = std.fmt.allocPrint(a, "ny_state{d}", .{prelude.items.len}) catch oom();
+    prelude.appendSlice(a, cat(&.{ "const ", name, " = try ", if (closes) "nyHandleClose(" else "nyHandleUse(", handle, "); " })) catch oom();
+    return cat(&.{ "@as(*@import(\"", binding.source, "\").", binding.handle.?, ", @ptrCast(@alignCast(", name, ")))" });
 }
 
 /// A function that calls its declaration instead of its body. The declaration borrows the arguments,
@@ -2304,7 +2323,7 @@ fn emitHostFunction(out: *List(u8), name: []const u8, fn_: Function, bound: Host
     checkHostResult(fn_.result);
     var parameters: List([]const u8) = .empty;
     var passed: List([]const u8) = .empty;
-    push([]const u8, &passed, "nyAllocator()");
+    push([]const u8, &passed, "ny_scratch.allocator()");
     for (fn_.parameters) |parameter| {
         const argument = identifier("p_", parameter.id);
         push([]const u8, &parameters, cat(&.{ argument, ": ", zigOf(parameter.value.type) orelse return }));
@@ -2312,6 +2331,8 @@ fn emitHostFunction(out: *List(u8), name: []const u8, fn_: Function, bound: Host
     }
     const result = zigOf(fn_.result) orelse return;
     lineCat(out, &.{ "fn ", name, "(", join(", ", parameters.items), ") ", if (failing(fn_.id)) "NyError!" else "", result, " {" });
+    line(out, "    var ny_scratch: std.heap.ArenaAllocator = .init(std.heap.smp_allocator);");
+    line(out, "    defer ny_scratch.deinit();");
     lineCat(out, &.{ "    const result = nyHost(", result, ", @import(\"", bound.source, "\").", bound.declaration, "(", join(", ", passed.items), ")) catch @panic(\"The host declaration ", bound.declaration, " failed.\");" });
     for (fn_.parameters) |parameter| lineCat(out, &.{ "    nyRelease(", identifier("p_", parameter.id), ");" });
     line(out, "    return result;");
@@ -2327,10 +2348,30 @@ fn hostCall(operation: Operation, arguments: []const []const u8) []const u8 {
     const declaration = binding.declaration orelse return cat(&.{ "{ _ = .{ ", join(", ", arguments), " }; return nyFail(\"NotSupportedException\", \"This capability operation is unavailable on this backend.\", false); }," });
     const r = operation.result;
     checkHostResult(r);
+    if (binding.handle != null and binding.task_bound) problem("task-bound handle capability");
+    var prelude: List(u8) = .empty;
     var passed: List([]const u8) = .empty;
-    push([]const u8, &passed, "nyAllocator()");
-    for (operation.parameters, arguments) |parameter, argument| push([]const u8, &passed, hostArgument(parameter.type, argument));
-    return cat(&.{ "return nyHost(", zigType(r, false).?, ", @import(\"", binding.source, "\").", declaration, "(", join(", ", passed.items), "))," });
+    push([]const u8, &passed, "ny_scratch.allocator()");
+    // An operation of a handle capability takes the state of the handle it is called on.
+    if (binding.handle != null) push([]const u8, &passed, hostHandle(binding, &prelude, "self.handle", false));
+    var closed = binding.closes == null;
+    for (operation.parameters, arguments) |parameter, argument| {
+        const handle = if (parameter.type.* == .capability) handleBinding(parameter.type.capability) else null;
+        if (handle == null) {
+            push([]const u8, &passed, hostArgument(parameter.type, argument));
+            continue;
+        }
+        const closes = binding.closes != null and eql(binding.closes.?, parameter.id);
+        if (closes) closed = true;
+        push([]const u8, &passed, hostHandle(handle.?, &prelude, cat(&.{ argument, ".handle" }), closes));
+    }
+    if (!closed) problem("closes of a parameter that is not a handle capability");
+    const invocation = cat(&.{ "@import(\"", binding.source, "\").", declaration, "(", join(", ", passed.items), ")" });
+    const host = cat(&.{ "return nyHost(", zigType(r, false).?, ", " });
+    // The scratch is per call, not the shared arena, so a declaration may run with the lock released.
+    const scratch = "{ var ny_scratch: std.heap.ArenaAllocator = .init(std.heap.smp_allocator); defer ny_scratch.deinit(); ";
+    if (!binding.may_wait) return cat(&.{ scratch, prelude.items, host, invocation, "); }," });
+    return cat(&.{ scratch, prelude.items, "nyExportUnlock(); const ny_outcome = ", invocation, "; nyExportRelock(); ", host, "ny_outcome); }," });
 }
 
 fn implementationIndex(origin: []const u8) usize {
@@ -2363,7 +2404,7 @@ fn capabilityTypes(scripted: bool) ?[]const u8 {
             push(*const Type, &types, operation.result);
             for (operation.parameters) |parameter| push(*const Type, &types, parameter.type);
             for (types.items) |t| {
-                if (t.* != .capability and zigType(t, false) != null) continue;
+                if ((t.* != .capability or handleBinding(t.capability) != null) and zigType(t, false) != null) continue;
                 const text = cat(&.{ "capability operation type ", typeDisplay(t) });
                 if (seen.contains(text)) continue;
                 seen.put(text, {}) catch oom();
@@ -2379,6 +2420,11 @@ fn capabilityTypes(scripted: bool) ?[]const u8 {
         line(&out, "    fake: usize,");
         line(&out, "    site: usize,");
         if (implemented(capability.id)) line(&out, "    implementation: usize = 0,");
+        if (handleBinding(capability.id) != null) {
+            // Its record outlives the value; the tag tells handles of different capabilities apart.
+            line(&out, "    handle: ?*NyHandle = null,");
+            lineCat(&out, &.{ "    pub const ny_tag = ", std.fmt.allocPrint(a, "{d}", .{hostSelector(capability.id).?}) catch oom(), ";" });
+        }
         for (capability.operations, 0..) |operation, index| {
             const result = zigType(operation.result, false).?;
             var parameters: List([]const u8) = .empty;
@@ -2548,11 +2594,22 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
     return out.items;
 }
 
-/// A function the library exports, and its C symbol.
-pub const Export = struct { id: []const u8, symbol: []const u8 };
+/// A function the library exports, and its C symbol; `may_wait` goes into its doc comment.
+pub const Export = struct { id: []const u8, symbol: []const u8, may_wait: bool = false };
 var library_exports: ?[]const Export = null;
 /// A capability operation bound by a `<graph>.zig.json` table; no declaration means unavailable.
-pub const HostBinding = struct { capability: []const u8, operation: []const u8, source: []const u8, declaration: ?[]const u8 };
+/// `handle` names the Zig type holding a handle capability's state, `closes` the parameter (by ID)
+/// whose handle the operation closes; `may_wait` and `task_bound` are copied from the graph.
+pub const HostBinding = struct {
+    capability: []const u8,
+    operation: []const u8,
+    source: []const u8,
+    declaration: ?[]const u8,
+    handle: ?[]const u8 = null,
+    closes: ?[]const u8 = null,
+    may_wait: bool = false,
+    task_bound: bool = false,
+};
 var host_bindings: []const HostBinding = &.{};
 /// A Product's field names as a host declaration spells them.
 pub const HostProduct = struct { id: []const u8, fields: []const HostField };
@@ -2588,6 +2645,10 @@ fn isString(t: *const Type) bool {
     return t.* == .primitive and eql(t.primitive, "primitiveString");
 }
 
+fn isBytes(t: *const Type) bool {
+    return t.* == .primitive and eql(t.primitive, "primitiveBytes");
+}
+
 /// The fields of a non-generic Product whose fields are all scalars.
 fn abiProduct(t: *const Type) ?[]Field {
     if (t.* != .named or t.named.args.len > 0) return null;
@@ -2603,10 +2664,13 @@ fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]cons
     if (abiScalar(t)) |zig_type| {
         push([]const u8, parameters, cat(&.{ name, ": *", zig_type }));
         lineCat(copies, &.{ "    ", name, ".* = ", value, ";" });
-    } else if (isString(t) or abiListItem(t) != null) {
-        const zig_type = if (isString(t)) "u8" else abiListItem(t).?;
+    } else if (t.* == .capability and handleBinding(t.capability) != null) {
+        push([]const u8, parameters, cat(&.{ name, ": *?*NyHandle" }));
+        lineCat(copies, &.{ "    ", name, ".* = ", value, ".handle;" });
+    } else if (isString(t) or isBytes(t) or abiListItem(t) != null) {
+        const zig_type = if (isString(t) or isBytes(t)) "u8" else abiListItem(t).?;
         push([]const u8, parameters, cat(&.{ name, ": ?[*]", zig_type, ", ", name, "_cap: usize, ", name, "_len: *usize" }));
-        lineCat(copies, &.{ "    if (!nyCopyOut(", zig_type, ", ", value, ", ", name, ", ", name, "_cap, ", name, "_len)) fits = false;" });
+        lineCat(copies, &.{ "    if (!nyCopyOut(", zig_type, ", ", value, if (isBytes(t)) ".data" else "", ", ", name, ", ", name, "_cap, ", name, "_len)) fits = false;" });
         buffered.* = true;
     } else if (abiRowsItem(t)) |zig_type| {
         push([]const u8, parameters, cat(&.{ name, ": ?[*]", zig_type, ", ", name, "_cap: usize, ", name, "_len: *usize, ", name, "_row_lens: ?[*]usize, ", name, "_row_cap: usize, ", name, "_rows: *usize" }));
@@ -2630,7 +2694,8 @@ fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]cons
             push([]const u8, &names, field.id);
             if (!abiResult(parameters, copies, doc, buffered, field.type, cat(&.{ name, "_", fieldName(field.id) }), cat(&.{ value, ".", fieldName(field.id) }), nested)) return false;
         }
-        if (fields.len == 0) lineCat(copies, &.{ "    _ = ", value, ";" });
+        // The export releases `result` itself, so only a nested empty Product needs a discard.
+        if (fields.len == 0 and !eql(value, "result")) lineCat(copies, &.{ "    _ = ", value, ";" });
         push([]const u8, doc, cat(&.{ name, " fields in this order: ", join(", ", names.items) }));
     } else return false;
     return true;
@@ -2660,15 +2725,20 @@ fn libraryExports(exports: []const Export) []const u8 {
         var parameters: List([]const u8) = .empty;
         var arguments: List([]const u8) = .empty;
         var doc: List([]const u8) = .empty;
+        var checks: List(u8) = .empty;
         for (fn_.parameters, 0..) |parameter, index| {
             const t = parameter.value.type;
             const p = std.fmt.allocPrint(a, "a{d}", .{index}) catch oom();
             if (abiScalar(t)) |zig_type| {
                 push([]const u8, &parameters, cat(&.{ p, ": ", zig_type }));
                 push([]const u8, &arguments, p);
-            } else if (isString(t)) {
+            } else if (isString(t) or isBytes(t)) {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const u8, ", p, "_len: usize" }));
-                push([]const u8, &arguments, cat(&.{ "nyText(", p, ", ", p, "_len) orelse return nyExportInvalid(\"", p, " is not UTF-8\")" }));
+                const slice = cat(&.{ "nySlice(u8, ", p, ", ", p, "_len)" });
+                if (isBytes(t)) push([]const u8, &arguments, cat(&.{ "NyBytes{ .data = ", slice, " }" })) else {
+                    lineCat(&checks, &.{ "    if (!nyValidText(", p, ", ", p, "_len)) return nyExportInvalid(\"", p, " is not UTF-8\");" });
+                    push([]const u8, &arguments, slice);
+                }
             } else if (abiListItem(t)) |zig_type| {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const ", zig_type, ", ", p, "_len: usize" }));
                 push([]const u8, &arguments, cat(&.{ "nySlice(", zig_type, ", ", p, ", ", p, "_len)" }));
@@ -2686,6 +2756,12 @@ fn libraryExports(exports: []const Export) []const u8 {
                 }
                 push([]const u8, &doc, cat(&.{ p, " fields in this order: ", join(", ", names.items) }));
                 push([]const u8, &arguments, cat(&.{ "nyBox(", typeName(t.named.id, &.{}), ", .{ ", join(", ", inits.items), " })" }));
+            } else if (t.* == .capability and handleBinding(t.capability) != null) {
+                // The host holds the handle; a null one or another capability's is refused before anything is copied.
+                const capability = identifier("C_", t.capability);
+                push([]const u8, &parameters, cat(&.{ p, ": ?*NyHandle" }));
+                lineCat(&checks, &.{ "    if (!nyHandleIs(", p, ", ", capability, ".ny_tag)) return nyExportInvalid(\"", p, " is not a handle of its capability\");" });
+                push([]const u8, &arguments, cat(&.{ capability, "{ .fake = 0, .site = 0, .implementation = ", capability, ".ny_tag, .handle = ", p, " }" }));
             } else if (t.* == .capability and hostSelector(t.capability) != null) {
                 // A table-bound capability has no state, so the export binds it itself.
                 push([]const u8, &arguments, cat(&.{ identifier("C_", t.capability), "{ .fake = 0, .site = 0, .implementation = ", std.fmt.allocPrint(a, "{d}", .{hostSelector(t.capability).?}) catch oom(), " }" }));
@@ -2694,17 +2770,24 @@ fn libraryExports(exports: []const Export) []const u8 {
         const r = fn_.result;
         var copies: List(u8) = .empty;
         var buffered = false;
-        if (r.* != .primitive or !eql(r.primitive, "primitiveUnit")) {
-            if (!abiResult(&parameters, &copies, &doc, &buffered, r, "out", "result", &.{})) problem(cat(&.{ "export result type ", typeDisplay(r) }));
-        } else line(&copies, "    _ = result;");
+        // `Err` of a `Result<_, String>` is status 4, its text through `ny_last_failure`.
+        const status4 = r.* == .builtin and eql(r.builtin.kind, "result") and isString(r.builtin.args[1]);
+        const value = if (status4) r.builtin.args[0] else r;
+        if (value.* != .primitive or !eql(value.primitive, "primitiveUnit")) {
+            if (!abiResult(&parameters, &copies, &doc, &buffered, value, "out", if (status4) "result.ok" else "result", &.{})) problem(cat(&.{ "export result type ", typeDisplay(r) }));
+        }
+        if (item.may_wait) push([]const u8, &doc, if (buffered) "May wait. Status 3 runs it again on the next call, so pass buffers large enough for one result." else "May wait.");
         for (doc.items) |text| lineCat(&out, &.{ "/// ", text });
         lineCat(&out, &.{ "export fn ", item.symbol, "(", join(", ", parameters.items), ") c_int {" });
+        out.appendSlice(a, checks.items) catch oom();
         line(&out, "    nyExportEnter();");
         line(&out, "    defer nyExportLeave();");
         const fail = if (failing(fn_.id)) " catch return nyExportFail()" else "";
         lineCat(&out, &.{ "    const result = ", instanceName(fn_.id, &.{}), "(", join(", ", arguments.items), ")", fail, ";" });
+        if (status4) line(&out, "    if (result == .err) return nyExportErr(result);");
         if (buffered) line(&out, "    var fits = true;");
         out.appendSlice(a, copies.items) catch oom();
+        line(&out, "    nyRelease(result);");
         line(&out, if (buffered) "    return if (fits) 0 else 3;" else "    return 0;");
         line(&out, "}");
         line(&out, "");
@@ -3093,6 +3176,28 @@ test "runner ignores unused capabilities but follows capabilities through record
                 try std.testing.expect(std.mem.indexOf(u8, result.source, "const T_Payload") != null);
             } else try std.testing.expect(std.mem.indexOf(u8, result.source, "const C_good") == null);
         }
+    }
+}
+
+test "a library returns a handle capability only with its table mark, and never a task-bound one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const ir =
+        \\{"types":[],"capabilities":[{"id":"opener","operations":[{"id":"open","parameters":[],"resultType":{"kind":"capability","capabilityId":"h"}}]},{"id":"h","operations":[{"id":"read","parameters":[],"resultType":{"kind":"primitiveInt64"}}]}],"functions":[{"semanticFunctionId":"identity","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"capability","capabilityId":"opener"}}}],"resultType":{"kind":"capability","capabilityId":"opener"},"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    ;
+    for ([_]?[]const u8{ null, "H", "H" }, [_]bool{ false, false, true }, [_][]const u8{ "capability operation type", "handle: ?*NyHandle", "task-bound handle capability" }) |handle, task_bound, expected| {
+        const bindings = [_]HostBinding{
+            .{ .capability = "opener", .operation = "open", .source = "host.zig", .declaration = "open" },
+            .{ .capability = "h", .operation = "read", .source = "host.zig", .declaration = "read", .handle = handle, .task_bound = task_bound },
+        };
+        const result = try library(allocator, ir, &.{}, .{ .operations = &bindings });
+        const text = switch (result) {
+            .source => |source| source,
+            .unsupported => |found| try std.mem.join(allocator, ", ", found),
+        };
+        try std.testing.expect(std.mem.indexOf(u8, text, expected) != null);
+        try std.testing.expectEqual(handle != null and !task_bound, result == .source);
     }
 }
 

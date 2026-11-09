@@ -11,6 +11,14 @@
       "get": { "declaration": "envGet" } } },
     "Process": { "operations": {
       "spawn": { "declaration": "processSpawn" },
-      "run": { "declaration": "processRun" } } }
+      "run": { "declaration": "processRun" } } },
+    "Ptys": { "operations": {
+      "open": { "declaration": "ptyOpen" },
+      "close": { "declaration": "ptyClose", "closes": "pty" } } },
+    "Pty": { "handle": "Pty", "operations": {
+      "read": { "declaration": "ptyRead" },
+      "write": { "declaration": "ptyWrite" },
+      "resize": { "declaration": "ptyResize" },
+      "foregroundCommand": { "declaration": "ptyForeground" } } }
   }
 }

@@ -5,6 +5,7 @@ const std = @import("std");
 const q = @import("query.zig");
 const recipe = @import("recipe.zig");
 const emitter = @import("zig_emitter");
+const model = @import("model_reader");
 const host = @import("root");
 const files = @import("view_file.zig");
 const run_pure = @import("run_pure.zig");
@@ -67,10 +68,14 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     const names = try exportNames(r);
     const visible = try q.typedVisible(r, "function");
     const exports = try r.a.alloc(emitter.Export, names.len);
-    for (names, exports) |name, *item| {
+    // The validator cannot see a C caller, so whether an export may wait is reported for the host to honour.
+    const wait_paths = try r.a.alloc(?model.Str, names.len);
+    const root = model.typedRoot(r.a, r.interner.?, r.generation.?);
+    for (names, exports, wait_paths) |name, *item, *wait_path| {
         const function = try q.typedExactOne(r, "function", name, visible);
         const symbol = try std.mem.concat(r.a, u8, &.{ "ny_", name });
-        item.* = .{ .id = q.idOf(function), .symbol = symbol };
+        wait_path.* = model.typedFocusOf(r.a, root, function).wait_path;
+        item.* = .{ .id = q.idOf(function), .symbol = symbol, .may_wait = wait_path.* != null };
     }
     const bound = try mapping.bindings(r, try tablePaths(r), output);
     var emitted = try emitter.library(r.a, try run_pure.lowered(r, null), exports, bound);
@@ -101,7 +106,7 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
         try host.writeString(out, source);
     }
     try out.writeAll(",\"exports\":[");
-    for (names, exports, 0..) |name, item, i| {
+    for (names, exports, wait_paths, 0..) |name, item, wait_path, i| {
         if (i > 0) try out.writeByte(',');
         try out.writeAll("{\"function\":");
         try host.writeString(out, name);
@@ -109,6 +114,10 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
         try host.writeString(out, item.id);
         try out.writeAll(",\"symbol\":");
         try host.writeString(out, item.symbol);
+        if (wait_path) |path| {
+            try out.writeAll(",\"mayWait\":true,\"waitPath\":");
+            try model.writeString(out, path);
+        }
         try out.writeByte('}');
     }
     try out.writeAll("]}");
