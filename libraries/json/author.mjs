@@ -63,10 +63,10 @@ const none = itemType => ({ kind: "optionNone", itemType })
 const some = value => ({ kind: "optionSome", value })
 const arm = (variant, fieldName, body) => ({ variant, body: fieldName ? bind(fieldName, { kind: "patternReference", scopeDepth: 0, slot: "field", type: "Json", variant, field: fieldName }, body) : body })
 const matchJson = (input, arms, otherwise) => ({ kind: "matchUnion", type: "Json", input, arms, ...(otherwise ? { otherwise } : {}) })
-// The parser reads a List of one-code-point Strings: positional String operations scan from the start on Zig.
-const at = position => ({ kind: "optionGetOrDefault", option: { kind: "listItemAt", list: P("chars"), index: position }, default: L("") })
-const piece = (start, end) => ({ kind: "stringJoin", separator: L(""), list: { kind: "listSlice", list: P("chars"), start, end } })
-const charsSpan = (set, position) => call("jsonSpan", { chars: P("chars"), set: L(set), position })
+// The parser scans the input String by code-point position.
+const at = position => ({ kind: "stringSlice", value: P("chars"), start: position, end: add(position, 1) })
+const piece = (start, end) => ({ kind: "stringSlice", value: P("chars"), start, end })
+const charsSpan = (set, position) => span(P("chars"), set, position)
 const ws = position => charsSpan(" \t\n\r", position)
 const parsed = (value, next) => ok(JsonError, product("JsonParsed", { value, next }))
 const hexDigits = "0123456789abcdefABCDEF"
@@ -90,10 +90,7 @@ await commit(await send({ op: "simulateCreateTypeByName", displayName: "JsonPars
 await commit(await send({ op: "simulateCreateTypeByName", displayName: "JsonString", typeKind: { kind: "product", fields: [{ displayName: "text", type: string }, { displayName: "next", type: int64 }] } }))
 
 const parseResult = result(Parsed, JsonError), stringResult = result(Decoded, JsonError)
-const cursor = { chars: list(string), position: int64 }
-// The first position at or after position whose code point is not in set, as StringSpan.
-await define("jsonSpan", { chars: list(string), set: string, position: int64 }, int64, bind("c", at(P("position")),
-  iff(and(not(eq(R("c"), "")), { kind: "stringContains", value: P("set"), substring: R("c") }), call("jsonSpan", { position: add(P("position"), 1) }, true), P("position"))))
+const cursor = { chars: string, position: int64 }
 // Mutual recursion needs an existing function: a placeholder now, the real body once its callees exist.
 await define("jsonParseValue", { ...cursor, depth: int64 }, parseResult, fail(Parsed, P("position"), "placeholder"))
 
@@ -170,10 +167,10 @@ await replace("jsonParseValue", bind("p", ws(P("position")), bind("c", at(R("p")
   iff({ kind: "stringContains", value: L("-0123456789"), substring: R("c") }, call("jsonParseNumber", { chars: P("chars"), position: R("p") }),
     fail(Parsed, R("p"), "unexpected character"))))))))))))
 
-await define("jsonParse", { text: string }, result(Json, JsonError), bind("chars", { kind: "stringCodePoints", value: P("text") },
+await define("jsonParse", { text: string }, result(Json, JsonError), bind("chars", P("text"),
   onOk(call("jsonParseValue", { chars: R("chars"), position: I(0), depth: I(0) }), "v",
-  bind("end", call("jsonSpan", { chars: R("chars"), set: L(" \t\n\r"), position: field(R("v"), "JsonParsed", "next") }),
-    iff(eq(R("end"), { kind: "listLength", value: R("chars") }), ok(JsonError, field(R("v"), "JsonParsed", "value")), fail(Json, R("end"), "unexpected text after value"))), Json)), true)
+  bind("end", span(R("chars"), " \t\n\r", field(R("v"), "JsonParsed", "next")),
+    iff(eq(R("end"), len(R("chars"))), ok(JsonError, field(R("v"), "JsonParsed", "value")), fail(Json, R("end"), "unexpected text after value"))), Json)), true)
 
 // Serializing. Only `"`, `\` and controls below U+0020 are escaped, the controls as \u00XX.
 await define("jsonEscape", { c: string }, string, iff(eq(P("c"), "\""), L("\\\""), iff(eq(P("c"), "\\"), L("\\\\"),

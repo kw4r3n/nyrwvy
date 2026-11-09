@@ -38,7 +38,7 @@ A parse never fails the run: every malformed input is an `Err`. `position` is th
 - **No byte-order mark** or other non-JSON whitespace: only space, tab, LF and CR are skipped.
 - **Duplicate keys** stay in `members`; `jsonField` returns the last.
 - **Serializing** escapes only `"`, `\` and the controls below U+0020 (as `\u00XX`); everything else, `/` and non-ASCII included, is written as is. A number is `Float64ToString` (Python `repr`) without a trailing `.0`: `100`, `-0`, `0.1`, `1e+21`, `1.5e-05`. NaN and the infinities, which JSON lacks, are written `null`. So parse then serialize returns the same value, not always the same text.
-- **Memory.** The parser first splits the input into a `List` of one-code-point Strings, because positional String operations (`StringSlice`, `StringSpan`) scan from the start on the Zig backend, which would make a scan over the text quadratic. Parsing is linear in time on both backends: the check's 600,000-character inputs parse and serialize back within the 5 s `runPure` limit, in ReleaseSafe and Debug Zig builds.
+- **Speed.** The parser reads the input by code-point position (`StringSlice`, `StringSpan`), so it needs kw4r3n/nyrwvy#640 on Zig: without it each positional call scans from byte 0 and long inputs are quadratic. With it, parsing is linear on both backends and the check's 600,000-character inputs parse and serialize back within the 5 s `runPure` limit (ReleaseSafe Zig and C#). A String is still decoded one code point per call, so a long string body is slower than an array of the same size.
 
 ## Using it
 
