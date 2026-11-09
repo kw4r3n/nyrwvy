@@ -82,7 +82,7 @@ fn exchange(a: A, io: std.Io, w: *Worker, request: ?[]const u8, seconds: i64, ph
         if (e == error.Timeout and std.Io.Clock.Timestamp.compare(.now(io, .awake), .lt, deadline.toTimestamp(io).?)) continue;
         // Killing first releases any inherited pipe handles before the reader is joined.
         lifetime.kill(io, .worker);
-        _ = task.await(io) catch {};
+        _ = task.cancel(io) catch {};
         return .{ .failed = .{ .code = if (request == null) "RunStartupFailure" else "RunTimeout", .message = try std.fmt.allocPrint(a, "The {s} exceeded its time limit of {d} s.", .{ phase, seconds }) } };
     };
     return .{ .text = task.await(io) catch |e| {

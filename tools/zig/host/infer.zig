@@ -17,9 +17,7 @@ const Model = model.Model;
 /// `UnsupportedOperation` messages; the parity tests tell them apart.
 pub const unported = "The Zig host does not infer {s} recipes yet (at {s}).";
 
-fn same(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
+const same = @import("materialize.zig").same;
 
 fn text(v: Model) []const u8 {
     return model.utf8(v.literal());

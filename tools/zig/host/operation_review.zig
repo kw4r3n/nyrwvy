@@ -106,6 +106,9 @@ pub fn finalizeDiff(r: *query.Request, candidate: Model, accumulated: Value) any
         for (values) |value| {
             const owner_key: ?[]const u8 = if (m.same(key, "parametersAdded") or m.same(key, "productFieldsBound") or m.same(key, "capabilityImplementationsBound") or m.same(key, "unionMatchArmsAdded")) "ownerFunctionId" else if (m.same(key, "capabilityOperationsAdded")) "ownerCapabilityId" else if (m.same(key, "unionVariantsAdded")) "ownerTypeId" else null;
             if (owner_key) |owner| if (typed_edit.find(candidate, if (m.same(owner, "ownerFunctionId")) .functions else if (m.same(owner, "ownerTypeId")) .types else .capabilities, edit.text(value, owner)) == null) continue;
+            // An attach or resolution on a call or parameter that a later operation deleted is not a net change.
+            if (m.same(key, "argumentsAttached") or m.same(key, "obligationsCreated") or m.same(key, "obligationsResolved"))
+                if (!liveCall(a, candidate, edit.text(value, "callNodeId"), edit.text(value, "parameterId"))) continue;
             if (m.same(key, "requiredEffectsChanged")) {
                 const was = hasEffect(r.typedModel(), edit.text(value, "functionId"), edit.text(value, "effectId"));
                 const now = hasEffect(candidate, edit.text(value, "functionId"), edit.text(value, "effectId"));
@@ -147,6 +150,17 @@ pub fn finalizeDiff(r: *query.Request, candidate: Model, accumulated: Value) any
     }
     if (!has_changes) return engine.rejected(r, "NoChange", "The transaction has no net semantic change.");
     return .{ .object = fields.items };
+}
+fn liveCall(a: std.mem.Allocator, root: Model, call: []const u8, parameter: []const u8) bool {
+    var found_call = false;
+    var found_parameter = false;
+    for (typed_edit.children(root, .functions)) |function| {
+        for (model.typedBodyNodes(a, function)) |node| {
+            if (typed_edit.hasId(node, call)) found_call = true;
+        }
+        if (typed_edit.find(function, .parameters, parameter) != null) found_parameter = true;
+    }
+    return found_call and found_parameter;
 }
 fn hasEffect(root: Model, function: []const u8, effect: []const u8) bool {
     const item = typed_edit.find(root, .functions, function) orelse return false;
