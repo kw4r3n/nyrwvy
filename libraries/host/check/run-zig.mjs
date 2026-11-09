@@ -98,7 +98,8 @@ test "host library on Zig" {
     try std.testing.expectEqualStrings("ok", try call(ny_spawned, "printf done > " ++ marker));
     var tries: usize = 0;
     while (tries < 200) : (tries += 1) {
-        if (!std.mem.eql(u8, "missing", try call(ny_readOr, marker))) break;
+        // The shell creates the file before writing to it, so wait for the content, not the file.
+        if (std.mem.eql(u8, "done", try call(ny_readOr, marker))) break;
         try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(10) }, std.testing.io);
     }
     try std.testing.expectEqualStrings("done", try call(ny_readOr, marker));
