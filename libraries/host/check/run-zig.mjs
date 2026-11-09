@@ -15,7 +15,8 @@ const work = mkdtempSync(join(tmpdir(), "nyr-host-zig-check-"))
 for (const file of ["host.json", "host.zig", "host.zig.json"]) copyFileSync(join(here, "..", file), join(work, file))
 const snapshot = join(work, "check.json")
 writeFileSync(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], zigTables: ["host.zig.json"],
-  exports: ["readOr", "readBytesOr", "write", "env", "exitCode", "stdout", "stderr", "runError", "spawned"] }))
+  exports: ["readOr", "readBytesOr", "write", "env", "exitCode", "stdout", "stderr", "runError", "spawned",
+    "openShell", "ptyRead", "ptyWrite", "ptyResize", "ptyForeground", "ptyClose"] }))
 
 const cli = spawn(executable, ["create", "--snapshot", snapshot, "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
 const lines = createInterface({ input: cli.stdout })[Symbol.asyncIterator]()
@@ -32,8 +33,10 @@ const P = name => ({ kind: "parameter", name })
 const text = value => ({ kind: "stringLiteral", value })
 const invoke = (capability, operation, args = {}) => ({ kind: "capabilityInvoke", capabilityValue: P("cap"), capability, operation,
   arguments: Object.entries(args).map(([parameter, value]) => ({ parameter, value })) })
+// A name alone is a String parameter; [name, type] gives its type.
 const define = async (displayName, capability, resultType, names, body) => {
-  const parameters = [{ displayName: "cap", type: { kind: "capability", name: capability } }, ...names.map(displayName => ({ displayName, type: str }))]
+  const parameters = [{ displayName: "cap", type: { kind: "capability", name: capability } },
+    ...names.map(name => typeof name === "string" ? { displayName: name, type: str } : { displayName: name[0], type: name[1] })]
   const created = await send({ op: "simulateCreateFunctionByName", displayName, exported: true, parameters, resultType, requiredEffects: ["System"], body })
   await send({ op: "commit", proposalId: created.proposalId })
 }
@@ -53,6 +56,19 @@ await define("stdout", "Process", str, ["script"], field("stdout", str, { kind: 
 await define("stderr", "Process", str, ["script"], field("stderr", str, { kind: "patternReference", name: "failure" }, value => ({ kind: "bytesToLatin1", value })))
 await define("runError", "Process", str, ["program"], orError(invoke("Process", "run", { program: P("program"), args: { kind: "listEmpty", itemType: str } })))
 await define("spawned", "Process", str, ["script"], orError(invoke("Process", "spawn", shell)))
+// Ptys.open takes a List and a Map, which have no C form, so this builds them (TERM set by the program).
+const pty = { kind: "capability", name: "Pty" }
+const generic = (name, ...args) => ({ kind: "builtinGeneric", generic: name, arguments: args })
+const bytes = { kind: "primitive", primitive: "bytes" }
+await define("openShell", "Ptys", generic("result", pty, str), ["program", "script"], invoke("Ptys", "open", {
+  argv: { kind: "listConstruct", itemType: str, items: [P("program"), text("-c"), P("script")] },
+  environment: { kind: "mapInsert", map: { kind: "mapEmpty", keyType: str, valueType: str }, key: text("TERM"), value: text("xterm-256color") },
+  cols: { kind: "int64Literal", value: "100" }, rows: { kind: "int64Literal", value: "30" } }))
+await define("ptyRead", "Pty", generic("option", bytes), [], invoke("Pty", "read"))
+await define("ptyWrite", "Pty", { kind: "primitive", primitive: "unit" }, [["data", bytes]], invoke("Pty", "write", { data: P("data") }))
+await define("ptyResize", "Pty", { kind: "primitive", primitive: "unit" }, [["cols", int], ["rows", int]], invoke("Pty", "resize", { cols: P("cols"), rows: P("rows") }))
+await define("ptyForeground", "Pty", generic("option", str), [], invoke("Pty", "foregroundCommand"))
+await define("ptyClose", "Ptys", generic("option", int), [["pty", pty]], invoke("Ptys", "close", { pty: P("pty") }))
 const emitted = await send({ op: "emitZigLibrary", output: "check.zig" })
 cli.stdin.end()
 
@@ -97,6 +113,95 @@ test "host library on Zig" {
         try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(10) }, std.testing.io);
     }
     try std.testing.expectEqualStrings("done", try checkCall(ny_readOr, marker));
+    try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
+}
+
+// Pty.read returns at most 64 KiB, so its buffer is that large.
+fn checkRead(pty: ?*NyHandle, chunk: *[64 * 1024]u8) !?[]const u8 {
+    var some = false;
+    var n: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyRead(pty, &some, chunk, chunk.len, &n));
+    return if (some) chunk[0..n] else null;
+}
+var check_chunk: [64 * 1024]u8 = undefined;
+var check_output: [4096]u8 = undefined;
+fn checkReadUntil(pty: ?*NyHandle, marker: []const u8) ![]const u8 {
+    var len: usize = 0;
+    while (std.mem.indexOf(u8, check_output[0..len], marker) == null) {
+        const chunk = try checkRead(pty, &check_chunk) orelse break;
+        @memcpy(check_output[len..][0..chunk.len], chunk);
+        len += chunk.len;
+    }
+    return check_output[0..len];
+}
+fn checkOpen(program: []const u8, script: []const u8) !?*NyHandle {
+    var pty: ?*NyHandle = null;
+    const status = ny_openShell(program.ptr, program.len, script.ptr, script.len, &pty);
+    if (status == 4) return null;
+    try std.testing.expectEqual(@as(c_int, 0), status);
+    return pty;
+}
+fn checkFailure(expected: []const u8, status: c_int) !void {
+    try std.testing.expectEqual(@as(c_int, 1), status);
+    var len: usize = 0;
+    const message = ny_last_failure(&len);
+    try std.testing.expectEqualStrings(expected, message[0..len]);
+}
+fn checkReader(pty: ?*NyHandle, some: *bool) void {
+    var chunk: [64 * 1024]u8 = undefined;
+    var n: usize = 0;
+    // A failed read counts as Some, so only a clean None passes.
+    if (ny_ptyRead(pty, some, &chunk, chunk.len, &n) != 0) some.* = true;
+}
+fn checkSleep(ms: i64) void {
+    std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(ms) }, std.testing.io) catch {};
+}
+test "pty on Zig" {
+    ny_values = check_values.allocator();
+    const pty = (try checkOpen("sh", "stty size; echo $TERM; read x; stty size; exit 4")).?;
+    try std.testing.expect(std.mem.indexOf(u8, try checkReadUntil(pty, "xterm-256color"), "30 100") != null);
+    var some = false;
+    var n: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyForeground(pty, &some, &check_buffer, check_buffer.len, &n));
+    try std.testing.expect(some);
+    try std.testing.expectEqualStrings("sh", check_buffer[0..n]);
+    const fds = try checkCall(ny_stdout, "for f in /proc/self/fd/*; do readlink $f; done");
+    try std.testing.expect(std.mem.indexOf(u8, fds, "ptmx") == null and std.mem.indexOf(u8, fds, "/dev/pts") == null);
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyResize(pty, 120, 40));
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyWrite(pty, "\\n", 1));
+    try std.testing.expect(std.mem.indexOf(u8, try checkReadUntil(pty, "40 120"), "40 120") != null);
+    try std.testing.expectEqual(null, try checkRead(pty, &check_chunk));
+    var code: i64 = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyClose(pty, &some, &code));
+    try std.testing.expect(some);
+    try std.testing.expectEqual(@as(i64, 4), code);
+    try checkFailure("Handle is not open", ny_ptyRead(pty, &some, &check_chunk, check_chunk.len, &n));
+    try checkFailure("Handle is not open", ny_ptyClose(pty, &some, &code));
+    try std.testing.expectEqual(@as(c_int, 1), ny_ptyResize(null, 80, 24));
+
+    // snap's pattern: the loop thread blocks in read while another thread's calls go on and then close.
+    const blocked = (try checkOpen("sh", "exec sleep 30")).?;
+    var reader_some = true;
+    const reader = try std.Thread.spawn(.{}, checkReader, .{ blocked, &reader_some });
+    checkSleep(200);
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyResize(blocked, 80, 24));
+    try std.testing.expectEqualStrings("unset", try checkCall(ny_env, "NY_HOST_CHECK_ABSENT"));
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyClose(blocked, &some, &code));
+    try std.testing.expect(!some);
+    reader.join();
+    try std.testing.expect(!reader_some);
+
+    try std.testing.expectEqual(null, try checkOpen("nyr-host-no-such-program", ""));
+    var len: usize = 0;
+    const message = ny_last_failure(&len);
+    try std.testing.expectEqualStrings("FileNotFound", message[0..len]);
+    const stubborn = (try checkOpen("sh", "trap '' HUP; while :; do sleep 1; done")).?;
+    checkSleep(200);
+    const start = std.Io.Clock.awake.now(std.testing.io);
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyClose(stubborn, &some, &code));
+    try std.testing.expect(!some);
+    try std.testing.expect(start.durationTo(std.Io.Clock.awake.now(std.testing.io)).toMilliseconds() < 5000);
+    try std.testing.expectEqual(@as(usize, 0), ny_open_handles());
     try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
 }
 `
