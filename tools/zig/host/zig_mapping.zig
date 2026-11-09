@@ -34,7 +34,7 @@ fn isIdentifier(name: []const u8) bool {
 fn operationEntry(d: *recipe.Decoder, table: []const u8, path: []const u8, name: []const u8, value: std.json.Value) !?[]const u8 {
     const r = d.r;
     const context = try std.fmt.allocPrint(r.a, "mapping table {s}: {s}", .{ table, name });
-    try d.ensureFields(path, value, context, &.{ "declaration", "unavailable" }, &.{});
+    try d.ensureFields(path, value, context, &.{ "declaration", "unavailable", "closes" }, &.{});
     if (value.object.contains("unavailable")) {
         try d.optionalBool(value, "unavailable");
         if (!value.object.get("unavailable").?.bool or value.object.contains("declaration")) return r.fail("{s}: unavailable must be true and names no declaration.", .{context});
@@ -64,9 +64,12 @@ pub fn bindings(r: *q.Request, tables: []const []const u8, output: ?[]const u8) 
         if (listed != .object) return r.fail("{s}: capabilities must be an object.", .{context});
         for (listed.object.keys(), listed.object.values()) |name, item| {
             const at = try std.fmt.allocPrint(a, "/capabilities/{s}", .{name});
-            try d.ensureFields(at, item, try std.fmt.allocPrint(a, "{s}: capability {s}", .{ context, name }), &.{"operations"}, &.{"operations"});
+            try d.ensureFields(at, item, try std.fmt.allocPrint(a, "{s}: capability {s}", .{ context, name }), &.{ "operations", "handle" }, &.{"operations"});
             const entries = item.object.get("operations").?;
             if (entries != .object) return r.fail("{s}: {s}.operations must be an object.", .{ context, name });
+            // A handle capability names the Zig type in `source` that holds its state.
+            const handle = if (item.object.contains("handle")) try d.requiredString(item, "handle") else null;
+            if (handle != null and !isIdentifier(handle.?)) return r.fail("{s}: {s}.handle must be an identifier.", .{ context, name });
             var found: ?model.Model = null;
             for (capabilities) |candidate| if (eql(u8, q.nameOf(candidate), name)) {
                 if (found != null) return r.fail("{s}: several capabilities are named '{s}'.", .{ context, name });
@@ -83,11 +86,24 @@ pub fn bindings(r: *q.Request, tables: []const []const u8, output: ?[]const u8) 
                 const label = q.nameOf(operation);
                 const entry = entries.object.get(label) orelse return r.fail("{s}: {s}.{s} is neither bound nor marked unavailable.", .{ context, name, label });
                 for (out.items) |prior| if (eql(u8, prior.operation, q.idOf(operation))) return r.fail("{s}: {s}.{s} is bound twice.", .{ context, name, label });
+                const declaration = try operationEntry(&d, table, try std.fmt.allocPrint(a, "{s}/operations/{s}", .{ at, label }), try std.fmt.allocPrint(a, "{s}.{s}", .{ name, label }), entry);
+                var closes: ?[]const u8 = null;
+                if (entry.object.contains("closes")) {
+                    const parameter = try d.requiredString(entry, "closes");
+                    for (operation.parameters()) |item_parameter| {
+                        if (eql(u8, q.nameOf(item_parameter), parameter)) closes = q.idOf(item_parameter);
+                    }
+                    if (closes == null) return r.fail("{s}: {s}.{s} has no parameter '{s}' to close.", .{ context, name, label, parameter });
+                }
                 try out.append(a, .{
                     .capability = q.idOf(capability),
                     .operation = q.idOf(operation),
                     .source = source,
-                    .declaration = try operationEntry(&d, table, try std.fmt.allocPrint(a, "{s}/operations/{s}", .{ at, label }), try std.fmt.allocPrint(a, "{s}.{s}", .{ name, label }), entry),
+                    .declaration = declaration,
+                    .handle = handle,
+                    .closes = closes,
+                    .may_wait = operation.mayWait(),
+                    .task_bound = capability.taskBound(),
                 });
             }
         }

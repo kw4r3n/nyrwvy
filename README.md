@@ -70,7 +70,7 @@ The tool handlers live in [`tools/nyrwvy-agent`](tools/nyrwvy-agent/); the MCP s
 | Publish or discard the proposal | `nyrwvy_commit`, `nyrwvy_reject` |
 | Anything else in the protocol, by stable ID (including `runPure`) | `nyrwvy_request` |
 
-`runPure` compiles the committed program and runs one function with fake capability responses. It runs in a child process limited to 5 s of wall time and a bounded output size, with your user's permissions. **It is not a sandbox**, and the optional `hostSources` (off by default) compile and run arbitrary C#. See [SECURITY.md](SECURITY.md).
+`runPure` compiles the committed program and runs one function with fake capability responses. It runs in a child process limited to 5 s of wall time, a bounded output size and a heap of about 1 GiB (on both backends), with your user's permissions. **It is not a sandbox**, and the optional `hostSources` (off by default) compile and run arbitrary C#. See [SECURITY.md](SECURITY.md) and the [session protocol](docs/specs/agent-authoring-session.md).
 
 Underneath, the Zig session host ([`tools/zig/host`](tools/zig/host/)) is a JSON-lines executable over a snapshot file. A workspace can pin other published snapshots as dependencies and upgrade them through a reviewed preview; see [pinned snapshot dependencies](docs/specs/agent-authoring-session.md#pinned-snapshot-dependencies).
 

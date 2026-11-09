@@ -1,6 +1,7 @@
 # Zig exports that keep state between calls
 
-- **Status:** Proposed
+- **Status:** Accepted, built ahead of trigger (owner decision 2026-11-10)
+- **Built:** slices 1 and 2 on 2026-11-10; slice 3 is not built. Rhifill's `layoutFrame` bench was not run, so slice 1's cost is unmeasured and the arena-keeping fallback is not built. Differences from the design below: the `Pty` struct is never freed either (a read or write that passed the handle check runs with the lock released and may start after the close, so freeing it would leave that call a dangling pointer; the last of the close and running reads or writes closes the fds); a wrong-capability handle is refused at the export (`nyHandleIs`), and with one handle capability in `libraries/host` only the null case is checked; the 64 KiB read limit is in `host.zig` and the README, and the emitted doc comment of an export that may wait says only that status 3 runs it again; `run-zig.mjs` appends its harness to the emitted source so it can set the checking allocator.
 - **Date:** 2026-11-06
 - **Plan:** [backend-neutral semantics and generated library bindings](../plans/multi-backend-and-bindings.md#order), Order step 5; §5, §7, §8 and §10
 - **Builds on:** [memory ownership in the Zig backend](zig-backend-memory-ownership.md), [capability handles](capability-handles.md), [wait and task-bound attributes](wait-and-task-bound-attributes.md), [C# mapping tables](csharp-mapping-tables.md)

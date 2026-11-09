@@ -51,6 +51,74 @@ fn nyAllocator() std.mem.Allocator {
     return ny_arena.allocator();
 }
 
+/// Bytes held through every `NyCapped` sharing it; an allocation past `cap` fails.
+const NyBudget = struct { used: std.atomic.Value(usize) = .init(0), cap: usize };
+
+/// An allocator that charges `budget`, so a runaway program fails like the C# child's 1 GiB GC heap.
+/// Thread stacks are mapped outside it, so it does not limit how many tasks run at once.
+const NyCapped = struct {
+    child: std.mem.Allocator,
+    budget: *NyBudget,
+
+    fn allocator(self: *NyCapped) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+    fn take(self: *NyCapped, bytes: usize) bool {
+        if (self.budget.used.fetchAdd(bytes, .monotonic) + bytes <= self.budget.cap) return true;
+        _ = self.budget.used.fetchSub(bytes, .monotonic);
+        return false;
+    }
+    fn give(self: *NyCapped, bytes: usize) void {
+        _ = self.budget.used.fetchSub(bytes, .monotonic);
+    }
+    fn of(ctx: *anyopaque) *NyCapped {
+        return @ptrCast(@alignCast(ctx));
+    }
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = struct {
+            fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret: usize) ?[*]u8 {
+                const self = of(ctx);
+                if (!self.take(len)) return null;
+                return self.child.rawAlloc(len, alignment, ret) orelse {
+                    self.give(len);
+                    return null;
+                };
+            }
+        }.alloc,
+        .resize = struct {
+            fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) bool {
+                const self = of(ctx);
+                if (new_len > memory.len and !self.take(new_len - memory.len)) return false;
+                if (!self.child.rawResize(memory, alignment, new_len, ret)) {
+                    if (new_len > memory.len) self.give(new_len - memory.len);
+                    return false;
+                }
+                if (new_len < memory.len) self.give(memory.len - new_len);
+                return true;
+            }
+        }.resize,
+        .remap = struct {
+            fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
+                const self = of(ctx);
+                if (new_len > memory.len and !self.take(new_len - memory.len)) return null;
+                const moved = self.child.rawRemap(memory, alignment, new_len, ret) orelse {
+                    if (new_len > memory.len) self.give(new_len - memory.len);
+                    return null;
+                };
+                if (new_len < memory.len) self.give(memory.len - new_len);
+                return moved;
+            }
+        }.remap,
+        .free = struct {
+            fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret: usize) void {
+                const self = of(ctx);
+                self.child.rawFree(memory, alignment, ret);
+                self.give(memory.len);
+            }
+        }.free,
+    };
+};
+
 /// The allocator of value storage and of temporary buffers freed in the same call.
 fn nyRaw() std.mem.Allocator {
     return ny_values orelse ny_arena.allocator();

@@ -4,7 +4,7 @@ Operating-system access for Nyrwvy programs without host code of their own: a wo
 
 All operations use the effect `System`. A failure the program can act on is a `Result` whose error is the OS's message.
 
-Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Process.run`, `Pty.read` and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Ptys.open`, `Pty.write`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
+Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Process.run`, `Pty.read`, `Pty.write` (it blocks while the pty's buffer is full, until the child reads) and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Ptys.open`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
 
 | Capability | Operation | Result |
 | --- | --- | --- |
@@ -33,14 +33,14 @@ Not provided yet: directory operations, file deletion, a working directory for `
 
 ## Using it on Zig
 
-Zig's [library mode](../../docs/decisions/zig-backend-memory-ownership.md#library-mode-as-built) binds `Fs`, `Env` and `Process`; `Ptys` and `Pty` are C# only for now.
+Zig's [library mode](../../docs/decisions/zig-backend-memory-ownership.md#library-mode-as-built) binds every capability here ([exports that keep state](../../docs/decisions/zig-stateful-exports.md)).
 
 1. Import the workspace as above.
 2. Copy `host.zig` and `host.zig.json` beside the snapshot and add `"zigTables": ["host.zig.json"]` to `<snapshot>.backends.json`, next to `"exports"`.
-3. Emit with `emitZigLibrary` into the same directory and build with `zig build-lib -dynamic -lc`. An export's `Fs`, `Env` or `Process` parameter is not part of its C signature.
+3. Emit with `emitZigLibrary` into the same directory and build with `zig build-lib -dynamic -lc`. An export's `Fs`, `Env`, `Process` or `Ptys` parameter is not part of its C signature. A `Pty` crosses as an opaque `ny_handle *`: an export returning `Result<Pty, String>` gives it through `ny_handle **out` (status 4 is `Err`, its text through `ny_last_failure`), and an export taking one takes the pointer. `Ptys.close` is the release; `ny_open_handles()` counts handles not yet closed. `Ptys.open` takes a `List` and a `Map`, which have no C form, so a Nyrwvy function builds them and is exported instead.
 
-The behaviour matches the table above, except that an `Err` holds the Zig error's name (`FileNotFound`) instead of the OS's message.
+The behaviour matches the table above, except that an `Err` holds the Zig error's name (`FileNotFound`) instead of the OS's message. `Pty.read` returns at most 64 KiB, so a C host passes a buffer that large: status 3 re-runs the read and loses the chunk. An export that may wait runs its waiting operations with the library's lock released, so other threads' calls go on meanwhile.
 
 ## Check
 
-`node libraries/host/check/run-zig.mjs` (Linux, needs `zig` and `sh`) does the same for `host.zig`, except for the pty. `node libraries/host/check/run.mjs` (Linux, needs `dotnet`, the Zig session host built by `npm run build:host`, `sh` and `cat`) builds a program that imports the library, emits its C#, and runs [`check/Program.cs`](check/Program.cs) against the real OS: files in a temporary directory, environment variables, process start, and `Process.run` output and exit codes, and a pty driven both from C# and from a Nyrwvy function (`ptyEcho`: open `cat` with `TERM` set by the program, write, read the echo, close), including closing while another thread reads and a child that ignores the hangup. It is not part of the Node suite.
+`node libraries/host/check/run-zig.mjs` (Linux, needs `zig` and `sh`) does the same for `host.zig` with a checking allocator, which must find nothing live at the end: files, environment, processes and a pty (size and environment, foreground command, resize, exit code, a call that returns while another thread is blocked in `read`, closing while that read waits, use after close and a second close, a child that ignores the hangup). `node libraries/host/check/run.mjs` (Linux, needs `dotnet`, the Zig session host built by `npm run build:host`, `sh` and `cat`) builds a program that imports the library, emits its C#, and runs [`check/Program.cs`](check/Program.cs) against the real OS: files in a temporary directory, environment variables, process start, and `Process.run` output and exit codes, and a pty driven both from C# and from a Nyrwvy function (`ptyEcho`: open `cat` with `TERM` set by the program, write, read the echo, close), including closing while another thread reads and a child that ignores the hangup. It is not part of the Node suite.
