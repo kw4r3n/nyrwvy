@@ -16,6 +16,9 @@ fn nyExportEnter() void {
 }
 
 fn nyExportLeave() void {
+    // The next call reuses the arena's addresses, so String caches keyed by address must not survive.
+    ny_cursor = .{};
+    ny_length = .{};
     _ = ny_arena.reset(.retain_capacity);
     ny_export_lock.unlock(ny_io);
 }

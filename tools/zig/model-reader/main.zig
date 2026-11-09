@@ -3016,23 +3016,10 @@ fn directValueReferences(node: Model, out: *List(Str)) void {
     }
 }
 
-/// `SemanticNodeShape.dependencies`: direct references and what nested graphs reference from outside themselves.
-fn dependencies(node: Model, out: *List(Str)) void {
-    directValueReferences(node, out);
-    for (nestedScopes(node)) |scope| {
-        const nodes = scope.graph.nodes();
-        const local = idSet(nodes);
-        for (nodes) |inner| {
-            var deps: List(Str) = .empty;
-            dependencies(inner, &deps);
-            for (deps.items) |dep| if (!local.contains(idKey(dep))) out.append(a, dep) catch oom();
-        }
-    }
-}
-
 /// `hasDependencyCycle` over `nodesById` (the last node of a duplicated ID wins); a reference to
 /// an unknown node is no edge.
 fn hasDependencyCycle(nodes: []const Model) bool {
+    dependencies_memo.clearRetainingCapacity();
     const nodes_by_id = byId(nodes);
     // 0 unvisited, 1 on the path, 2 finished.
     const state = a.alloc(u8, nodes_by_id.count()) catch oom();
@@ -3043,10 +3030,8 @@ fn hasDependencyCycle(nodes: []const Model) bool {
         if (state[root] != 0) continue;
         var index = root;
         while (true) {
-            var deps: List(Str) = .empty;
-            dependencies(nodes_by_id.values()[index], &deps);
             state[index] = 1;
-            frames.append(a, .{ .index = index, .deps = deps.items }) catch oom();
+            frames.append(a, .{ .index = index, .deps = memoDependencies(nodes_by_id.values()[index]) }) catch oom();
             const next: ?usize = descend: while (frames.items.len > 0) {
                 const top = &frames.items[frames.items.len - 1];
                 if (top.next == top.deps.len) {
@@ -5069,9 +5054,10 @@ fn invokedOperation(node: Model) ?Str {
 const Edges = std.StringArrayHashMapUnmanaged([]const Str);
 
 /// `dependsOn` of `tryUnorderedPair`: `goal` is reachable from `start` (or is it).
-fn dependsOn(edges: *const Edges, start: Str, goal: Str) bool {
-    var visited: Set = .empty;
-    var pending: List(Str) = .empty;
+/// `visited` and `pending` are the caller's scratch, cleared here, so the pair loop allocates once.
+fn dependsOn(edges: *const Edges, start: Str, goal: Str, visited: *Set, pending: *List(Str)) bool {
+    visited.clearRetainingCapacity();
+    pending.clearRetainingCapacity();
     pending.append(a, start) catch oom();
     while (pending.pop()) |id| {
         if (same(id, goal)) return true;
@@ -5081,7 +5067,7 @@ fn dependsOn(edges: *const Edges, start: Str, goal: Str) bool {
     return false;
 }
 
-// Per call of `unorderedEffects` on a function body, by node identity: nested graphs are searched
+// Per call of `unorderedEffects` (and `dependencies_memo` per `hasDependencyCycle`) on a function body, by node identity: nested graphs are searched
 // again at each level, and these facts depend only on the node (and the observable set).
 var order_depth: usize = 0;
 var dependencies_memo: std.AutoHashMapUnmanaged(usize, []const Str) = .empty;
@@ -5091,6 +5077,8 @@ fn nodeKey(node: Model) usize {
     return @intFromPtr(&node.data.node.body.ids[node.data.node.index]);
 }
 
+/// `SemanticNodeShape.dependencies`: direct references and what nested graphs reference from outside
+/// themselves, memoized by node identity.
 fn memoDependencies(node: Model) []const Str {
     if (dependencies_memo.get(nodeKey(node))) |deps| return deps;
     var deps: List(Str) = .empty;
@@ -5141,11 +5129,13 @@ fn unorderedEffects(nodes: []const Model, observable: *const Set, by_id: bool) ?
     }
     // `tryUnorderedPair` without its fast path (a topological walk), which only skips this search
     // when every pair is ordered and so cannot change the pair it names.
-    // shortcut: O(k²) reachability walks kept in the process arena, unlike F#'s ~k; port
-    // `totallyOrdered` or cache one reach set per node if graphs with thousands of effects appear.
+    // shortcut: k² reachability walks of O(n) each (scratch reused, so memory stays O(n)), unlike
+    // F#'s ~k; port `totallyOrdered` when a function with hundreds of effects is slow (1000: ~10 s).
     std.mem.sort(Str, effectful.items, {}, lessStr);
+    var visited: Set = .empty;
+    var pending: List(Str) = .empty;
     for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
-        if (!dependsOn(&edges, first, second) and !dependsOn(&edges, second, first)) return .{ first, second };
+        if (!dependsOn(&edges, first, second, &visited, &pending) and !dependsOn(&edges, second, first, &visited, &pending)) return .{ first, second };
     };
     // The typed view lists a graph's nodes by ID and union arms by their first variant, the semantic
     // one both in document order.

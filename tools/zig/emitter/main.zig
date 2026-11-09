@@ -1260,7 +1260,7 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .listReverse => b.listCall("nyListReverse", "listValueId", &.{}),
         .listItemAt => b.listCall("nyListItemAt", "listValueId", &.{b.f("indexValueId")}),
         .listLast => b.listCall("nyListLast", "listValueId", &.{}),
-        .listDropLast => b.listCall("nyListDropLast", "listValueId", &.{}),
+        .listDropLast => b.listCall("nyListDropLastOwned", "listValueId", &.{}),
         .listSlice => b.listCall("nyListSliceOwned", "listValueId", &.{ b.f("startId"), b.f("endId") }),
         .listSetAt => b.listCall("nyListSetAtOwned", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
         .listInsertAt => b.listCall("nyListInsertAt", "listValueId", &.{ b.f("indexValueId"), b.f("itemValueId") }),
@@ -1408,9 +1408,9 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
         .bytesLength => cat(&.{ "@as(i64, @intCast(", b.f("valueId"), ".data.len))" }),
         .bytesGet => cat(&.{ "if (nyListItemAt(u8, ", b.f("bytesId"), ".data, ", b.f("indexId"), ")) |byte| @as(i64, byte) else null" }),
         .bytesSet => wrap(b, "nyBytesSet", &.{ "bytesId", "indexId", "valueId" }),
-        .bytesAppend => cat(&.{ ".{ .data = nyListAppend(u8, ", b.f("bytesId"), ".data, @truncate(@as(u64, @bitCast(", b.f("valueId"), ")))) }" }),
-        .bytesConcat => cat(&.{ ".{ .data = nyListConcat(u8, ", b.f("leftId"), ".data, ", b.f("rightId"), ".data) }" }),
-        .bytesSlice => cat(&.{ ".{ .data = nyListSlice(u8, ", b.f("bytesId"), ".data, ", b.f("startId"), ", ", b.f("endId"), ") }" }),
+        .bytesAppend => cat(&.{ ".{ .data = nyListAppendOwned(u8, ", b.f("bytesId"), ".data, @truncate(@as(u64, @bitCast(", b.f("valueId"), ")))) }" }),
+        .bytesConcat => cat(&.{ ".{ .data = nyListConcatOwned(u8, ", b.f("leftId"), ".data, ", b.f("rightId"), ".data) }" }),
+        .bytesSlice => cat(&.{ ".{ .data = nyListSliceOwned(u8, ", b.f("bytesId"), ".data, ", b.f("startId"), ", ", b.f("endId"), ") }" }),
         .bytesFromLatin1 => unary(b, "nyBytesFromLatin1"),
         .bytesToLatin1 => unary(b, "nyBytesToLatin1"),
         .capabilityConstruct => cat(&.{ identifier("C_", str(b.o, "capabilityId")), "{ .fake = 0, .site = 0, .implementation = ", std.fmt.allocPrint(a, "{d}", .{implementationIndex(str(b.o, "originNodeId"))}) catch oom(), " }" }),
@@ -1636,7 +1636,8 @@ fn consumedKey(kind: []const u8, key: []const u8) bool {
         .{ "setFold", "seedValueId" },         .{ "mapFold", "seedValueId" },              .{ "listEffectFold", "seedValueId" },
         .{ "taskStart", "itemValueId" },       .{ "taskStart", "context" },                .{ "oneShotComplete", "valueValueId" },
         .{ "return", "valueId" },              .{ "abort", "errorValueId" },               .{ "jump", "arguments" },
-        .{ "tailCall", "arguments" },
+        .{ "tailCall", "arguments" },          .{ "listDropLast", "listValueId" },         .{ "bytesSet", "bytesId" },
+        .{ "bytesAppend", "bytesId" },         .{ "bytesConcat", "leftId" },               .{ "bytesSlice", "bytesId" },
     };
     for (table) |row| if (eql(row[0], kind) and eql(row[1], key)) return true;
     return false;

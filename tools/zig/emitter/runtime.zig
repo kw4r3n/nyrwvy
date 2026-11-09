@@ -119,7 +119,9 @@ fn nyFree(comptime T: type, ptr: anytype) void {
 /// Drops the String cursor when it points into the storage of `ptr`, which is freed or rewritten.
 fn nyCursorForget(comptime T: type, ptr: anytype) void {
     const start = @intFromPtr(ptr);
-    if (ny_cursor.ptr >= start and ny_cursor.ptr < start + nyCap(nyHeader(ptr)) * @sizeOf(T)) ny_cursor = .{};
+    const end = start + nyCap(nyHeader(ptr)) * @sizeOf(T);
+    if (ny_cursor.ptr >= start and ny_cursor.ptr < end) ny_cursor = .{};
+    if (ny_length.ptr >= start and ny_length.ptr < end) ny_length = .{};
 }
 
 fn nyBox(comptime T: type, value: T) *const T {
@@ -357,9 +359,16 @@ fn nyInt64ToString(value: i64) []const u8 {
     return nyListMove(u8, std.fmt.bufPrint(&buffer, "{d}", .{value}) catch unreachable);
 }
 
+/// The code-point count of the last long String measured, so a loop that tests a long String's
+/// length each step counts it once. Dropped with the cursor when the storage is freed or rewritten.
+var ny_length: struct { ptr: usize = 0, len: usize = 0, count: i64 = 0 } = .{};
+
 /// Strings are UTF-8 sequences of Unicode scalar values, so this never fails.
 fn nyStringLength(text: []const u8) i64 {
-    return @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable);
+    if (text.len < ny_cursor_min) return @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable);
+    if (ny_length.ptr != @intFromPtr(text.ptr) or ny_length.len != text.len)
+        ny_length = .{ .ptr = @intFromPtr(text.ptr), .len = text.len, .count = @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable) };
+    return ny_length.count;
 }
 
 fn nyConcatOwned(left: []const u8, right: []const u8) []const u8 {
@@ -1006,8 +1015,9 @@ fn nyListLast(comptime T: type, list: []const T) ?T {
     return if (list.len == 0) null else nyShare(list[list.len - 1]);
 }
 
-fn nyListDropLast(comptime T: type, list: []const T) []const T {
-    return if (list.len == 0) list else nyListOf(T, list[0 .. list.len - 1]);
+/// Drops the last item of an owned `list`; a unique list keeps its storage.
+fn nyListDropLastOwned(comptime T: type, list: []const T) []const T {
+    return nyListSliceOwned(T, list, 0, @as(i64, @intCast(list.len)) - 1);
 }
 
 fn nyListSlice(comptime T: type, list: []const T, start: i64, end: i64) []const T {
@@ -1271,8 +1281,9 @@ fn nyBytesFill(length: i64, value: i64) NyBytes {
     return .{ .data = data };
 }
 
+/// Consumes `bytes`, so a unique buffer is written in place.
 fn nyBytesSet(bytes: NyBytes, index: i64, value: i64) NyBytes {
-    return .{ .data = nyListSetAt(u8, bytes.data, index, @truncate(@as(u64, @bitCast(value)))) };
+    return .{ .data = nyListSetAtOwned(u8, bytes.data, index, @truncate(@as(u64, @bitCast(value)))) };
 }
 
 /// One byte per code point; a code point above U+00FF becomes 0xFF.
