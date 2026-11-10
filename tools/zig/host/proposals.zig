@@ -748,20 +748,21 @@ pub fn readProposal(r: *query.Request, out: *Writer) !void {
 }
 
 pub fn viewProposal(r: *query.Request, out: *Writer) !void {
-    if (try query.fieldProblem(r.a, r.line, &.{}, r.root, "viewProposal request", &.{ "id", "op", "proposalId", "output" }, &.{ "id", "op", "proposalId" })) |message| return r.fail("{s}", .{message});
+    if (try query.fieldProblem(r.a, r.line, &.{}, r.root, "viewProposal request", &.{ "id", "op", "proposalId", "output", "format" }, &.{ "id", "op", "proposalId" })) |message| return r.fail("{s}", .{message});
     const wanted = try text(r, "proposalId");
     const output = if (r.root.get("output") != null) try text(r, "output") else null;
+    const format = try query.viewFormat(r);
     const p = try lookup(r, wanted);
-    const path = try writeReview(r, p, output, null);
+    const path = try writeReview(r, p, output, null, format);
     try out.writeAll("{\"proposalId\":");
     try @import("root").writeString(out, p.id);
-    try out.writeAll(",\"kind\":\"changeReview\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
+    try out.print(",\"kind\":\"changeReview\",\"mediaType\":\"{s}\",\"path\":", .{@import("viewer.zig").mediaType(format)});
     try @import("root").writeString(out, path);
     try out.writeByte('}');
 }
 
 /// Same structural review and confined writer; verification adds only immutable evidence data.
-pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, verification: ?[]const u8) ![]const u8 {
+pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, verification: ?[]const u8, format: @import("viewer.zig").Format) ![]const u8 {
     const current = m.same(r.snapshot_id, p.base_id);
     const proposed_root = typedModel(r.a, p);
     const committed_root = r.typedModel();
@@ -880,19 +881,8 @@ pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, ve
         }
         try w.writeByte('}');
     }
-    const name = try std.fmt.allocPrint(r.a, "nyrwvy-change-review-transaction-{x}.html", .{p.id});
-    const content = try viewer.page(r.a, data.written());
-    switch (try @import("view_file.zig").write(r.a, r.snapshot_path, output, ".html", name, viewer.header(), content)) {
-        .refused => |message| {
-            r.rejection = .{ .code = "ViewWriteFailed", .message = message };
-            return error.Rejected;
-        },
-        .internal => {
-            r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
-            return error.Rejected;
-        },
-        .written => |path| return path,
-    }
+    const name = try std.fmt.allocPrint(r.a, "nyrwvy-change-review-transaction-{x}", .{p.id});
+    return query.writeView(r, format, output, name, data.written());
 }
 
 pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("operation_engine.zig").Result) !void {

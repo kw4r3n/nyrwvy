@@ -212,7 +212,7 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     var encoded: std.Io.Writer.Allocating = .init(r.a);
     try m.write(&encoded.writer, evidence);
     const output = if (r.root.get("output") != null) try text(r, "output") else null;
-    const path = try proposals.writeReview(r, p, output, encoded.written());
+    const path = try proposals.writeReview(r, p, output, encoded.written(), .html);
     try m.write(out, try object(r, .{ .{ "evidence", evidence }, .{ "reviewPath", try m.string(r.a, path) } }));
 }
 
