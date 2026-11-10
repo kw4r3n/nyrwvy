@@ -21,6 +21,42 @@ pub fn page(a: Allocator, data: []const u8) ![]const u8 {
     return std.mem.concat(a, u8, &.{ asset.page[0..index], data, asset.page[index + "@DATA@".len ..] });
 }
 
+/// A view's file form: the page for a person, or its data alone as JSON for an agent.
+pub const Format = enum { html, json };
+
+/// Marks a JSON view file as viewer output, as `generator_meta` marks a page.
+pub const json_marker = "{\"generator\":\"Nyrwvy viewer\"";
+
+/// The file of one view: the page with its data embedded, or the data itself behind the marker.
+pub fn file(a: Allocator, format: Format, data: []const u8) ![]const u8 {
+    return switch (format) {
+        .html => page(a, data),
+        .json => std.mem.concat(a, u8, &.{ json_marker, ",", data[1..], "\n" }),
+    };
+}
+
+/// The bytes an existing file must start with to be replaced by a view of this format.
+pub fn fileHeader(format: Format) []const u8 {
+    return switch (format) {
+        .html => header(),
+        .json => json_marker,
+    };
+}
+
+pub fn extension(format: Format) []const u8 {
+    return switch (format) {
+        .html => ".html",
+        .json => ".json",
+    };
+}
+
+pub fn mediaType(format: Format) []const u8 {
+    return switch (format) {
+        .html => "text/html; charset=utf-8",
+        .json => "application/json",
+    };
+}
+
 /// The page's bytes up to the end of its generator marker: an existing file is replaced only when it
 /// starts with them (`ViewerFile.replaceable`).
 pub fn header() []const u8 {
@@ -432,13 +468,20 @@ pub fn typedFocusData(a: Allocator, root: model.Model, snapshot_id: []const u8, 
     return std.mem.concat(a, u8, &.{ "{\"view\":\"functionFocus\",\"focus\":", try typedFocusValue(a, root, snapshot_id, function), "}" });
 }
 pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8, function: model.Model) ![]const u8 {
+    return typedFocusValueOf(a, root, snapshot_id, function, false);
+}
+/// One function's focus. `shared` leaves out the related signatures and referenced declarations, which
+/// a program view lists once for every function.
+pub fn typedFocusValueOf(a: Allocator, root: model.Model, snapshot_id: []const u8, function: model.Model, shared: bool) ![]const u8 {
     const wanted = function.id();
     const focus = model.typedFocusOf(a, root, function);
     var data: Writer.Allocating = .init(a);
     const out = &data.writer;
-    try out.writeAll("{\"snapshotId\":");
-    try model.writeString(out, try std.unicode.utf8ToUtf16LeAlloc(a, snapshot_id));
-    try out.writeAll(",\"function\":");
+    if (!shared) {
+        try out.writeAll("{\"snapshotId\":");
+        try model.writeString(out, try std.unicode.utf8ToUtf16LeAlloc(a, snapshot_id));
+        try out.writeAll(",\"function\":");
+    } else try out.writeAll("{\"function\":");
     try typedSignature(out, function, true);
     try out.writeAll(if (function.mustNotWait()) ",\"mustNotWait\":true,\"waitPath\":" else ",\"mustNotWait\":false,\"waitPath\":");
     if (focus.wait_path) |path| try model.writeString(out, path) else try out.writeAll("null");
@@ -464,10 +507,13 @@ pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8,
         } else null;
         if (found) |item| try related.append(a, item) else try missing_functions.append(a, id);
     }
-    try out.writeAll(",\"relatedFunctionSignatures\":[");
-    for (related.items, 0..) |item, n| {
-        if (n > 0) try out.writeByte(',');
-        try typedSignature(out, item, false);
+    if (!shared) {
+        try out.writeAll(",\"relatedFunctionSignatures\":[");
+        for (related.items, 0..) |item, n| {
+            if (n > 0) try out.writeByte(',');
+            try typedSignature(out, item, false);
+        }
+        try out.writeByte(']');
     }
     const nodes = model.typedBodyNodes(a, function);
     const Obligation = struct { id: Str, item: model.Model };
@@ -485,7 +531,7 @@ pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8,
             return std.mem.order(u16, x.id, y.id) == .lt;
         }
     }.less);
-    try out.writeAll("],\"openObligations\":[");
+    try out.writeAll(",\"openObligations\":[");
     for (open.items, 0..) |obligation, n| {
         if (n > 0) try out.writeByte(',');
         try out.writeAll("{\"obligationId\":");
@@ -507,22 +553,24 @@ pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8,
         for (item.data.function.parameters) |p| try closure.visit(p.type);
         try closure.visit(item.data.function.result);
     }
-    try out.writeAll("],\"referencedTypes\":[");
+    try out.writeByte(']');
     var count: usize = 0;
-    for (root.types()) |item| if (has(closure.types.items, item.id())) {
-        if (count > 0) try out.writeByte(',');
-        count += 1;
-        try wire.typedSemanticType(out, i, item.data.type_declaration);
-    };
-    try out.writeAll("],\"referencedCapabilities\":[");
-    count = 0;
-    for (root.capabilities()) |item| if (has(closure.capabilities.items, item.id())) {
-        if (count > 0) try out.writeByte(',');
-        count += 1;
-        try wire.typedCapability(out, i, item.data.capability);
-    };
-    try out.writeAll("],\"referencedEffects\":[");
-    count = 0;
+    if (!shared) {
+        try out.writeAll(",\"referencedTypes\":[");
+        for (root.types()) |item| if (has(closure.types.items, item.id())) {
+            if (count > 0) try out.writeByte(',');
+            count += 1;
+            try wire.typedSemanticType(out, i, item.data.type_declaration);
+        };
+        try out.writeAll("],\"referencedCapabilities\":[");
+        count = 0;
+        for (root.capabilities()) |item| if (has(closure.capabilities.items, item.id())) {
+            if (count > 0) try out.writeByte(',');
+            count += 1;
+            try wire.typedCapability(out, i, item.data.capability);
+        };
+        try out.writeByte(']');
+    }
     var missing_effects: std.ArrayList(Str) = .empty;
     for (closure.effects.items) |id| {
         const known = for (root.effects()) |item| {
@@ -530,16 +578,17 @@ pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8,
         } else false;
         if (!known) try missing_effects.append(a, id);
     }
-    for (root.effects()) |item| if (has(closure.effects.items, item.id())) {
-        if (count > 0) try out.writeByte(',');
-        count += 1;
-        try out.writeAll("{\"id\":");
-        try model.writeString(out, item.id());
-        try out.writeAll(",\"displayName\":");
-        try model.writeString(out, item.displayName());
-        try out.writeAll(if (item.exported()) ",\"exported\":true}" else ",\"exported\":false}");
-    };
-    try out.writeAll("],\"missingFunctionIds\":");
+    if (!shared) {
+        try out.writeAll(",\"referencedEffects\":[");
+        count = 0;
+        for (root.effects()) |item| if (has(closure.effects.items, item.id())) {
+            if (count > 0) try out.writeByte(',');
+            count += 1;
+            try writeEffect(out, item);
+        };
+        try out.writeByte(']');
+    }
+    try out.writeAll(",\"missingFunctionIds\":");
     try query.writeIds(out, missing_functions.items);
     try out.writeAll(",\"missingTypeIds\":");
     try writeSorted(a, out, closure.missing_types.items);
@@ -552,5 +601,44 @@ pub fn typedFocusValue(a: Allocator, root: model.Model, snapshot_id: []const u8,
     try out.writeAll(",\"graph\":");
     try viewer.graph(out, function.body());
     try out.writeByte('}');
+    return data.written();
+}
+
+fn writeEffect(out: *Writer, item: model.Model) !void {
+    try out.writeAll("{\"id\":");
+    try model.writeString(out, item.id());
+    try out.writeAll(",\"displayName\":");
+    try model.writeString(out, item.displayName());
+    try out.writeAll(if (item.exported()) ",\"exported\":true}" else ",\"exported\":false}");
+}
+
+/// The program view: every declaration once, then each function's shared focus, which refers to them by ID.
+pub fn typedProgramData(a: Allocator, root: model.Model, snapshot_id: []const u8) ![]const u8 {
+    var data: Writer.Allocating = .init(a);
+    const out = &data.writer;
+    const i = root.context.interner;
+    try out.writeAll("{\"view\":\"program\",\"snapshotId\":");
+    try model.writeString(out, try std.unicode.utf8ToUtf16LeAlloc(a, snapshot_id));
+    try out.writeAll(",\"types\":[");
+    for (root.types(), 0..) |item, n| {
+        if (n > 0) try out.writeByte(',');
+        try wire.typedSemanticType(out, i, item.data.type_declaration);
+    }
+    try out.writeAll("],\"capabilities\":[");
+    for (root.capabilities(), 0..) |item, n| {
+        if (n > 0) try out.writeByte(',');
+        try wire.typedCapability(out, i, item.data.capability);
+    }
+    try out.writeAll("],\"effects\":[");
+    for (root.effects(), 0..) |item, n| {
+        if (n > 0) try out.writeByte(',');
+        try writeEffect(out, item);
+    }
+    try out.writeAll("],\"functions\":[");
+    for (root.functions(), 0..) |item, n| {
+        if (n > 0) try out.writeByte(',');
+        try out.writeAll(try typedFocusValueOf(a, root, snapshot_id, item, true));
+    }
+    try out.writeAll("]}");
     return data.written();
 }

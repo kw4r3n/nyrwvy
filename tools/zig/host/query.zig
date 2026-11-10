@@ -1579,11 +1579,12 @@ fn typedOutline(r: *Request, out: *Writer, compact: []const u8, function: model.
 
 /// `viewFunction`: the committed function's Function Focus page, written beside the snapshot.
 pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
-    if (try fieldProblem(r.a, r.line, &.{}, r.root, "viewFunction request", &.{ "id", "op", "function", "functionId", "output" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "viewFunction request", &.{ "id", "op", "function", "functionId", "output", "format" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
     const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
     if (by_name == by_id) return r.fail("viewFunction requires exactly one of function and functionId.", .{});
     const wanted = if (by_name) (try typedResolve(r, "function", r.root, "function", &.{"function"})).id() else try utf16(r.a, try exactId(r, "functionId"));
     const output = if (r.root.get("output") != null) try requiredString(r, r.root, "output") else null;
+    const format = try viewFormat(r);
     const function = for (typedRoot(r).functions()) |item| {
         if (typedSame(item, wanted)) break item;
     } else {
@@ -1592,9 +1593,28 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
     };
     const id_text = model.utf8(wanted);
     // `ViewerArtifact.focusFileName`: named by the function's ID, its UTF-8 bytes in lower-case hex.
-    const name = try std.fmt.allocPrint(r.a, "nyrwvy-focus-function-{x}.html", .{id_text});
-    const content = try viewer.page(r.a, try viewer.typedFocusData(r.a, typedRoot(r), r.snapshot_id, function));
-    switch (try view_file.write(r.a, r.snapshot_path, output, ".html", name, viewer.header(), content)) {
+    const name = try std.fmt.allocPrint(r.a, "nyrwvy-focus-function-{x}", .{id_text});
+    const path = try writeView(r, format, output, name, try viewer.typedFocusData(r.a, typedRoot(r), r.snapshot_id, function));
+    try out.writeAll("{\"functionId\":");
+    try writeId(out, wanted);
+    try out.writeAll(",\"displayName\":");
+    try model.writeString(out, function.displayName());
+    try out.print(",\"kind\":\"functionFocus\",\"mediaType\":\"{s}\",\"path\":", .{viewer.mediaType(format)});
+    try @import("root").writeString(out, path);
+    try out.writeByte('}');
+}
+
+/// The request's optional `format`: "html" (the default) for a person, "json" for an agent.
+pub fn viewFormat(r: *Request) Fail!viewer.Format {
+    const value = r.root.get("format") orelse return .html;
+    if (value == .string) if (std.meta.stringToEnum(viewer.Format, value.string)) |format| return format;
+    return r.fail("format must be \"html\" or \"json\".", .{});
+}
+
+/// Writes one view beside the snapshot (or at `output`) as `<name>.html` or `<name>.json`; returns its path.
+pub fn writeView(r: *Request, format: viewer.Format, output: ?[]const u8, name: []const u8, data: []const u8) Fail![]const u8 {
+    const file_name = try std.mem.concat(r.a, u8, &.{ name, viewer.extension(format) });
+    switch (try view_file.write(r.a, r.snapshot_path, output, viewer.extension(format), file_name, viewer.fileHeader(format), try viewer.file(r.a, format, data))) {
         .refused => |message| {
             r.rejection = .{ .code = "ViewWriteFailed", .message = message };
             return error.Rejected;
@@ -1603,16 +1623,22 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
             r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
             return error.Rejected;
         },
-        .written => |path| {
-            try out.writeAll("{\"functionId\":");
-            try writeId(out, wanted);
-            try out.writeAll(",\"displayName\":");
-            try model.writeString(out, function.displayName());
-            try out.writeAll(",\"kind\":\"functionFocus\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
-            try @import("root").writeString(out, path);
-            try out.writeByte('}');
-        },
+        .written => |path| return path,
     }
+}
+
+// ---------------------------------------------------------------- viewProgram
+
+/// `viewProgram`: every committed function and declaration in one view, written beside the snapshot.
+pub fn viewProgram(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "viewProgram request", &.{ "id", "op", "output", "format" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
+    const output = if (r.root.get("output") != null) try requiredString(r, r.root, "output") else null;
+    const format = try viewFormat(r);
+    const root = typedRoot(r);
+    const path = try writeView(r, format, output, "nyrwvy-program", try viewer.typedProgramData(r.a, root, r.snapshot_id));
+    try out.print("{{\"kind\":\"program\",\"functionCount\":{d},\"mediaType\":\"{s}\",\"path\":", .{ root.functions().len, viewer.mediaType(format) });
+    try @import("root").writeString(out, path);
+    try out.writeByte('}');
 }
 
 // ---------------------------------------------------------------- executionReadiness

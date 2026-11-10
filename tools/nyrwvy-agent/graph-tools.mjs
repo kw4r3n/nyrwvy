@@ -164,13 +164,15 @@ export function createGraphTools(schema) {
       },
     }),
     view: defineTool({
-      description: "Write a human-readable HTML page and return its path, for a person to open in a browser. With a function name or functionId: Function Focus of the committed function (signature, effects, typed nodes and their dependencies). With proposalId: Change Review of a pending proposal before commit or reject (committed and proposed focus of each function it creates or rewrites, created declarations, and the engine review). Pass exactly one of function, functionId and proposalId. Nothing is returned to read; use inspect or the proposal review for that. output is an optional .html path (relative paths use the project); by default the page goes to nyrwvy-views/ beside the snapshot. The page is a projection and is never read back.",
-      args: { function: selector.optional(), functionId: schema.string().optional(), proposalId: schema.string().optional(), output: schema.string().optional() },
-      /** @param {{ function?: string | Record<string, unknown>; functionId?: string; proposalId?: string; output?: string }} args */
+      description: "Write a view of the committed graph or a pending proposal to a file and return its path. format \"html\" (default) writes a page for a person to open in a browser; \"json\" writes the same view data as JSON for an agent to read (a projection like the page, never read back). With no selector: the Program view, every function, type, capability and effect once, with each function's signature, calls, effect evidence and typed body graph referring to declarations by ID; the page adds an overview of calls, type usage and effects. With a function name or functionId: Function Focus of one committed function. With proposalId: Change Review of a pending proposal before commit or reject (a decision summary and what changed first, then committed and proposed focus of each function it creates or rewrites, and created declarations). Pass at most one of function, functionId and proposalId. Nothing is returned to read; use inspect or the proposal review for that. output is an optional .html or .json path matching format (relative paths use the project); by default the file goes to nyrwvy-views/ beside the snapshot.",
+      args: { function: selector.optional(), functionId: schema.string().optional(), proposalId: schema.string().optional(), output: schema.string().optional(), format: schema.enum(["html", "json"]).optional() },
+      /** @param {{ function?: string | Record<string, unknown>; functionId?: string; proposalId?: string; output?: string; format?: "html" | "json" }} args */
       execute(args, context) {
-        if (args.proposalId === undefined) return requestAuthoring({ op: "viewFunction", ...args }, context)
-        if (args.function !== undefined || args.functionId !== undefined) throw new Error("Pass exactly one of function, functionId and proposalId.")
-        return requestAuthoring({ op: "viewProposal", ...args }, context)
+        const selected = [args.function, args.functionId, args.proposalId].filter(value => value !== undefined).length
+        if (selected > 1) throw new Error("Pass at most one of function, functionId and proposalId.")
+        if (args.proposalId !== undefined) return requestAuthoring({ op: "viewProposal", ...args }, context)
+        if (selected === 0) return requestAuthoring({ op: "viewProgram", ...args }, context)
+        return requestAuthoring({ op: "viewFunction", ...args }, context)
       },
     }),
     recipe_reference: defineTool({

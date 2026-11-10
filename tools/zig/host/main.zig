@@ -288,6 +288,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request
         .{ "bindingScopes", query.bindingScopes },
         .{ "readFunction", query.readFunction },
         .{ "viewFunction", query.viewFunction },
+        .{ "viewProgram", query.viewProgram },
         .{ "readProposal", proposals.readProposal },
         .{ "viewProposal", proposals.viewProposal },
         .{ "executionReadiness", query.executionReadiness },

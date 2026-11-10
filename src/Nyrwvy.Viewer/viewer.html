@@ -4,21 +4,82 @@
   <meta charset="utf-8">
   <meta name="generator" content="Nyrwvy viewer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-/Fh6g5tjaaljbusmT4CFetgny1QPzh4TS4nNv9+Q2ZE='">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-NsHA7/wqg7Mtz+4V+Wn3Z2PR8VdJZsZilnN9pYMLqnk='">
   <title>Nyrwvy viewer</title>
   <style>
-    :root { font-family: ui-sans-serif, system-ui, sans-serif; color-scheme: light dark; }
-    body { max-width: 1180px; margin: 0 auto; padding: 1.5rem; line-height: 1.45; }
-    header, section, article, details { border: 1px solid CanvasText; border-radius: .55rem; padding: .8rem; margin: .75rem 0; }
-    .graph { margin-left: .5rem; }
-    .nodes { display: grid; gap: .65rem; }
-    .node { border-left: .4rem solid CanvasText; padding-left: .8rem; }
-    .branch { margin-left: 1rem; border-left: .2rem dashed CanvasText; padding-left: .75rem; }
-    .status, .missing { font-weight: 700; }
-    code { overflow-wrap: anywhere; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid CanvasText; padding: .35rem .5rem; text-align: left; vertical-align: top; }
-    ul { padding-left: 1.3rem; }
+    :root {
+      color-scheme: light dark;
+      --paper: #fbfaf7; --raised: #f1eee7; --ink: #1d1c1a; --muted: #5b5852; --rule: #d9d4ca;
+      --link: #1d4c8c; --ok: #1d6638; --warn: #84500a; --bad: #a1231b; --mark: #fdeeb8;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #141413; --raised: #1e1d1b; --ink: #e8e5df; --muted: #aaa59b; --rule: #37352f;
+        --link: #93b6ea; --ok: #82cf9c; --warn: #efb662; --bad: #f2907f; --mark: #3d3416;
+      }
+    }
+    html { background: var(--paper); color: var(--ink); scrollbar-color: var(--rule) var(--paper); accent-color: var(--link); }
+    body { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; font: 15px/1.55 var(--sans); }
+    body * { min-width: 0; }
+    ::selection { background: var(--mark); color: var(--ink); }
+    :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 2px; }
+    h1, h2, h3, h4, h5, h6 { line-height: 1.25; text-wrap: balance; }
+    h1 { font-size: 1.6rem; font-weight: 650; letter-spacing: -.01em; margin: 0 0 .35rem; }
+    h2 { font-size: 1.12rem; font-weight: 650; margin: 2.4rem 0 .6rem; padding-top: .8rem; border-top: 1px solid var(--rule); }
+    h3, h4, h5, h6 { font-size: .98rem; font-weight: 650; margin: 1.5rem 0 .4rem; }
+    p, li, dd { max-width: 74ch; }
+    p { margin: .4rem 0; }
+    ul { margin: .3rem 0; padding-left: 1.2rem; }
+    a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: .18em; }
+    code { font: .86em var(--mono); overflow-wrap: anywhere; }
+    pre { overflow: auto; max-width: 100%; margin: .5rem 0; padding: .75rem .9rem; background: var(--raised); border-radius: .3rem; font: .8rem/1.5 var(--mono); }
+    pre code { font: inherit; }
+    table { border-collapse: collapse; margin: .4rem 0; font-variant-numeric: tabular-nums; }
+    th { font-size: .8rem; font-weight: 600; color: var(--muted); }
+    th, td { padding: .35rem 1.4rem .35rem 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+    summary { cursor: pointer; padding: .25rem 0; font-weight: 600; }
+    summary .note { font-weight: 400; color: var(--muted); }
+    details { margin: .4rem 0; }
+    details[open] > summary { margin-bottom: .3rem; }
+    .muted, .meta { color: var(--muted); }
+    .meta { display: flex; flex-wrap: wrap; gap: .15rem 1.4rem; list-style: none; margin: .3rem 0 0; padding: 0; }
+    .ids dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; margin: .2rem 0 .4rem; font-size: .85rem; }
+    .ids dt { color: var(--muted); }
+    .ids dd { margin: 0; }
+    .verdict { margin: 1.4rem 0 0; padding: 1rem 1.15rem; background: var(--raised); border: 1px solid var(--rule); border-radius: .4rem; }
+    .verdict-state { margin: 0; font-size: 1.15rem; font-weight: 650; }
+    .verdict p { margin: .35rem 0 0; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .facts { display: flex; flex-wrap: wrap; gap: .2rem 1.6rem; list-style: none; margin: .6rem 0 0; padding: 0; font-variant-numeric: tabular-nums; }
+    .facts strong { font-weight: 650; }
+    .changes { padding-left: 0; list-style: none; }
+    .changes > li { margin: .45rem 0; }
+    del { color: var(--bad); text-decoration-thickness: 1px; }
+    ins { color: var(--ok); text-decoration: none; font-weight: 600; }
+    .status { font-size: .8rem; font-weight: 600; color: var(--muted); }
+    .flag { color: var(--bad); }
+    .graph, .graph ul { list-style: none; margin: 0; padding: 0; }
+    .node { padding: .12rem 0; scroll-margin-top: 1rem; }
+    .node-line { display: flex; flex-wrap: wrap; gap: 0 .45rem; align-items: baseline; padding: 0 .3rem; margin: 0 -.3rem; border-radius: .2rem; }
+    .op { font-weight: 600; }
+    .ty, .inputs, .branch-label { color: var(--muted); }
+    .inputs, .bindings { font-size: .86rem; padding-left: 1.1rem; }
+    .branch-label { font-size: .84rem; margin-top: .2rem; }
+    .graph .branches { margin: .1rem 0 .25rem .35rem; padding-left: .85rem; border-left: 1px solid var(--rule); }
+    .changed > .node-line, .node:target > .node-line { background: var(--mark); }
+    @media (max-width: 40rem) {
+      body { padding: 1.25rem 1rem 3rem; }
+      .graph .branches { margin-left: .1rem; padding-left: .5rem; }
+      table { display: block; overflow-x: auto; }
+    }
+    @media (forced-colors: active) {
+      .verdict { border-color: CanvasText; }
+      .changed > .node-line, .node:target > .node-line { outline: 1px solid Highlight; }
+    }
   </style>
 </head>
 <body>
@@ -59,10 +120,32 @@ var NyrwvyViewer = (function () {
   function code(value) { return "<code>" + html(value) + "</code>"; }
   function sortById(items) { return items.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }); }
   function visibility(exported) { return exported ? "exported" : "private"; }
-  function namesOf(lists) {
-    var names = new Map();
-    lists.forEach(function (list) { (list || []).forEach(function (item) { names.set(item.typeParameterId, item.displayName); }); });
+  function plural(count, word) { return count + " " + word + (count === 1 ? "" : "s"); }
+  function heading(level, text) { var n = Math.min(level, 6); return "<h" + n + ">" + text + "</h" + n + ">"; }
+  // Display names by stable ID, gathered from every declaration the view data carries, so a reference
+  // shows its name and keeps the stable ID as its title. Names are presentation only.
+  function addNames(names, list) { (list || []).forEach(function (item) { names.set(item.typeParameterId || item.id, item.displayName); }); }
+  function addFocusNames(names, focus) {
+    var fn = focus.function;
+    names.set(fn.id, fn.displayName);
+    addNames(names, fn.typeParameters);
+    addNames(names, fn.parameters);
+    (focus.relatedFunctionSignatures || []).forEach(function (item) { names.set(item.id, item.displayName); addNames(names, item.typeParameters); addNames(names, item.parameters); });
+    (focus.referencedTypes || []).forEach(function (type) { addTypeNames(names, type); });
+    (focus.referencedCapabilities || []).forEach(function (capability) { addCapabilityNames(names, capability); });
+    addNames(names, focus.referencedEffects);
     return names;
+  }
+  function addTypeNames(names, type) {
+    names.set(type.id, type.displayName);
+    addNames(names, type.typeParameters);
+    addNames(names, type.typeKind.fields);
+    addNames(names, type.typeKind.variants);
+  }
+  function addCapabilityNames(names, capability) { names.set(capability.id, capability.displayName); addNames(names, capability.operations); }
+  function nameOf(names, prefix, id) { return names.has(id) ? names.get(id) : prefix + ":" + id; }
+  function ref(names, prefix, id) {
+    return names.has(id) ? "<code title=\"" + html(prefix + ":" + id) + "\">" + html(names.get(id)) + "</code>" : code(prefix + ":" + id);
   }
 
   var primitives = { string: "String", bool: "Bool", unit: "Unit", int64: "Int64", float64: "Float64", bits32: "Bits32", bytes: "Bytes" };
@@ -74,8 +157,8 @@ var NyrwvyViewer = (function () {
     var text = function (item) { return typeText(names, item); };
     switch (type.kind) {
       case "primitive": return primitives[type.primitive];
-      case "named": return "type:" + type.typeId + (type.arguments && type.arguments.length > 0 ? "<" + type.arguments.map(text).join(", ") + ">" : "");
-      case "capability": return "capability:" + type.capabilityId;
+      case "named": return nameOf(names, "type", type.typeId) + (type.arguments && type.arguments.length > 0 ? "<" + type.arguments.map(text).join(", ") + ">" : "");
+      case "capability": return nameOf(names, "capability", type.capabilityId);
       case "function": return "(" + type.parameters.map(text).join(", ") + ") -> " + text(type.resultType);
       case "typeParameter": return names.has(type.typeParameterId) ? names.get(type.typeParameterId) : type.typeParameterId;
       case "builtinGeneric":
@@ -102,13 +185,13 @@ var NyrwvyViewer = (function () {
     FunctionValue: "function value", CapabilityValue: "capability value", BranchCondition: "branch condition",
     MatchInput: "match input", BindInput: "evaluate before body"
   };
-  function dependencyLabel(dependency) {
+  function dependencyLabel(names, dependency) {
     switch (dependency.role) {
       case "ListItem": return "list item [" + dependency.index + "]";
       case "FunctionArgument": return "function argument " + dependency.index;
-      case "CallArgument": return "call argument parameter:" + dependency.parameterId;
-      case "CapabilityArgument": return "capability argument capability-parameter:" + dependency.parameterId;
-      case "FieldValue": return "field value field:" + dependency.fieldId;
+      case "CallArgument": return "argument " + nameOf(names, "parameter", dependency.parameterId);
+      case "CapabilityArgument": return "capability argument " + nameOf(names, "capability-parameter", dependency.parameterId);
+      case "FieldValue": return "field " + nameOf(names, "field", dependency.fieldId);
     }
     return dependencyLabels[dependency.role];
   }
@@ -185,7 +268,7 @@ var NyrwvyViewer = (function () {
     }
     return out;
   }
-  function roleLabel(role) {
+  function roleLabel(names, role) {
     switch (role.kind) {
       case "stringLiteral": return "string literal “" + escapeStringLiteral(role.value) + "”";
       case "boolLiteral": return "bool literal " + (role.value ? "true" : "false");
@@ -193,8 +276,10 @@ var NyrwvyViewer = (function () {
       case "float64Literal": return "Float64 literal 0x" + role.bits;
       case "taskWait": return "task wait (" + role.mode + ")";
       case "capabilityConstruct":
-        return "capability construction " + role.capabilityId + " (" +
-          role.implementations.map(function (item) { return item.operationId + " -> " + item.functionId; }).join("; ") + ")";
+        return "capability construction " + nameOf(names, "capability", role.capabilityId) + " (" +
+          role.implementations.map(function (item) {
+            return nameOf(names, "capability-operation", item.operationId) + " -> " + nameOf(names, "function", item.functionId);
+          }).join("; ") + ")";
       case "operation":
         return Object.prototype.hasOwnProperty.call(operationLabels, role.operation) ? operationLabels[role.operation] : derivedOperationLabel(role.operation);
     }
@@ -204,364 +289,363 @@ var NyrwvyViewer = (function () {
     WhenTrue: "when true", WhenFalse: "when false", BindBody: "body after input", OptionSome: "Option.Some",
     OptionNone: "Option.None", ResultOk: "Result.Ok", ResultErr: "Result.Err", RightOperand: "right operand"
   };
-  function branchLabel(branch) {
-    if (branch.role === "UnionVariant") return "variant " + branch.variantIds.map(function (id) { return "variant:" + id; }).join(" | ");
+  function branchLabel(names, branch) {
+    if (branch.role === "UnionVariant") return "when " + branch.variantIds.map(function (id) { return nameOf(names, "variant", id); }).join(" | ");
     return branchLabels[branch.role];
   }
-  function obligationList(ids) { return ids.map(function (id) { return "obligation:" + id; }).join(", "); }
-  function changeReadinessLabel(readiness) {
-    switch (readiness.kind) {
-      case "complete": return "complete — lowering may proceed if backend readiness also passes";
-      case "incomplete": return "incomplete — blocking obligations: " + obligationList(readiness.obligationIds);
-      case "invalid": return "invalid — " + readiness.issues.map(function (issue) { return issue.code + ": " + issue.message; }).join(" | ");
-    }
-    throw new Error("Unknown readiness " + readiness.kind);
-  }
+  function obligationList(ids) { return ids.map(function (id) { return code("obligation:" + id); }).join(", "); }
   // JSON indented as .NET writes it, every character outside printable ASCII escaped, so a
   // bidirectional override or other invisible character in the data stays visible.
   function indentedJson(value) {
     return JSON.stringify(value, null, 2).replace(/[^\x20-\x7E\n]/g, function (c) { return hex4(c.charCodeAt(0)); });
   }
-  function transactionReadinessLabel(readiness) {
-    return readiness.kind === "semanticallyReady" ? "semantically ready" : "incomplete — blocking obligations: " + obligationList(readiness.obligationIds);
-  }
 
   function emitParameters(w, names, parameters) {
+    if (parameters.length === 0) { w.line("<p>No parameters.</p>"); return; }
     w.line("<table>");
-    w.line("<thead><tr><th>Parameter</th><th>Type</th><th>Stable ID</th></tr></thead>");
+    w.line("<thead><tr><th scope=\"col\">Parameter</th><th scope=\"col\">Type</th></tr></thead>");
     w.line("<tbody>");
     w.push();
     parameters.forEach(function (parameter) {
-      w.line("<tr><td>" + html(parameter.displayName) + "</td><td>" + code(typeText(names, parameter.type)) +
-        "</td><td>" + code("parameter:" + parameter.id) + "</td></tr>");
+      w.line("<tr><td title=\"" + html("parameter:" + parameter.id) + "\">" + html(parameter.displayName) + "</td><td>" + code(typeText(names, parameter.type)) + "</td></tr>");
     });
     w.pop();
     w.line("</tbody>");
     w.line("</table>");
   }
-  function emitRequiredEffects(w, effects) {
-    var text = effects.length === 0 ? "None." :
-      effects.slice().sort().map(function (id) { return code("effect:" + id); }).join(", ");
-    w.line("<p>Declared required effects: " + text + "</p>");
+  function effectList(names, ids) {
+    return ids.length === 0 ? "none" : ids.slice().sort().map(function (id) { return ref(names, "effect", id); }).join(", ");
   }
-  function emitBodyEffects(w, report) {
-    w.line("<section><h2>Body effect requirements (derived)</h2>");
-    if (report.evidence.length === 0) w.line("<p>No resolved nominal effect requirements.</p>");
-    else {
-      w.line("<ul>");
-      report.evidence.forEach(function (item) {
-        var source = item.source.kind === "functionContract" ? "function:" + item.source.functionId : "capability-operation:" + item.source.operationId;
-        w.line("<li>" + code("effect:" + item.effectId) + " at " + code("node:" + item.nodeId) + " from " + code(source) + "</li>");
-      });
-      w.line("</ul>");
-    }
-    report.unresolvedFunctionIds.forEach(function (id) { w.line("<p>Unresolved function contract: " + code("function:" + id) + "</p>"); });
-    report.unresolvedOperationIds.forEach(function (id) { w.line("<p>Unresolved operation contract: " + code("capability-operation:" + id) + "</p>"); });
-    w.line("</section>");
-  }
-  function emitCallSites(w, heading, sites, endpoint) {
-    w.line("<section>");
-    w.line("<h3>" + html(heading) + "</h3>");
-    if (sites.length === 0) w.line("<p>None.</p>");
-    else {
-      w.line("<ul>");
-      sites.forEach(function (site) { w.line("<li>" + code("function:" + site[endpoint]) + " via " + code("node:" + site.callNodeId) + "</li>"); });
-      w.line("</ul>");
-    }
-    w.line("</section>");
-  }
-  function emitGraph(w, names, graph) {
-    w.line("<section class=\"graph\" aria-label=\"value graph\">");
-    w.line("<p>Graph result: " + code("node:" + graph.resultNodeId) + "</p>");
-    w.line("<div class=\"nodes\">");
-    w.push();
-    graph.nodes.forEach(function (node) {
-      w.line("<article class=\"node\">");
-      w.line("<h4>" + html(roleLabel(node.role)) + "</h4>");
-      w.line("<p>Stable ID: " + code("node:" + node.id) + "</p>");
-      if (node.type !== null) w.line("<p>Type: " + code(typeText(names, node.type)) + "</p>");
-      else w.line("<p>Type: <strong>unknown / not derivable</strong></p>");
-      if (node.relations.length > 0) {
-        w.line("<ul aria-label=\"node relations\">");
-        node.relations.forEach(function (relation) {
-          var label = relationLabels[relation.kind];
-          w.line("<li>" + html(label[0]) + ": " + code(label[1] + ":" + relation.id) + "</li>");
-        });
-        w.line("</ul>");
-      }
-      if (node.valueDependencies.length > 0) {
-        w.line("<ul aria-label=\"value dependencies\">");
-        node.valueDependencies.forEach(function (dependency) {
-          w.line("<li>" + html(dependencyLabel(dependency)) + ": " + code("node:" + dependency.nodeId) + "</li>");
-        });
-        w.line("</ul>");
-      }
-      node.branches.forEach(function (branch) {
-        w.line("<section class=\"branch\">");
-        w.line("<h5>Branch: " + html(branchLabel(branch)) + "</h5>");
-        if (branch.bindings.length > 0) {
-          w.line("<ul aria-label=\"branch bindings\">");
-          branch.bindings.forEach(function (binding) {
-            var sourceField = binding.sourceFieldId !== null ? "; source field " + code("field:" + binding.sourceFieldId) : "";
-            w.line("<li>" + html(binding.displayName !== null ? binding.displayName : "(unnamed)") + " — " +
-              code("pattern-binding:" + binding.id) + "; type " + code(typeText(names, binding.type)) + sourceField + "</li>");
-          });
-          w.line("</ul>");
-        }
-        emitGraph(w, names, branch.graph);
-        w.line("</section>");
-      });
-      w.line("</article>");
-    });
-    w.pop();
-    w.line("</div>");
-    w.line("</section>");
-  }
-  function emitTypeEntity(w, type) {
-    var names = namesOf([type.typeParameters]);
-    w.line("<details><summary>" + html(type.displayName) + " — " + code("type:" + type.id) + " — " + visibility(type.exported) + "</summary>");
-    if (type.typeKind.kind === "product") {
-      w.line("<p>Product fields</p><ul>");
-      sortById(type.typeKind.fields).forEach(function (field) {
-        w.line("<li>" + html(field.displayName) + ": " + code(typeText(names, field.type)) + " — " + code("field:" + field.id) + "</li>");
-      });
-    } else {
-      w.line("<p>Union variants</p><ul>");
-      sortById(type.typeKind.variants).forEach(function (variant) {
-        w.line("<li>" + html(variant.displayName) + " — " + code("variant:" + variant.id) + "</li>");
-      });
-    }
-    w.line("</ul>");
-    w.line("</details>");
-  }
-  function emitCapability(w, capability) {
-    var names = new Map();
-    w.line("<details><summary>" + html(capability.displayName) + " — " + code("capability:" + capability.id) + " — " +
-      visibility(capability.exported) + (capability.taskBound ? " — task-bound" : "") + "</summary><ul>");
-    sortById(capability.operations).forEach(function (operation) {
-      w.line("<li>" + html(operation.displayName) + " — " + code("capability-operation:" + operation.id) +
-        "; result " + code(typeText(names, operation.resultType)) + "; effect " + code("effect:" + operation.effectId) +
-        (operation.mayWait ? "; may wait" : "") + "</li>");
-    });
-    w.line("</ul></details>");
-  }
-  function emitEffects(w, effects) {
-    w.line("<ul>");
-    effects.forEach(function (effect) {
-      w.line("<li>" + html(effect.displayName) + " — " + code("effect:" + effect.id) + " — " + visibility(effect.exported) + "</li>");
-    });
-    w.line("</ul>");
-  }
-  function emitFocusBody(w, model) {
-    var names = namesOf([model.function.typeParameters]
-      .concat(model.relatedFunctionSignatures.map(function (item) { return item.typeParameters; }))
-      .concat(model.referencedTypes.map(function (item) { return item.typeParameters; })));
-    var fn = model.function;
-    w.line("<header>");
-    w.line("<h1>Function Focus — " + html(fn.displayName) + "</h1>");
-    w.line("<p>Snapshot: " + code("snapshot:" + model.snapshotId) + "</p>");
-    w.line("<p>Function: " + code("function:" + fn.id) + "</p>");
-    w.line("<p>Visibility: " + visibility(fn.exported) + "</p>");
-    if (model.mustNotWait) w.line("<p>Must not wait</p>");
-    if (model.waitPath !== null) w.line("<p>May wait: " + html(model.waitPath) + "</p>");
-    w.line("<p>Result type: " + code(typeText(names, fn.resultType)) + "</p>");
-    w.line("</header>");
-    w.line("<section><h2>Signature</h2>");
-    emitParameters(w, names, fn.parameters);
-    emitRequiredEffects(w, fn.requiredEffects);
-    w.line("</section>");
-    emitBodyEffects(w, model.bodyEffectRequirements);
-    if (model.aborts.length > 0) {
-      w.line("<section><h2>Function abort boundaries</h2>");
-      model.aborts.forEach(function (boundary) {
-        w.line("<p>Abort " + code(boundary.nodeId) + " exits function " + code(boundary.ownerFunctionId) + " with error " +
-          code(boundary.errorNodeId) + " : " + code(boundary.errorType !== null ? typeText(names, boundary.errorType) : "unknown") + ".</p>");
-        var ids = function (values) { return values.map(code).join(", "); };
-        w.line("<p>Enclosing controls: " + ids(boundary.enclosingControlNodeIds) + ". Dependent continuations: " + ids(boundary.dependentContinuationNodeIds) + ".</p>");
-      });
-      w.line("</section>");
-    }
-    emitCallSites(w, "Direct callers", model.callers, "callerFunctionId");
-    emitCallSites(w, "Direct callees", model.callees, "calleeFunctionId");
-    w.line("<section><h3>Blocking obligations</h3>");
-    if (model.openObligations.length === 0) w.line("<p>None.</p>");
-    else {
-      w.line("<ul>");
-      model.openObligations.forEach(function (item) {
-        w.line("<li>" + code("obligation:" + item.obligationId) + " — missing argument for " + code("parameter:" + item.parameterId) +
-          " at " + code("node:" + item.callNodeId) + "; origin " + code("transaction:" + item.originTransactionId) + "</li>");
-      });
-      w.line("</ul>");
-    }
-    w.line("</section>");
-    var missing = [["function", model.missingFunctionIds], ["type", model.missingTypeIds], ["capability", model.missingCapabilityIds], ["effect", model.missingEffectIds]];
-    if (missing.some(function (entry) { return entry[1].length > 0; })) {
-      w.line("<section class=\"missing\"><h3>Unresolved declarations</h3><ul>");
-      missing.forEach(function (entry) { entry[1].forEach(function (id) { w.line("<li>" + code(entry[0] + ":" + id) + "</li>"); }); });
-      w.line("</ul></section>");
-    }
-    w.line("<section><h2>Structured graph</h2>");
-    emitGraph(w, names, model.graph);
-    w.line("</section>");
-    w.line("<section>");
-    w.line("<h3>Referenced declarations</h3>");
-    w.line("<h4>Types</h4>");
-    if (model.referencedTypes.length === 0) w.line("<p>None.</p>");
-    model.referencedTypes.forEach(function (type) { emitTypeEntity(w, type); });
-    w.line("<h4>Capabilities</h4>");
-    if (model.referencedCapabilities.length === 0) w.line("<p>None.</p>");
-    model.referencedCapabilities.forEach(function (capability) { emitCapability(w, capability); });
-    w.line("<h4>Effects</h4>");
-    if (model.referencedEffects.length === 0) w.line("<p>None.</p>");
-    else emitEffects(w, model.referencedEffects);
-    w.line("</section>");
-    w.line("<details><summary>Related function signatures</summary>");
-    model.relatedFunctionSignatures.forEach(function (signature) {
-      w.line("<article><h4>" + html(signature.displayName) + "</h4>");
-      w.line("<p>" + code("function:" + signature.id) + "</p>");
-      emitParameters(w, names, signature.parameters);
-      w.line("<p>Result: " + code(typeText(names, signature.resultType)) + "</p>");
-      emitRequiredEffects(w, signature.requiredEffects);
-      w.line("</article>");
-    });
-    w.line("</details>");
+  function emitIds(w, rows) {
+    w.line("<details class=\"ids\"><summary>Stable IDs</summary><dl>" +
+      rows.map(function (row) { return "<dt>" + row[0] + "</dt><dd>" + code(row[1]) + "</dd>"; }).join("") + "</dl></details>");
   }
 
-  var renameLabels = {
-    field: ["field", "field:"], variant: ["variant", "variant:"], parameter: ["parameter", "parameter:"],
-    effect: ["effect", "effect:"], capability: ["capability", "capability:"],
-    capabilityOperation: ["capability operation", "capability-operation:"],
-    capabilityParameter: ["capability parameter", "capability-parameter:"], type: ["type", ""], "function": ["function", ""]
-  };
-  var renameOwners = [["ownerTypeId", "type:"], ["ownerVariantId", "variant:"], ["ownerFunctionId", "function:"], ["ownerCapabilityId", "capability:"], ["ownerOperationId", "capability-operation:"]];
-  function emitDiff(w, names, diff) {
-    w.line("<section><h2>Semantic change summary</h2>");
-    w.line("<h3>Renames</h3><ul>");
-    diff.renames.forEach(function (rename) {
-      var label = renameLabels[rename.kind];
-      var owners = renameOwners.filter(function (owner) { return rename[owner[0]] !== undefined; })
-        .map(function (owner) { return code(owner[1] + rename[owner[0]]); });
-      var scope = owners.length === 0 ? "" : " of " + owners.join(" / ");
-      w.line("<li>" + label[0] + " " + code(label[1] + rename.id) + scope + ": " + html(rename.oldDisplayName) + " → " + html(rename.newDisplayName) + "</li>");
-    });
-    w.line("</ul>");
-    if (diff.visibilityChanges) {
-      w.line("<h3>Visibility changes</h3><ul>");
-      diff.visibilityChanges.forEach(function (item) {
-        w.line("<li>" + html(item.kind) + " " + code(item.id) + " " + html(item.displayName) + ": now " + visibility(item.exported) + "</li>");
+  // A focus's nodes, labelled by their operation, so an input or call site links to the node it names.
+  // Anchors carry a per-focus prefix: a Change Review shows the committed and proposed graph of one function.
+  function graphContext(names, prefix, graph, changed, functionAnchors) {
+    var ctx = { names: names, prefix: prefix, labels: new Map(), changed: changed, count: 0, functions: functionAnchors || new Map() };
+    (function collect(graph) {
+      graph.nodes.forEach(function (node) {
+        ctx.count++;
+        ctx.labels.set(node.id, roleLabel(names, node.role));
+        node.branches.forEach(function (branch) {
+          branch.bindings.forEach(function (binding) { if (binding.displayName !== null) names.set(binding.id, binding.displayName); });
+          collect(branch.graph);
+        });
       });
-      w.line("</ul>");
-    }
-    if (diff.attributeChanges) {
-      w.line("<h3>Wait and task-binding changes</h3><ul>");
-      diff.attributeChanges.forEach(function (item) {
-        w.line("<li>" + html(item.attribute) + " " + code(item.id) + " " + html(item.displayName) + ": now " + (item.value ? "true" : "false") + "</li>");
+    })(graph);
+    return ctx;
+  }
+  function anchor(ctx, id) { return ctx.prefix + "-n-" + id; }
+  // A function reference, linked to the function's own section when the page has one.
+  function functionRef(ctx, id) {
+    var text = ref(ctx.names, "function", id);
+    return ctx.functions.has(id) ? "<a href=\"#" + html(ctx.functions.get(id)) + "\">" + text + "</a>" : text;
+  }
+  function nodeLink(ctx, id) {
+    return ctx.labels.has(id) ? "<a href=\"#" + html(anchor(ctx, id)) + "\" title=\"" + html("node:" + id) + "\">" + html(ctx.labels.get(id)) + "</a>" : code("node:" + id);
+  }
+  function emitNodes(w, ctx, graph, className) {
+    var names = ctx.names;
+    w.line("<ul" + (className ? " class=\"" + className + "\"" : "") + ">");
+    w.push();
+    graph.nodes.forEach(function (node) {
+      w.line("<li class=\"node" + (node.id === ctx.changed ? " changed" : "") + "\" id=\"" + html(anchor(ctx, node.id)) + "\">");
+      var parts = ["<span class=\"op\" title=\"" + html("node:" + node.id) + "\">" + html(roleLabel(names, node.role)) + "</span>"];
+      var constructsVariant = node.relations.some(function (relation) { return relation.kind === "ConstructsVariant"; });
+      node.relations.forEach(function (relation) {
+        var label = relationLabels[relation.kind];
+        if (label[1] === "node" || (relation.kind === "ConstructsType" && constructsVariant)) return;
+        parts.push(label[1] === "function" ? functionRef(ctx, relation.id) : ref(names, label[1], relation.id));
       });
-      w.line("</ul>");
-    }
-    if (diff.parametersRemoved) {
-      w.line("<h3>Parameters removed</h3><ul>");
-      diff.parametersRemoved.forEach(function (item) {
-        w.line("<li>" + code("function:" + item.ownerFunctionId) + " removed " + html(item.displayName) + " — " + code("parameter:" + item.parameterId));
-        item.affectedCallNodeIds.forEach(function (id) { w.line("; call " + code("node:" + id) + " lost its argument"); });
-        if (item.retiredObligations.length > 0) {
-          w.line("<ul>");
-          item.retiredObligations.forEach(function (obligation) {
-            w.line("<li>Retired " + obligation.status.kind + " obligation " + code("obligation:" + obligation.obligationId) + "; call " + code("node:" + obligation.callNodeId) + "</li>");
-          });
-          w.line("</ul>");
-        }
-        w.line("</li>");
-      });
-      w.line("</ul>");
-    }
-    if (diff.unionVariantsRemoved) {
-      w.line("<h3>Union variants removed</h3><ul>");
-      diff.unionVariantsRemoved.forEach(function (item) {
-        w.line("<li>" + code("type:" + item.ownerTypeId) + " removed " + html(item.displayName) + " — " + code("variant:" + item.variantId));
-        item.removedFieldIds.forEach(function (id) { w.line("; removed " + code("field:" + id)); });
-        item.affectedMatchNodeIds.forEach(function (id) { w.line("; match " + code("node:" + id) + " pruned"); });
-        w.line("</li>");
-      });
-      w.line("</ul>");
-    }
-    w.line("<h3>Parameters added</h3><ul>");
-    diff.parametersAdded.forEach(function (item) {
-      w.line("<li>" + code("function:" + item.ownerFunctionId) + " added " + html(item.displayName) + " — " +
-        code("parameter:" + item.parameterId) + "; type " + code(typeText(names, item.type)) + "</li>");
-    });
-    w.line("</ul>");
-    w.line("<h3>Capability operations removed</h3><ul>");
-    diff.capabilityOperationsRemoved.forEach(function (item) {
-      w.line("<li>" + code("capability:" + item.ownerCapabilityId) + " removed " + html(item.displayName) + " — " + code("capability-operation:" + item.operationId));
-      item.removedParameterIds.forEach(function (id) { w.line("; removed " + code("capability-parameter:" + id)); });
-      w.line("</li>");
-    });
-    w.line("</ul>");
-    w.line("<h3>Required effects changed</h3><ul>");
-    diff.requiredEffectsChanged.forEach(function (change) {
-      w.line("<li>" + code("function:" + change.functionId) + " " + change.kind + " required effect " + code("effect:" + change.effectId) + "</li>");
-    });
-    w.line("</ul>");
-    w.line("<h3>Functions removed</h3><ul>");
-    diff.functionsRemoved.forEach(function (item) {
-      w.line("<li>" + html(item.displayName) + " — " + code("function:" + item.functionId));
-      var retired = item.retiredObligations || [];
-      if (retired.length > 0) {
-        w.line("<ul>");
-        retired.forEach(function (obligation) {
-          w.line("<li>Retired resolved obligation " + code("obligation:" + obligation.obligationId) + "; call " + code("node:" + obligation.callNodeId) +
-            "; parameter " + code("parameter:" + obligation.parameterId) + "; origin " + code("transaction:" + obligation.originTransactionId));
-          if (obligation.status.kind === "resolved")
-            w.line("; resolved in " + code("transaction:" + obligation.status.transactionId) + " with " + code("node:" + obligation.status.valueNodeId));
+      // The type follows the operation's last word without a gap, as "field access attempts: Int64".
+      if (node.type !== null) parts[parts.length - 1] += "<span class=\"ty\">: " + html(typeText(names, node.type)) + "</span>";
+      else parts.push("<span class=\"flag\">type unknown / not derivable</span>");
+      if (node.id === graph.resultNodeId) parts.push("<span class=\"status\">result</span>");
+      if (node.id === ctx.changed) parts.push("<span class=\"status\">target of this proposal</span>");
+      w.line("<div class=\"node-line\">" + parts.join(" ") + "</div>");
+      if (node.valueDependencies.length > 0)
+        w.line("<div class=\"inputs\">" + node.valueDependencies.map(function (dependency) {
+          return html(dependencyLabel(names, dependency)) + ": " + nodeLink(ctx, dependency.nodeId);
+        }).join("; ") + "</div>");
+      if (node.branches.length > 0) {
+        w.line("<ul class=\"branches\">");
+        node.branches.forEach(function (branch) {
+          w.line("<li><div class=\"branch-label\">" + html(branchLabel(names, branch)) + "</div>");
+          if (branch.bindings.length > 0)
+            w.line("<div class=\"bindings\">binds " + branch.bindings.map(function (binding) {
+              return "<span title=\"" + html("pattern-binding:" + binding.id) + "\">" + html(binding.displayName !== null ? binding.displayName : "(unnamed)") + "</span>: " +
+                code(typeText(names, binding.type)) + (binding.sourceFieldId !== null ? " from field " + ref(names, "field", binding.sourceFieldId) : "");
+            }).join("; ") + "</div>");
+          emitNodes(w, ctx, branch.graph, null);
           w.line("</li>");
         });
         w.line("</ul>");
       }
       w.line("</li>");
     });
+    w.pop();
     w.line("</ul>");
-    w.line("<h3>Arguments attached</h3><ul>");
-    diff.argumentsAttached.forEach(function (item) {
-      w.line("<li>" + code("node:" + item.callNodeId) + ": " + code("parameter:" + item.parameterId) + " ← " + code("node:" + item.valueNodeId) + "</li>");
-    });
-    w.line("</ul>");
-    w.line("<h3>Obligations created</h3><ul>");
-    diff.obligationsCreated.forEach(function (item) {
-      w.line("<li>" + code("obligation:" + item.obligationId) + " for " + code("node:" + item.callNodeId) + " / " + code("parameter:" + item.parameterId) + "</li>");
-    });
-    w.line("</ul>");
-    w.line("<h3>Obligations resolved</h3><ul>");
-    diff.obligationsResolved.forEach(function (item) {
-      w.line("<li>" + code("obligation:" + item.obligationId) + " resolved with " + code("node:" + item.valueNodeId) + "</li>");
-    });
-    w.line("</ul></section>");
   }
-  function emitStaleBaseWarning(w, baseIsCommitted) {
-    if (!baseIsCommitted) w.line("<p class=\"status\">The base snapshot is no longer the committed state; committed focus is not shown.</p>");
+  function callSites(ctx, sites, endpoint) {
+    if (sites.length === 0) return "none";
+    var groups = new Map();
+    sites.forEach(function (site) {
+      if (!groups.has(site[endpoint])) groups.set(site[endpoint], []);
+      groups.get(site[endpoint]).push(site.callNodeId);
+    });
+    return Array.from(groups).map(function (group) {
+      var local = group[1].every(function (id) { return ctx.labels.has(id); });
+      var where = local ? group[1].map(function (id, index) {
+        return "<a href=\"#" + html(anchor(ctx, id)) + "\" title=\"" + html("node:" + id) + "\">call site " + (index + 1) + "</a>";
+      }).join(", ") : plural(group[1].length, "call site");
+      return functionRef(ctx, group[0]) + " (" + where + ")";
+    }).join("; ");
+  }
+  function emitTypeEntity(w, names, type) {
+    var product = type.typeKind.kind === "product";
+    w.line("<details><summary>" + html(type.displayName) + " <span class=\"note\">" + (product ? "product" : "union") + ", " + visibility(type.exported) + "</span></summary><ul>");
+    sortById(product ? type.typeKind.fields : type.typeKind.variants).forEach(function (item) {
+      w.line("<li title=\"" + html((product ? "field:" : "variant:") + item.id) + "\">" + html(item.displayName) + (product ? ": " + code(typeText(names, item.type)) : "") + "</li>");
+    });
+    w.line("</ul><p class=\"muted\">" + code("type:" + type.id) + "</p></details>");
+  }
+  function emitCapability(w, names, capability) {
+    w.line("<details><summary>" + html(capability.displayName) + " <span class=\"note\">" + visibility(capability.exported) +
+      (capability.taskBound ? ", task-bound" : "") + "</span></summary><ul>");
+    sortById(capability.operations).forEach(function (operation) {
+      w.line("<li title=\"" + html("capability-operation:" + operation.id) + "\">" + html(operation.displayName) + " returns " + code(typeText(names, operation.resultType)) +
+        "; effect " + ref(names, "effect", operation.effectId) + (operation.mayWait ? "; may wait" : "") + "</li>");
+    });
+    w.line("</ul><p class=\"muted\">" + code("capability:" + capability.id) + "</p></details>");
+  }
+  function emitEffects(w, effects) {
+    w.line("<ul>");
+    effects.forEach(function (effect) {
+      w.line("<li title=\"" + html("effect:" + effect.id) + "\">" + html(effect.displayName) + " <span class=\"muted\">" + visibility(effect.exported) + "</span></li>");
+    });
+    w.line("</ul>");
+  }
+  function missingDeclarations(focus) {
+    return [["function", focus.missingFunctionIds], ["type", focus.missingTypeIds], ["capability", focus.missingCapabilityIds], ["effect", focus.missingEffectIds]];
+  }
+  function unresolvedCount(focus) {
+    return missingDeclarations(focus).reduce(function (sum, entry) { return sum + entry[1].length; }, 0);
+  }
+
+  // One function's focus. options: top (the heading level of its title), names, prefix (anchor prefix),
+  // embedded (inside a Change Review, whose own heading names the function), changed (the target node).
+  function emitFocusBody(w, focus, options) {
+    var names = options.names, fn = focus.function, section = options.top + 1, sub = options.top + 2;
+    var ctx = graphContext(names, options.prefix, focus.graph, options.changed, options.functions);
+    if (!options.embedded) {
+      w.line("<header>");
+      w.line(heading(options.top, "Function Focus — " + html(fn.displayName)));
+    }
+    var obligations = focus.openObligations.length, unresolved = unresolvedCount(focus);
+    var meta = [visibility(fn.exported), "returns " + code(typeText(names, fn.resultType))];
+    if (focus.mustNotWait) meta.push("must not wait");
+    if (focus.waitPath !== null) meta.push("may wait: " + html(focus.waitPath));
+    meta.push(obligations === 0 ? "no open obligations" : "<span class=\"flag\">" + plural(obligations, "open obligation") + "</span>");
+    if (unresolved > 0) meta.push("<span class=\"flag\">" + plural(unresolved, "unresolved declaration") + "</span>");
+    w.line("<ul class=\"meta\">" + meta.map(function (item) { return "<li>" + item + "</li>"; }).join("") + "</ul>");
+    emitIds(w, [["Function", "function:" + fn.id]].concat(focus.snapshotId === undefined ? [] : [["Snapshot", "snapshot:" + focus.snapshotId]]));
+    if (!options.embedded) w.line("</header>");
+
+    if (obligations > 0 || unresolved > 0) {
+      w.line("<section>" + heading(section, "<span class=\"flag\">Needs attention</span>"));
+      if (obligations > 0) {
+        w.line("<p>Blocking obligations: arguments a call still lacks. The function is incomplete until each has a value.</p><ul>");
+        focus.openObligations.forEach(function (item) {
+          w.line("<li>Missing argument " + ref(names, "parameter", item.parameterId) + " at " + nodeLink(ctx, item.callNodeId) + " " +
+            code("obligation:" + item.obligationId) + " <span class=\"muted\">from " + code("transaction:" + item.originTransactionId) + "</span></li>");
+        });
+        w.line("</ul>");
+      }
+      if (unresolved > 0) {
+        w.line("<p>Unresolved declarations: referenced, but not in this snapshot.</p><ul>");
+        missingDeclarations(focus).forEach(function (entry) { entry[1].forEach(function (id) { w.line("<li>" + code(entry[0] + ":" + id) + "</li>"); }); });
+        w.line("</ul>");
+      }
+      w.line("</section>");
+    }
+
+    w.line("<section>" + heading(section, "Signature"));
+    emitParameters(w, names, fn.parameters);
+    w.line("<p>Declared required effects: " + effectList(names, fn.requiredEffects) + ".</p>");
+    var report = focus.bodyEffectRequirements;
+    if (report.evidence.length === 0) w.line("<p>Body effect requirements (derived): none resolved.</p>");
+    else {
+      w.line("<p>Body effect requirements (derived):</p><ul>");
+      report.evidence.forEach(function (item) {
+        var source = item.source.kind === "functionContract" ? ref(names, "function", item.source.functionId) : ref(names, "capability-operation", item.source.operationId);
+        w.line("<li>" + ref(names, "effect", item.effectId) + " from " + source + " at " + nodeLink(ctx, item.nodeId) + "</li>");
+      });
+      w.line("</ul>");
+    }
+    report.unresolvedFunctionIds.forEach(function (id) { w.line("<p class=\"flag\">Unresolved function contract: " + code("function:" + id) + "</p>"); });
+    report.unresolvedOperationIds.forEach(function (id) { w.line("<p class=\"flag\">Unresolved operation contract: " + code("capability-operation:" + id) + "</p>"); });
+    w.line("</section>");
+
+    if (focus.aborts.length > 0) {
+      w.line("<section>" + heading(section, "Abort boundaries"));
+      w.line("<p class=\"muted\">Where an Abort leaves the function with an error.</p><ul>");
+      focus.aborts.forEach(function (boundary) {
+        var links = function (ids) { return ids.length === 0 ? "none" : ids.map(function (id) { return nodeLink(ctx, id); }).join(", "); };
+        w.line("<li>" + nodeLink(ctx, boundary.nodeId) + " exits " + ref(names, "function", boundary.ownerFunctionId) + " with " + nodeLink(ctx, boundary.errorNodeId) +
+          ": " + code(boundary.errorType !== null ? typeText(names, boundary.errorType) : "unknown") +
+          ". <span class=\"muted\">Enclosing controls: " + links(boundary.enclosingControlNodeIds) + ". Dependent continuations: " + links(boundary.dependentContinuationNodeIds) + ".</span></li>");
+      });
+      w.line("</ul></section>");
+    }
+
+    w.line("<section>" + heading(section, "Calls"));
+    w.line("<p>Called by: " + callSites(ctx, focus.callers, "callerFunctionId") + ".</p>");
+    w.line("<p>Calls: " + callSites(ctx, focus.callees, "calleeFunctionId") + ".</p>");
+    w.line("</section>");
+
+    w.line("<section>" + heading(section, "Structured graph"));
+    w.line("<p class=\"muted\">" + plural(ctx.count, "node") + ". Each line is one node: its operation, what it names, and its type. Inputs link to the nodes they read.</p>");
+    emitNodes(w, ctx, focus.graph, "graph");
+    w.line("</section>");
+
+    if (focus.referencedTypes && focus.referencedTypes.length + focus.referencedCapabilities.length + focus.referencedEffects.length > 0) {
+      w.line("<section>" + heading(section, "Referenced declarations"));
+      if (focus.referencedTypes.length > 0) {
+        w.line(heading(sub, "Types"));
+        focus.referencedTypes.forEach(function (type) { emitTypeEntity(w, names, type); });
+      }
+      if (focus.referencedCapabilities.length > 0) {
+        w.line(heading(sub, "Capabilities"));
+        focus.referencedCapabilities.forEach(function (capability) { emitCapability(w, names, capability); });
+      }
+      if (focus.referencedEffects.length > 0) {
+        w.line(heading(sub, "Effects"));
+        emitEffects(w, focus.referencedEffects);
+      }
+      w.line("</section>");
+    }
+    if (focus.relatedFunctionSignatures && focus.relatedFunctionSignatures.length > 0) {
+      w.line("<details><summary>Related function signatures <span class=\"note\">(" + focus.relatedFunctionSignatures.length + ")</span></summary>");
+      focus.relatedFunctionSignatures.forEach(function (signature) {
+        w.line("<p title=\"" + html("function:" + signature.id) + "\"><strong>" + html(signature.displayName) + "</strong> returns " + code(typeText(names, signature.resultType)) +
+          "; required effects: " + effectList(names, signature.requiredEffects) + ".</p>");
+        emitParameters(w, names, signature.parameters);
+      });
+      w.line("</details>");
+    }
+  }
+
+  function emitVerdict(w, state, tone, notes, facts) {
+    w.line("<section class=\"verdict\" aria-label=\"Decision summary\">");
+    w.line("<p class=\"verdict-state " + tone + "\">" + state + "</p>");
+    notes.forEach(function (note) { w.line("<p>" + note + "</p>"); });
+    if (facts.length > 0) w.line("<ul class=\"facts\">" + facts.map(function (item) { return "<li>" + item + "</li>"; }).join("") + "</ul>");
+    w.line("</section>");
+  }
+  function fact(count, one, many) { return "<strong>" + count + "</strong> " + (count === 1 ? one : many); }
+  var staleNote = "<strong class=\"warn\">Stale base.</strong> The base snapshot is no longer the committed state; committed focus is not shown.";
+
+  var renameLabels = {
+    field: ["field", "field"], variant: ["variant", "variant"], parameter: ["parameter", "parameter"],
+    effect: ["effect", "effect"], capability: ["capability", "capability"],
+    capabilityOperation: ["capability operation", "capability-operation"],
+    capabilityParameter: ["capability parameter", "capability-parameter"], type: ["type", "type"], "function": ["function", "function"]
+  };
+  var renameOwners = [["ownerTypeId", "type"], ["ownerVariantId", "variant"], ["ownerFunctionId", "function"], ["ownerCapabilityId", "capability"], ["ownerOperationId", "capability-operation"]];
+  function named(prefix, id, name) { return "<span title=\"" + html(prefix + ":" + id) + "\">" + html(name) + "</span>"; }
+  function retired(obligations) {
+    return obligations.length === 0 ? "" : "<ul>" + obligations.map(function (obligation) {
+      var resolved = obligation.status && obligation.status.kind === "resolved" && obligation.status.transactionId ?
+        "; resolved in " + code("transaction:" + obligation.status.transactionId) + " with " + code("node:" + obligation.status.valueNodeId) : "";
+      return "<li>Retired " + html(obligation.status ? obligation.status.kind : "resolved") + " obligation " + code("obligation:" + obligation.obligationId) +
+        "; call " + code("node:" + obligation.callNodeId) + resolved + "</li>";
+    }).join("") + "</ul>";
+  }
+  // The engine's semantic diff of an operations proposal. Only kinds of change that occur are listed.
+  function emitDiff(w, names, diff) {
+    var list = function (items) { return items || []; };
+    var groups = [
+      ["Renames", list(diff.renames).map(function (rename) {
+        var label = renameLabels[rename.kind];
+        var owners = renameOwners.filter(function (owner) { return rename[owner[0]] !== undefined; })
+          .map(function (owner) { return ref(names, owner[1], rename[owner[0]]); });
+        return label[0] + " <span title=\"" + html(label[1] + ":" + rename.id) + "\"><del>" + html(rename.oldDisplayName) + "</del> → <ins>" + html(rename.newDisplayName) + "</ins></span>" +
+          (owners.length === 0 ? "" : " in " + owners.join(" / "));
+      })],
+      ["Visibility changes", list(diff.visibilityChanges).map(function (item) {
+        return html(item.kind) + " " + named(item.kind, item.id, item.displayName) + ": now " + visibility(item.exported);
+      })],
+      ["Wait and task-binding changes", list(diff.attributeChanges).map(function (item) {
+        return html(item.attribute) + " of " + named("id", item.id, item.displayName) + ": now " + (item.value ? "true" : "false");
+      })],
+      ["Parameters removed", list(diff.parametersRemoved).map(function (item) {
+        return ref(names, "function", item.ownerFunctionId) + " removed " + named("parameter", item.parameterId, item.displayName) +
+          item.affectedCallNodeIds.map(function (id) { return "; call " + code("node:" + id) + " lost its argument"; }).join("") + retired(item.retiredObligations);
+      })],
+      ["Union variants removed", list(diff.unionVariantsRemoved).map(function (item) {
+        return ref(names, "type", item.ownerTypeId) + " removed " + named("variant", item.variantId, item.displayName) +
+          item.removedFieldIds.map(function (id) { return "; removed " + code("field:" + id); }).join("") +
+          item.affectedMatchNodeIds.map(function (id) { return "; match " + code("node:" + id) + " pruned"; }).join("");
+      })],
+      ["Parameters added", list(diff.parametersAdded).map(function (item) {
+        return ref(names, "function", item.ownerFunctionId) + " added " + named("parameter", item.parameterId, item.displayName) + ": " + code(typeText(names, item.type));
+      })],
+      ["Capability operations removed", list(diff.capabilityOperationsRemoved).map(function (item) {
+        return ref(names, "capability", item.ownerCapabilityId) + " removed " + named("capability-operation", item.operationId, item.displayName) +
+          item.removedParameterIds.map(function (id) { return "; removed " + code("capability-parameter:" + id); }).join("");
+      })],
+      ["Required effects changed", list(diff.requiredEffectsChanged).map(function (change) {
+        return ref(names, "function", change.functionId) + " " + html(change.kind) + " required effect " + ref(names, "effect", change.effectId);
+      })],
+      ["Functions removed", list(diff.functionsRemoved).map(function (item) {
+        return named("function", item.functionId, item.displayName) + retired(item.retiredObligations || []);
+      })],
+      ["Arguments attached", list(diff.argumentsAttached).map(function (item) {
+        return "call " + code("node:" + item.callNodeId) + ": argument " + ref(names, "parameter", item.parameterId) + " set from " + code("node:" + item.valueNodeId);
+      })],
+      ["Obligations created", list(diff.obligationsCreated).map(function (item) {
+        return code("obligation:" + item.obligationId) + ": missing " + ref(names, "parameter", item.parameterId) + " at " + code("node:" + item.callNodeId);
+      })],
+      ["Obligations resolved", list(diff.obligationsResolved).map(function (item) {
+        return code("obligation:" + item.obligationId) + " resolved with " + code("node:" + item.valueNodeId);
+      })]
+    ].filter(function (group) { return group[1].length > 0; });
+    w.line("<section>" + heading(2, "What changed"));
+    if (groups.length === 0) w.line("<p>The engine lists no semantic changes.</p>");
+    groups.forEach(function (group) {
+      w.line(heading(3, group[0]) + "<ul>" + group[1].map(function (item) { return "<li>" + item + "</li>"; }).join("") + "</ul>");
+    });
+    w.line("</section>");
   }
 
   function renderChangeReview(w, data) {
+    var names = new Map();
+    data.functionFocus.forEach(function (focus) { addFocusNames(names, focus); });
     w.line("<header><h1>Change Review</h1>");
-    w.line("<p>Transaction: " + code("transaction:" + data.transactionId) + "</p>");
-    w.line("<p>Base snapshot: " + code("snapshot:" + data.baseSnapshotId) + "</p>");
-    w.line("<p>Proposed snapshot: " + code("snapshot:" + data.proposedSnapshotId) + "</p>");
-    emitStaleBaseWarning(w, data.baseIsCommitted);
-    w.line("<p class=\"status\">Readiness: " + html(changeReadinessLabel(data.readiness)) + "</p></header>");
-    // The affected functions' focus views name the type parameters an added parameter may use.
-    var names = namesOf([].concat.apply([], data.functionFocus.map(function (focus) {
-      return [focus.function.typeParameters].concat(focus.relatedFunctionSignatures.map(function (item) { return item.typeParameters; }));
-    })));
+    var readiness = data.readiness, notes = [], state, tone;
+    if (readiness.kind === "complete") { state = "Complete"; tone = "ok"; notes.push("Lowering may proceed if backend readiness also passes."); }
+    else if (readiness.kind === "incomplete") {
+      state = "Blocked by " + plural(readiness.obligationIds.length, "obligation"); tone = "bad";
+      notes.push("Blocking obligations: " + obligationList(readiness.obligationIds) + ".");
+    } else if (readiness.kind === "invalid") {
+      state = "Invalid"; tone = "bad";
+      notes.push(readiness.issues.map(function (issue) { return code(issue.code) + " " + html(issue.message); }).join("<br>"));
+    } else throw new Error("Unknown readiness " + readiness.kind);
+    if (!data.baseIsCommitted) notes.unshift(staleNote);
+    emitVerdict(w, state, tone, notes, [fact(data.affectedFunctionIds.length, "function affected", "functions affected"), fact(data.affectedTypeIds.length, "type affected", "types affected")]);
+    emitIds(w, [["Transaction", "transaction:" + data.transactionId], ["Base snapshot", "snapshot:" + data.baseSnapshotId], ["Proposed snapshot", "snapshot:" + data.proposedSnapshotId]]);
+    w.line("</header>");
     emitDiff(w, names, data.diff);
-    w.line("<section><h2>Affected stable identities</h2><ul>");
-    data.affectedFunctionIds.forEach(function (id) { w.line("<li>" + code("function:" + id) + "</li>"); });
-    data.affectedTypeIds.forEach(function (id) { w.line("<li>" + code("type:" + id) + "</li>"); });
-    w.line("</ul></section>");
-    w.line("<section><h2>Affected function focus</h2>");
-    data.functionFocus.forEach(function (focus) {
-      w.line("<article>");
-      emitFocusBody(w, focus);
-      w.line("</article>");
+    w.line("<section>" + heading(2, "Affected declarations"));
+    w.line("<p>Functions: " + (data.affectedFunctionIds.length === 0 ? "none" : data.affectedFunctionIds.map(function (id) { return ref(names, "function", id); }).join(", ")) + ".</p>");
+    w.line("<p>Types: " + (data.affectedTypeIds.length === 0 ? "none" : data.affectedTypeIds.map(function (id) { return ref(names, "type", id); }).join(", ")) + ".</p>");
+    data.functionFocus.forEach(function (focus, index) {
+      w.line("<article>" + heading(3, html(focus.function.displayName) + " <span class=\"status\">proposed focus</span>"));
+      w.line("<details><summary>Function focus</summary>");
+      emitFocusBody(w, focus, { top: 3, names: names, prefix: "a" + index, embedded: true, changed: null });
+      w.line("</details></article>");
     });
     w.line("</section>");
   }
@@ -577,71 +661,302 @@ var NyrwvyViewer = (function () {
     var coverage = "Impact: " + affected.size + " affected function(s). Explicit case entry points: " + entries.size + "; " + explicitAffected +
       " affected function(s) directly targeted, " + (affected.size - explicitAffected) +
       " without a direct case. This counts requested entry points, not dynamic coverage or proof that callers were exercised.";
-    return "<p class=\"status\">Behavioral verification: " + summary + "</p><p>" + counterexamples + " counterexample(s), " + unknown + " unknown, " +
-      count("tested-agreement") + " tested agreement, " + count("intended-change-tested") +
-      " intended result(s). Explicit cases only; this historical report does not gate commit.</p><p>" + coverage + "</p>";
+    return "<p><strong class=\"" + (counterexamples > 0 ? "bad" : unknown > 0 ? "warn" : "ok") + "\">Behavioral verification: " + summary + "</strong></p><p>" +
+      counterexamples + " counterexample(s), " + unknown + " unknown, " + count("tested-agreement") + " tested agreement, " + count("intended-change-tested") +
+      " intended result(s). Explicit cases only; this historical report does not gate commit.</p><p class=\"muted\">" + coverage + "</p>";
+  }
+
+  // The engine's literal summary: {kind, value}, a string cut at 256 code units with truncated and length.
+  function literalText(literal) {
+    if (literal.kind !== "string") return String(literal.value);
+    return "“" + escapeStringLiteral(literal.value) + (literal.truncated ? "…” (" + literal.length + " code units)" : "”");
+  }
+  function targetText(names, target) {
+    var subject = target.referenceDisplayName !== null && target.referenceDisplayName !== undefined ? target.referenceDisplayName :
+      target.literal !== null && target.literal !== undefined ? literalText(target.literal) :
+      target.float64Bits !== null && target.float64Bits !== undefined ? "0x" + target.float64Bits : "";
+    return roleLabel(names, { kind: "operation", operation: target.role }) + (subject === "" ? "" : " " + subject);
+  }
+  // The engine's diff of a targeted replacement, in words: which node changed, from what to what, and where it is used.
+  function emitTargetChange(w, names, diff, owner, ctx) {
+    var before = diff.previousTarget, after = diff.proposedTarget;
+    w.line("<li>In " + ref(names, "function", diff.ownerFunctionId) + ", " + (ctx ? nodeLink(ctx, diff.targetNodeId) : code("node:" + diff.targetNodeId)) +
+      " changes from <del>" + html(targetText(names, before)) + "</del> to <ins>" + html(targetText(names, after)) + "</ins>.");
+    var details = [];
+    var beforeType = before.type ? typeText(names, before.type) : "unknown", afterType = after.type ? typeText(names, after.type) : "unknown";
+    details.push(beforeType === afterType ? "Type stays " + code(afterType) : "Type changes from " + code(beforeType) + " to " + code(afterType));
+    details.push(plural(diff.addedNodes.length, "node") + " added, " + plural(diff.removedNodes.length, "node") + " removed");
+    if (diff.affectedUses.length > 0)
+      details.push("Used as " + diff.affectedUses.map(function (use) {
+        var link = function (id) { return ctx ? nodeLink(ctx, id) : code("node:" + id); };
+        if (use.kind === "graphResult") return use.ownerNodeId === null ? "the function's result" : "the result of " + link(use.ownerNodeId);
+        if (use.kind === "nodeDependency") return html(dependencyLabel(names, use)) + " of " + link(use.consumerNodeId);
+        return html(String(use.kind));
+      }).join(", "));
+    w.line("<p class=\"muted\">" + details.join(". ") + ".</p></li>");
   }
 
   function renderProposalReview(w, data) {
     var verification = data.verification;
+    var names = new Map();
+    data.changedFunctions.forEach(function (item) { if (item.committed !== null) addFocusNames(names, item.committed); addFocusNames(names, item.proposed); });
+    data.declaredTypes.forEach(function (type) { addTypeNames(names, type); });
+    data.declaredCapabilities.forEach(function (capability) { addCapabilityNames(names, capability); });
+    addNames(names, data.declaredEffects);
+    var review = data.engineReview && data.engineReview.review;
+    var target = review && review.diff && review.diff.previousTarget ? review.diff : null;
+    var statusOf = function (item) { return item.committed !== null ? "rewritten" : data.baseIsCommitted ? "created" : "proposed"; };
+
     w.line("<header><h1>Change Review — " + html(data.proposalKind) + "</h1>");
-    w.line("<p>Pending proposal: " + code("transaction:" + data.transactionId) + ". Nothing is published until it is committed.</p>");
-    w.line("<p>Base snapshot: " + code("snapshot:" + data.baseSnapshotId) + "</p>");
-    w.line("<p>Proposed snapshot: " + code("snapshot:" + data.proposedSnapshotId) + "</p>");
-    emitStaleBaseWarning(w, data.baseIsCommitted);
-    w.line("<p class=\"status\">" + (verification ? "Structural readiness: " : "Readiness: ") + html(transactionReadinessLabel(data.readiness)) + "</p>" +
-      (verification ? verificationBanner(verification) : "") + "</header>");
-    w.line("<section><h2>Functions created or rewritten</h2>");
-    if (data.changedFunctions.length === 0) w.line("<p>None.</p>");
-    data.changedFunctions.forEach(function (item) {
-      var status = item.committed !== null ? "changed" : data.baseIsCommitted ? "created" : "proposed";
-      w.line("<article><h2>" + html(item.proposed.function.displayName) + " — " + status + " " + code("function:" + item.proposed.function.id) + "</h2>");
-      if (item.committed !== null) {
-        w.line("<details><summary>Committed</summary>");
-        emitFocusBody(w, item.committed);
-        w.line("</details>");
-        w.line("<details open><summary>Proposed</summary>");
-        emitFocusBody(w, item.proposed);
-        w.line("</details>");
-      } else emitFocusBody(w, item.proposed);
-      w.line("</article>");
+    w.line("<p class=\"muted\">Pending proposal. Nothing is published until it is committed.</p>");
+    var ready = data.readiness.kind === "semanticallyReady", notes = [];
+    var state = ready ? "Semantically ready" : "Blocked by " + plural(data.readiness.obligationIds.length, "obligation");
+    if (verification) state = "Structural readiness: " + state.charAt(0).toLowerCase() + state.slice(1);
+    if (ready) notes.push("The engine found no blocking obligations. Whether the change does what you intend is your decision.");
+    else notes.push("Blocking obligations: " + obligationList(data.readiness.obligationIds) + ". The proposed graph is incomplete until each has a value.");
+    if (!data.baseIsCommitted) notes.unshift(staleNote);
+    var proposed = data.changedFunctions.map(function (item) { return item.proposed; });
+    var declarations = data.declaredTypes.length + data.declaredCapabilities.length + data.declaredEffects.length;
+    var rewritten = data.changedFunctions.filter(function (item) { return item.committed !== null; }).length;
+    var facts = [];
+    if (rewritten > 0) facts.push(fact(rewritten, "function rewritten", "functions rewritten"));
+    if (data.changedFunctions.length > rewritten) facts.push(fact(data.changedFunctions.length - rewritten, "function created", "functions created"));
+    if (declarations > 0) facts.push(fact(declarations, "declaration created or updated", "declarations created or updated"));
+    facts.push(fact(proposed.reduce(function (sum, focus) { return sum + focus.openObligations.length; }, 0), "open obligation", "open obligations"));
+    facts.push(fact(proposed.reduce(function (sum, focus) { return sum + unresolvedCount(focus); }, 0), "unresolved declaration", "unresolved declarations"));
+    emitVerdict(w, state, ready ? (data.baseIsCommitted ? "ok" : "warn") : "bad", notes, facts);
+    emitIds(w, [["Proposal", "transaction:" + data.transactionId], ["Base snapshot", "snapshot:" + data.baseSnapshotId], ["Proposed snapshot", "snapshot:" + data.proposedSnapshotId]]);
+    w.line("</header>");
+
+    w.line("<section>" + heading(2, "What changed"));
+    w.line("<ul class=\"changes\">");
+    var described = false;
+    data.changedFunctions.forEach(function (item, index) {
+      var fn = item.proposed.function;
+      if (target && target.ownerFunctionId === fn.id) {
+        emitTargetChange(w, names, target, fn, graphContext(names, "p" + index, item.proposed.graph, null));
+        described = true;
+      } else {
+        w.line("<li><a href=\"#f" + index + "\">" + html(fn.displayName) + "</a>: " +
+          (item.committed !== null ? "body rewritten" : "new function") + ", returns " + code(typeText(names, fn.resultType)) + ".</li>");
+        described = true;
+      }
     });
-    w.line("</section>");
-    if (data.declaredTypes.length > 0 || data.declaredCapabilities.length > 0 || data.declaredEffects.length > 0) {
-      w.line("<section><h2>Declarations created or updated</h2>");
+    [["type", data.declaredTypes], ["capability", data.declaredCapabilities], ["effect", data.declaredEffects]].forEach(function (entry) {
+      entry[1].forEach(function (item) { w.line("<li>" + entry[0].charAt(0).toUpperCase() + entry[0].slice(1) + " " + named(entry[0], item.id, item.displayName) + " created or updated.</li>"); described = true; });
+    });
+    if (!described) w.line("<li>The engine reports no function or declaration changes.</li>");
+    w.line("</ul></section>");
+
+    if (verification) {
+      w.line("<section>" + heading(2, "Behavioral verification") + verificationBanner(verification));
+      w.line("<details><summary>Saved verification report <span class=\"note\">JSON</span></summary><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" +
+        html(indentedJson(verification)) + "</pre></details></section>");
+    }
+
+    if (data.changedFunctions.length > 0) {
+      w.line("<section>" + heading(2, "Functions created or rewritten"));
+      data.changedFunctions.forEach(function (item, index) {
+        var fn = item.proposed.function;
+        var changed = target && target.ownerFunctionId === fn.id ? target.targetNodeId : null;
+        w.line("<article id=\"f" + index + "\">" + heading(3, html(fn.displayName) + " <span class=\"status\">" + statusOf(item) + "</span>"));
+        if (item.committed !== null) {
+          w.line("<details><summary>Proposed <span class=\"note\">after this change</span></summary>");
+          emitFocusBody(w, item.proposed, { top: 3, names: names, prefix: "p" + index, embedded: true, changed: changed });
+          w.line("</details>");
+          w.line("<details><summary>Committed <span class=\"note\">before this change</span></summary>");
+          emitFocusBody(w, item.committed, { top: 3, names: names, prefix: "c" + index, embedded: true, changed: changed });
+          w.line("</details>");
+        } else emitFocusBody(w, item.proposed, { top: 3, names: names, prefix: "p" + index, embedded: true, changed: changed });
+        w.line("</article>");
+      });
+      w.line("</section>");
+    }
+    if (declarations > 0) {
+      w.line("<section>" + heading(2, "Declarations created or updated"));
       if (data.declaredTypes.length > 0) {
-        w.line("<h3>Types</h3>");
-        data.declaredTypes.forEach(function (type) { emitTypeEntity(w, type); });
+        w.line(heading(3, "Types"));
+        data.declaredTypes.forEach(function (type) { emitTypeEntity(w, names, type); });
       }
       if (data.declaredCapabilities.length > 0) {
-        w.line("<h3>Capabilities</h3>");
-        data.declaredCapabilities.forEach(function (capability) { emitCapability(w, capability); });
+        w.line(heading(3, "Capabilities"));
+        data.declaredCapabilities.forEach(function (capability) { emitCapability(w, names, capability); });
       }
       if (data.declaredEffects.length > 0) {
-        w.line("<h3>Effects</h3>");
+        w.line(heading(3, "Effects"));
         emitEffects(w, data.declaredEffects);
       }
       w.line("</section>");
     }
-    w.line("<section><h2>Engine review</h2>");
-    w.line("<p>The complete requested change and resulting diff in the session's structured review format.</p>");
-    w.line("<pre><code>" + html(indentedJson(data.engineReview)) + "</code></pre>");
+  }
+
+  // Every type and capability a type reference names, nested ones included.
+  function referencedIds(type, types, capabilities) {
+    switch (type.kind) {
+      case "named": types.add(type.typeId); (type.arguments || []).forEach(function (item) { referencedIds(item, types, capabilities); }); break;
+      case "capability": capabilities.add(type.capabilityId); break;
+      case "builtinGeneric": type.arguments.forEach(function (item) { referencedIds(item, types, capabilities); }); break;
+      case "function":
+        type.parameters.forEach(function (item) { referencedIds(item, types, capabilities); });
+        referencedIds(type.resultType, types, capabilities);
+        break;
+    }
+  }
+  function eachNode(graph, visit) {
+    graph.nodes.forEach(function (node) {
+      visit(node);
+      node.branches.forEach(function (branch) { eachNode(branch.graph, visit); });
+    });
+  }
+  // Function IDs by the key each one is filed under, in function order and without repeats.
+  function Index() { this.map = new Map(); }
+  Index.prototype.add = function (key, functionId) {
+    if (!this.map.has(key)) this.map.set(key, []);
+    var list = this.map.get(key);
+    if (list.indexOf(functionId) < 0) list.push(functionId);
+  };
+  Index.prototype.get = function (key) { return this.map.get(key) || []; };
+
+  // The program view: an overview of how functions, types, effects and capabilities connect, grouped from
+  // the engine's facts in the data (signatures, call sites, node relations, effect evidence), then every
+  // function's own focus.
+  function renderProgram(w, data) {
+    var names = new Map(), anchors = new Map();
+    data.types.forEach(function (type) { addTypeNames(names, type); });
+    data.capabilities.forEach(function (capability) { addCapabilityNames(names, capability); });
+    addNames(names, data.effects);
+    data.functions.forEach(function (focus, index) { addFocusNames(names, focus); anchors.set(focus.function.id, "fn" + index); });
+    var ctx = { names: names, functions: anchors };
+    var fnList = function (ids) { return ids.length === 0 ? "<span class=\"muted\">none</span>" : ids.map(function (id) { return functionRef(ctx, id); }).join(", "); };
+
+    var takes = new Index(), returns = new Index(), constructs = new Index(), reads = new Index();
+    var takesCapability = new Index(), invokes = new Index(), requires = new Index(), arises = new Index();
+    var fieldOwner = new Map(), operationOwner = new Map();
+    data.types.forEach(function (type) { (type.typeKind.fields || []).forEach(function (field) { fieldOwner.set(field.id, type.id); }); });
+    data.capabilities.forEach(function (capability) { capability.operations.forEach(function (operation) { operationOwner.set(operation.id, capability.id); }); });
+    data.functions.forEach(function (focus) {
+      var fn = focus.function, id = fn.id;
+      var taken = new Set(), takenCapabilities = new Set(), returned = new Set();
+      fn.parameters.forEach(function (parameter) { referencedIds(parameter.type, taken, takenCapabilities); });
+      referencedIds(fn.resultType, returned, takenCapabilities);
+      taken.forEach(function (typeId) { takes.add(typeId, id); });
+      returned.forEach(function (typeId) { returns.add(typeId, id); });
+      takenCapabilities.forEach(function (capabilityId) { takesCapability.add(capabilityId, id); });
+      fn.requiredEffects.forEach(function (effectId) { requires.add(effectId, id); });
+      focus.bodyEffectRequirements.evidence.forEach(function (item) { arises.add(item.effectId, id); });
+      eachNode(focus.graph, function (node) {
+        node.relations.forEach(function (relation) {
+          if (relation.kind === "ConstructsType") constructs.add(relation.id, id);
+          else if (relation.kind === "AccessesField" && fieldOwner.has(relation.id)) reads.add(fieldOwner.get(relation.id), id);
+          else if (relation.kind === "InvokesCapabilityOperation" && operationOwner.has(relation.id)) invokes.add(operationOwner.get(relation.id), id);
+        });
+      });
+    });
+
+    var exported = data.functions.filter(function (focus) { return focus.function.exported; }).length;
+    var uncalled = data.functions.filter(function (focus) { return !focus.function.exported && focus.callers.length === 0; });
+    w.line("<header><h1>Program</h1>");
+    w.line("<p class=\"muted\">The committed snapshot: how its functions, types, effects and capabilities connect, then each function's body.</p>");
+    w.line("<ul class=\"facts\"><li>" + fact(data.functions.length, "function", "functions") + " (" + exported + " exported)</li><li>" +
+      fact(data.types.length, "type", "types") + "</li><li>" + fact(data.capabilities.length, "capability", "capabilities") + "</li><li>" +
+      fact(data.effects.length, "effect", "effects") + "</li></ul>");
+    emitIds(w, [["Snapshot", "snapshot:" + data.snapshotId]]);
+    w.line("</header>");
+
+    w.line("<section>" + heading(2, "Calls"));
+    w.line("<p class=\"muted\">Exported functions are the entry points. A private function nobody calls is dead code" +
+      (uncalled.length === 0 ? "; there is none." : ": " + fnList(uncalled.map(function (focus) { return focus.function.id; })) + ".") + "</p>");
+    if (data.functions.length === 0) w.line("<p>No functions.</p>");
+    else {
+      w.line("<table><thead><tr><th scope=\"col\">Function</th><th scope=\"col\">Calls</th><th scope=\"col\">Called by</th></tr></thead><tbody>");
+      data.functions.forEach(function (focus) {
+        var unique = function (sites, key) { var seen = []; sites.forEach(function (site) { if (seen.indexOf(site[key]) < 0) seen.push(site[key]); }); return seen; };
+        w.line("<tr><td>" + functionRef(ctx, focus.function.id) + (focus.function.exported ? " <span class=\"status\">exported</span>" : "") + "</td><td>" +
+          fnList(unique(focus.callees, "calleeFunctionId")) + "</td><td>" + fnList(unique(focus.callers, "callerFunctionId")) + "</td></tr>");
+      });
+      w.line("</tbody></table>");
+    }
     w.line("</section>");
-    if (verification)
-      w.line("<section><h2>Change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" +
-        html(indentedJson(verification)) + "</pre></section>");
+
+    w.line("<section>" + heading(2, "Type usage"));
+    if (data.types.length === 0) w.line("<p>No types.</p>");
+    else {
+      w.line("<table><thead><tr><th scope=\"col\">Type</th><th scope=\"col\">Taken by</th><th scope=\"col\">Returned by</th><th scope=\"col\">Constructed in</th><th scope=\"col\">Fields read in</th></tr></thead><tbody>");
+      data.types.forEach(function (type) {
+        var product = type.typeKind.kind === "product";
+        w.line("<tr><td><a href=\"#ty-" + html(type.id) + "\" title=\"" + html("type:" + type.id) + "\">" + html(type.displayName) + "</a> <span class=\"status\">" + (product ? "product" : "union") +
+          "</span></td><td>" + fnList(takes.get(type.id)) + "</td><td>" + fnList(returns.get(type.id)) + "</td><td>" + fnList(constructs.get(type.id)) +
+          "</td><td>" + (product ? fnList(reads.get(type.id)) : "<span class=\"muted\">n/a</span>") + "</td></tr>");
+      });
+      w.line("</tbody></table>");
+    }
+    w.line("</section>");
+
+    w.line("<section>" + heading(2, "Effects and capabilities"));
+    if (data.effects.length === 0) w.line("<p>No effects.</p>");
+    else {
+      w.line("<table><thead><tr><th scope=\"col\">Effect</th><th scope=\"col\">Declared as required by</th><th scope=\"col\">Arises in the body of</th></tr></thead><tbody>");
+      data.effects.forEach(function (effect) {
+        w.line("<tr><td title=\"" + html("effect:" + effect.id) + "\">" + html(effect.displayName) + "</td><td>" + fnList(requires.get(effect.id)) + "</td><td>" + fnList(arises.get(effect.id)) + "</td></tr>");
+      });
+      w.line("</tbody></table>");
+    }
+    if (data.capabilities.length === 0) w.line("<p>No capabilities.</p>");
+    else {
+      w.line("<table><thead><tr><th scope=\"col\">Capability</th><th scope=\"col\">Operations</th><th scope=\"col\">Taken by</th><th scope=\"col\">Invoked in</th></tr></thead><tbody>");
+      data.capabilities.forEach(function (capability) {
+        w.line("<tr><td title=\"" + html("capability:" + capability.id) + "\">" + html(capability.displayName) + "</td><td>" +
+          (capability.operations.length === 0 ? "<span class=\"muted\">none</span>" : sortById(capability.operations).map(function (operation) { return html(operation.displayName); }).join(", ")) +
+          "</td><td>" + fnList(takesCapability.get(capability.id)) + "</td><td>" + fnList(invokes.get(capability.id)) + "</td></tr>");
+      });
+      w.line("</tbody></table>");
+    }
+    w.line("</section>");
+
+    w.line("<section>" + heading(2, "Functions"));
+    if (data.functions.length === 0) w.line("<p>No functions.</p>");
+    data.functions.forEach(function (focus, index) {
+      w.line("<article id=\"fn" + index + "\">" + heading(3, html(focus.function.displayName) + (focus.function.exported ? " <span class=\"status\">exported</span>" : "")));
+      w.line("<details><summary>Body and details</summary>");
+      emitFocusBody(w, focus, { top: 3, names: names, prefix: "f" + index, embedded: true, changed: null, functions: anchors });
+      w.line("</details></article>");
+    });
+    w.line("</section>");
+
+    if (data.types.length + data.capabilities.length + data.effects.length > 0) {
+      w.line("<section>" + heading(2, "Declarations"));
+      if (data.types.length > 0) {
+        w.line(heading(3, "Types"));
+        data.types.forEach(function (type) { w.line("<div id=\"ty-" + html(type.id) + "\">"); emitTypeEntity(w, names, type); w.line("</div>"); });
+      }
+      if (data.capabilities.length > 0) {
+        w.line(heading(3, "Capabilities"));
+        data.capabilities.forEach(function (capability) { emitCapability(w, names, capability); });
+      }
+      if (data.effects.length > 0) {
+        w.line(heading(3, "Effects"));
+        emitEffects(w, data.effects);
+      }
+      w.line("</section>");
+    }
   }
 
   // The page title and body markup of one viewer data object.
   function render(data) {
     var w = new Writer();
     var title;
+    w.line("<main>");
     switch (data.view) {
-      case "functionFocus": title = "Nyrwvy Focus — " + data.focus.function.displayName; emitFocusBody(w, data.focus); break;
+      case "functionFocus":
+        title = "Nyrwvy Focus — " + data.focus.function.displayName;
+        emitFocusBody(w, data.focus, { top: 1, names: addFocusNames(new Map(), data.focus), prefix: "f", embedded: false, changed: null });
+        break;
       case "changeReview": title = "Nyrwvy Change Review"; renderChangeReview(w, data); break;
+      case "program": title = "Nyrwvy Program"; renderProgram(w, data); break;
       case "proposalReview": title = "Nyrwvy Change Review — " + data.proposalKind; renderProposalReview(w, data); break;
       default: throw new Error("Unknown view " + data.view);
     }
+    w.line("</main>");
     return { title: title, body: w.toString() };
   }
 
@@ -649,6 +964,24 @@ var NyrwvyViewer = (function () {
     var page = render(JSON.parse(document.getElementById("nyrwvy-data").textContent));
     document.title = page.title;
     document.body.innerHTML = page.body;
+    // A link to a node inside a closed focus opens the focus around it, then shows the node.
+    var reveal = function () {
+      var id = "";
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch (error) { return; }
+      var target = id === "" ? null : document.getElementById(id);
+      if (target === null) return;
+      for (var parent = target.parentElement; parent !== null; parent = parent.parentElement) if (parent.tagName === "DETAILS") parent.open = true;
+      // A link to a function's section also opens its body.
+      var own = target.tagName === "ARTICLE" ? target.querySelector(":scope > details") : null;
+      if (own !== null) own.open = true;
+      target.scrollIntoView();
+    };
+    window.addEventListener("hashchange", reveal);
+    document.addEventListener("click", function (event) {
+      var link = event.target instanceof Element ? event.target.closest("a[href^=\"#\"]") : null;
+      if (link !== null && link.getAttribute("href") === location.hash) reveal();
+    });
+    reveal();
   }
   return { render: render };
 })();

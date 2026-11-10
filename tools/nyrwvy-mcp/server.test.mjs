@@ -142,6 +142,21 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
       assert.equal(refused.structuredContent.error.code, "ViewWriteFailed")
     }
     await assert.rejects(readFile(join(root, "escaped.html")), { code: "ENOENT" })
+    // With no selector, the Program view: a page for a person, or the same data as JSON for an agent.
+    const program = (await call(first, "view", {})).result
+    assert.equal(program.kind, "program")
+    assert.match(program.path, /nyrwvy-program\.html$/)
+    assert.match(await renderedPage(program.path), /<h1>Program<\/h1>[\s\S]*value/)
+    const programJson = (await call(first, "view", { format: "json" })).result
+    assert.equal(programJson.mediaType, "application/json")
+    const programData = JSON.parse(await readFile(programJson.path, "utf8"))
+    assert.equal(programData.generator, "Nyrwvy viewer")
+    assert.equal(programData.view, "program")
+    assert.ok(programData.functions.some(focus => focus.function.id === functionId && focus.graph && !("referencedTypes" in focus)))
+    const focusJson = (await call(first, "view", { functionId, format: "json" })).result
+    assert.equal(JSON.parse(await readFile(focusJson.path, "utf8")).focus.function.id, functionId)
+    assert.equal((await failed(first, "view", { format: "json", output: "views/program.html" })).structuredContent.error.code, "ViewWriteFailed")
+    await failed(first, "view", { function: "value", functionId })
     const discard = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
     // A person reviews the pending proposal before it is rejected.
     const review = (await call(first, "view", { proposalId: discard.proposalId })).result
