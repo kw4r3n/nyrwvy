@@ -136,6 +136,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(page.path, join(workspace, "views", "value.html"))
     assert.equal(page.functionId, functionId)
     assert.match(await renderedPage(page.path), /Function Focus/)
+    assert.doesNotMatch(await renderedPage(page.path), /All views/)
     // Output is confined to the snapshot's directory, so an auto-approved model cannot overwrite other files.
     for (const output of ["../escaped.html", join(root, "escaped.html")]) {
       const refused = await failed(first, "view", { function: "value", output })
@@ -174,6 +175,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const focus = (await call(first, "view", { functionId })).result
     assert.equal(basename(focus.path), `nyrwvy-focus-value-${functionId}.html`)
     const index = await renderedPage(join(dirname(program.path), "index.html"))
+    for (const page of [program.path, focus.path, review.path]) assert.match(await renderedPage(page), /<a href="index.html">&larr; All views<\/a>/)
     for (const page of [program.path, focus.path, review.path]) assert.ok(index.includes(`href="${encodeURIComponent(basename(page))}"`), basename(page))
     await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })

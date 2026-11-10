@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="generator" content="Nyrwvy viewer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-sgOCu3n8va1RaS7krxDWJUZG2fzPKq521jAU0PygD9A='">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-6uBTaHrsKJA3eMaoAAjK6x/WAkSn0iHym5BHz0s84PM='">
   <title>Nyrwvy viewer</title>
   <style>
     :root {
@@ -76,6 +76,7 @@
     .toolbar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; align-items: center; margin: 1.2rem 0 0; padding: .55rem 0; background: var(--paper); border-bottom: 1px solid var(--rule); font-size: .88rem; }
     .toolbar input[type="search"] { font: inherit; width: 16rem; max-width: 100%; padding: .3rem .55rem; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: .3rem; }
     .toolbar nav { display: flex; flex-wrap: wrap; gap: .15rem .9rem; }
+    .back { font-size: .9rem; margin-bottom: .5rem; }
     .toolbar kbd { font: .8em var(--mono); padding: 0 .3em; border: 1px solid var(--rule); border-radius: .2rem; }
     .table-scroll { overflow-x: auto; max-width: 100%; }
     .name-table code { overflow-wrap: normal; }
@@ -1334,6 +1335,7 @@ var NyrwvyViewer = (function () {
     var w = new Writer();
     var title;
     w.line("<main>");
+    if (data.index) w.line("<nav class=\"back\" aria-label=\"Views\"><a href=\"index.html\">&larr; All views</a></nav>");
     switch (data.view) {
       case "functionFocus":
         title = "Nyrwvy Focus — " + data.focus.function.displayName;

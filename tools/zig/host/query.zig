@@ -1660,7 +1660,10 @@ fn writeIndex(r: *Request) void {
 /// Writes one view beside the snapshot (or at `output`) as `<name>.html` or `<name>.json`; returns its path.
 pub fn writeView(r: *Request, format: viewer.Format, output: ?[]const u8, name: []const u8, data: []const u8) Fail![]const u8 {
     const file_name = try std.mem.concat(r.a, u8, &.{ name, viewer.extension(format) });
-    switch (try view_file.write(r.a, r.snapshot_path, output, viewer.extension(format), file_name, viewer.fileHeader(format), try viewer.file(r.a, format, data))) {
+    const indexed = output == null and format == .html;
+    // Only a page in the default directory sits beside index.html, so only it links back.
+    const page_data = if (indexed) try std.mem.concat(r.a, u8, &.{ "{\"index\":true,", data[1..] }) else data;
+    switch (try view_file.write(r.a, r.snapshot_path, output, viewer.extension(format), file_name, viewer.fileHeader(format), try viewer.file(r.a, format, page_data))) {
         .refused => |message| {
             r.rejection = .{ .code = "ViewWriteFailed", .message = message };
             return error.Rejected;
@@ -1670,7 +1673,7 @@ pub fn writeView(r: *Request, format: viewer.Format, output: ?[]const u8, name: 
             return error.Rejected;
         },
         .written => |path| {
-            if (output == null and format == .html) writeIndex(r);
+            if (indexed) writeIndex(r);
             return path;
         },
     }
