@@ -18,26 +18,6 @@ module AgentExecutionTests =
         | Ok workspace -> workspace
         | Error issues -> failwithf "Agent workspace creation failed: %A" issues
 
-    let private runDotnet (workingDirectory: string) (arguments: string list): int * string * string =
-        let startInfo = ProcessStartInfo("dotnet")
-        startInfo.WorkingDirectory <- workingDirectory
-        startInfo.UseShellExecute <- false
-        startInfo.RedirectStandardOutput <- true
-        startInfo.RedirectStandardError <- true
-        startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] <- "1"
-        startInfo.Environment["DOTNET_NOLOGO"] <- "1"
-        for argument in arguments do
-            startInfo.ArgumentList.Add(argument)
-
-        use childProcess = Process.Start(startInfo)
-        if isNull childProcess then
-            failwith "Failed to start dotnet process."
-
-        let stdoutTask = childProcess.StandardOutput.ReadToEndAsync()
-        let stderrTask = childProcess.StandardError.ReadToEndAsync()
-        childProcess.WaitForExit()
-        childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
-
     let private buildHarness (fixture: MilestoneOneFixture): string =
         let rawTypeName = CSharpBackendNames.typeName fixture.RawUserInputTypeId
         let nameFieldName = CSharpBackendNames.fieldName fixture.RawNameFieldId
@@ -94,7 +74,7 @@ NyFunctions.{mainFunctionName}(empty, console);
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), buildHarness fixture, UTF8Encoding(false))
 
             let buildExit, buildOut, buildErr =
-                runDotnet
+                Dotnet.run
                     tempRoot
                     [ "build"
                       "Generated.csproj"
@@ -109,7 +89,7 @@ NyFunctions.{mainFunctionName}(empty, console);
                     artifact.Source
 
             let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = runDotnet tempRoot [ assemblyPath ]
+            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
             if runExit <> 0 then
                 failwithf
                     "Generated post-agent-commit C# execution failed.\nstdout:\n%s\nstderr:\n%s"

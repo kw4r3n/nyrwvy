@@ -2005,7 +2005,9 @@ module Transaction =
                               changes.ProductFieldsBound
                               |> List.filter (fun item ->
                                   proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId))
-                          ProductFieldsRemoved = changes.ProductFieldsRemoved
+                          ProductFieldsRemoved =
+                              changes.ProductFieldsRemoved
+                              |> List.map (fun item -> { item with AffectedConstructNodeIds = item.AffectedConstructNodeIds |> List.filter liveNodes.Contains })
                           FunctionsRemoved = changes.FunctionsRemoved
                           TypesRemoved = changes.TypesRemoved
                           EffectsRemoved = changes.EffectsRemoved
@@ -2029,8 +2031,12 @@ module Transaction =
                               changes.ObligationsResolved
                               |> List.filter (fun item -> liveNodes.Contains item.CallNodeId && liveParameters.Contains item.ParameterId)
                           FunctionRequiredEffectsChanged = netRequiredEffectChanges baseSnapshot proposed changes
-                          ParametersRemoved = changes.ParametersRemoved
-                          UnionVariantsRemoved = changes.UnionVariantsRemoved
+                          ParametersRemoved =
+                              changes.ParametersRemoved
+                              |> List.map (fun item -> { item with AffectedCallNodeIds = item.AffectedCallNodeIds |> List.filter liveNodes.Contains })
+                          UnionVariantsRemoved =
+                              changes.UnionVariantsRemoved
+                              |> List.map (fun item -> { item with AffectedMatchNodeIds = item.AffectedMatchNodeIds |> List.filter liveNodes.Contains })
                           UnionVariantsAdded =
                               changes.UnionVariantsAdded
                               |> List.filter (fun item -> proposed.Types |> List.exists (fun item2 -> item2.Id = item.OwnerTypeId))

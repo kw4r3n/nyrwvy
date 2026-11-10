@@ -173,6 +173,8 @@ module ExecutionIr =
                     graph.Nodes
                     |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, node)
                     |> Map.ofList
+                // Map.count walks the tree, so the scheduler keeps the count beside `pending`.
+                let mutable pendingCount = Map.count pending
                 // `dependencies` walks nested graphs, so compute it once per node rather than per scheduling step.
                 let dependenciesById: Map<GraphNodeId, GraphNodeId list> =
                     graph.Nodes
@@ -232,7 +234,7 @@ module ExecutionIr =
                     let next =
                         ready
                         |> Seq.map (fun (struct (_, key)) -> byKey[key])
-                        |> Seq.tryFind (fun node -> not (isTailNode node) || Map.count pending = 1)
+                        |> Seq.tryFind (fun node -> not (isTailNode node) || pendingCount = 1)
                     lastTaken <- next
                     match next with
                     | Some node ->
@@ -1071,6 +1073,7 @@ module ExecutionIr =
                             Some(ExecutionIrError.UnresolvedDependencies(functionEntity.Id, pending |> Map.toList |> List.map fst))
                     | (node: TypedSemanticNode) :: _ ->
                         pending <- Map.remove node.OriginNodeId pending
+                        pendingCount <- pendingCount - 1
                         match node.Kind with
                         | TypedSemanticNodeKind.Abort errorNodeId ->
                             match requireNodeValue environment errorNodeId with
