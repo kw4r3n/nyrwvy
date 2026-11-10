@@ -680,8 +680,6 @@ module AgentExpressionStructuralWorkflow =
 
     [<RequireQualifiedAccess>]
     module FunctionCreation =
-        exception BatchResolutionProblems of (int * string * string) list
-
         type ParameterIntent =
             { DisplayName: string
               Type: TypeRef }
@@ -985,7 +983,13 @@ module AgentExpressionStructuralWorkflow =
                         match builders with
                         | [] ->
                             if List.isEmpty problems then Ok(List.rev created)
-                            else raise (BatchResolutionProblems(List.rev problems))
+                            else
+                                Error(
+                                    AgentStructuralWorkflowError.SimulationRejected(
+                                        [ for index, displayName, message in List.rev problems ->
+                                            diagnostic "FunctionBatchRequestRejected" $"Function {index} ('{displayName}'): {message}" ]
+                                    )
+                                )
                         | build :: rest ->
                             match build (created |> List.rev |> List.map snd) with
                             | Error(displayName, message) ->

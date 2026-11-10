@@ -23,6 +23,8 @@ pub fn simulate(r: *query.Request, out: *Writer) anyerror!void {
     const input = try @import("recipe_file.zig").jsonInput(&decoder, "steps", "stepsFile");
     if (input.value != .array) return r.fail("steps must be an array.", .{});
     if (input.value.array.items.len == 0) return r.fail("steps must list at least one step.", .{});
+    // shortcut: 256 is a judgment cap on one batch; each step re-fingerprints the candidate snapshot.
+    if (input.value.array.items.len > 256) return r.fail("steps must list at most 256 steps; split a larger batch.", .{});
     const expected = if (r.root.get("expectedSnapshotId") != null) try decoder.stableId("expectedSnapshotId", try decoder.requiredString(.{ .object = r.root }, "expectedSnapshotId")) else r.snapshot_id;
     try r.ensureUsable();
     const sources = try @import("recipe_file.zig").rawArrayItems(r.a, input.source);

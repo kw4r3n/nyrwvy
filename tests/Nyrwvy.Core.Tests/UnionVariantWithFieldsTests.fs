@@ -189,3 +189,22 @@ module UnionVariantWithFieldsTests =
         let added = (AgentUnionVariantEvolutionProposal.review proposal).AddedVariant
         let addedArm = arms snapshot |> List.find (fun arm -> arm.VariantIds = [ added.Id ])
         Assert.Equal<TypeRef list>([ intType; intType ], addedArm.FieldBindings |> List.map (fun item -> item.Binding.Type))
+
+    [<Fact>]
+    let ``a cloned call keeps its open missing-argument obligation`` () =
+        // The A arm calls `f` without its `x` argument, which an open obligation covers.
+        let json = """{"schemaVersion":24,"snapshotId":"s","types":[{"id":"choice","displayName":"Choice","exported":true,"kind":"union","variants":[{"id":"A","displayName":"A","fields":[]},{"id":"B","displayName":"B","fields":[]}]}],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"f","parameters":[{"id":"f-x","displayName":"x","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"nodes":[{"id":"f1","kind":"int64Literal","value":1}],"resultNodeId":"f1"}},{"id":"m","displayName":"m","parameters":[{"id":"m-c","displayName":"c","type":{"kind":"named","typeId":"choice"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"nodes":[{"id":"p","kind":"parameterReference","parameterId":"m-c"},{"id":"match","kind":"matchUnion","inputNodeId":"p","arms":[{"variantId":"A","fieldBindings":[],"body":{"nodes":[{"id":"call","kind":"directCall","targetFunctionId":"f","arguments":[]}],"resultNodeId":"call"}},{"variantId":"B","fieldBindings":[],"body":{"nodes":[{"id":"b","kind":"int64Literal","value":3}],"resultNodeId":"b"}}]}],"resultNodeId":"match"}}],"obligations":[{"id":"o","kind":"missingArgument","originTransactionId":"t","callNodeId":"call","parameterId":"f-x","status":"open"}]}"""
+        let ws = AgentWorkspace.create (SnapshotCodec.deserialize json |> unwrap "decode") |> unwrap "workspace"
+        let request: AgentAddUnionVariantLikeRequest =
+            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+              TargetTypeId = StableId.createForTesting<TypeTag> "choice"
+              SourceVariantId = StableId.createForTesting<VariantTag> "A"
+              NewVariantDisplayName = "C" }
+        let proposal = AgentUnionVariantEvolutionWorkflow.simulate ws request |> unwrap "simulate"
+        let proposed = AgentUnionVariantEvolutionProposal.proposedSnapshot proposal
+        Assert.Empty(SnapshotValidator.validate proposed)
+        let original, copy = proposed.Obligations |> List.partition (fun item -> StableId.value item.Id = "o")
+        let copy = List.exactlyOne copy
+        Assert.Equal(original.Head.OriginTransactionId, copy.OriginTransactionId)
+        Assert.NotEqual(original.Head.CallNodeId, copy.CallNodeId)
+        Assert.Equal(ObligationStatus.Open, copy.Status)

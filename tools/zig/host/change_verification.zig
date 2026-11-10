@@ -170,6 +170,8 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     const p = try proposals.lookup(r, wanted);
     if (!m.same(p.base_id, r.snapshot_id)) return failure(r, "ExternalModification", "The snapshot file changed outside this session.");
     if (p.operations) return failure(r, "DependencyFailure", "Candidate execution is unsupported for operations proposals.");
+    // A batch may run operations steps, but one that leaves new missing arguments cannot execute.
+    for (p.generation.obligations) |obligation| if (obligation.resolution == null and r.typedModel().data.snapshot.findObligation(obligation.id) == null) return failure(r, "DependencyFailure", "Candidate execution is unsupported while the proposal leaves missing-argument obligations open.");
     candidate.generation = &p.generation;
     candidate.interner = r.interner;
     candidate.snapshot_id = model.utf8(candidate.typedModel().id());

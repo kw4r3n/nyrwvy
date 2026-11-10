@@ -57,12 +57,29 @@ module AgentUnionVariantEvolutionProposal =
 module AgentUnionVariantEvolutionWorkflow =
     open StructuralTransactionInternals
 
+    // shortcut: nested matches on the source variant clone already-repaired arms (about 2^k nodes
+    // for k levels), so one evolution clones at most 10_000 nodes; raise it if real programs need more.
+    let private maxClonedNodes = 10_000
+
+    exception private TooManyClonedNodes
+
+    /// What every clone of one evolution shares: the cloned-node count, the open obligations of the
+    /// base snapshot, and the copies made so far of open obligations on cloned calls.
+    type private Copies =
+        { mutable ClonedNodes: int
+          BaseObligations: MissingArgumentObligation list
+          Copied: ResizeArray<MissingArgumentObligation> }
+
     /// Clones a graph with fresh node and pattern-binding IDs. `outerBindings` are bindings owned
     /// by the enclosing arm (its field bindings); references to them are remapped as well, and the
-    /// returned map gives their fresh IDs.
-    let private cloneGraph (outerBindings: PatternBindingId list) (graph: ValueGraph): ValueGraph * Map<PatternBindingId, PatternBindingId> =
+    /// returned map gives their fresh IDs. A cloned call keeps its open missing-argument
+    /// obligations, re-targeted at the copy.
+    let private cloneGraph (copies: Copies) (outerBindings: PatternBindingId list) (graph: ValueGraph): ValueGraph * Map<PatternBindingId, PatternBindingId> =
+        let collected = ValueGraph.collectNodes graph
+        copies.ClonedNodes <- copies.ClonedNodes + collected.Length
+        if copies.ClonedNodes > maxClonedNodes then raise TooManyClonedNodes
         let nodeIds =
-            ValueGraph.collectNodes graph
+            collected
             |> List.map (fun node -> node.Id)
             |> List.distinct
 
@@ -79,6 +96,13 @@ module AgentUnionVariantEvolutionWorkflow =
             patternIds
             |> List.map (fun oldId -> oldId, StableIdAllocator.newPatternBindingId ())
             |> Map.ofList
+
+        // Earlier copies count too, since an outer arm may hold an inner arm that was already cloned.
+        for obligation in copies.BaseObligations @ List.ofSeq copies.Copied do
+            match obligation.Status, Map.tryFind obligation.CallNodeId nodeIdMap with
+            | ObligationStatus.Open, Some call ->
+                copies.Copied.Add { obligation with Id = StableIdAllocator.newObligationId (); CallNodeId = call }
+            | _ -> ()
 
         let mapNodeId id =
             Map.tryFind id nodeIdMap |> Option.defaultValue id
@@ -110,6 +134,7 @@ module AgentUnionVariantEvolutionWorkflow =
         mapGraph graph, patternIdMap
 
     let private repairMatches
+        (copies: Copies)
         (sourceVariantId: VariantId)
         (addedVariantId: VariantId)
         (fieldMap: Map<FieldId, FieldId>)
@@ -147,7 +172,7 @@ module AgentUnionVariantEvolutionWorkflow =
                     | Some sourceArm ->
                         repairedMatchCount <- repairedMatchCount + 1
                         let body, bindingMap =
-                            cloneGraph (sourceArm.FieldBindings |> List.map (fun item -> item.Binding.Id)) sourceArm.Body
+                            cloneGraph copies (sourceArm.FieldBindings |> List.map (fun item -> item.Binding.Id)) sourceArm.Body
                         let addedArm: UnionMatchArm =
                             { VariantIds = [ addedVariantId ]
                               FieldBindings =
@@ -251,25 +276,29 @@ module AgentUnionVariantEvolutionWorkflow =
                                         ) }
 
                             let completionResolver = SemanticFacts.createNodeCompletionResolverFactory baseSnapshot
+                            let copies = { ClonedNodes = 0; BaseObligations = baseSnapshot.Obligations; Copied = ResizeArray() }
                             let repaired =
-                                baseSnapshot.Functions
-                                |> List.map (fun functionEntity ->
-                                    let completion = completionResolver functionEntity
-                                    // A generic Union's added arm binds its extra fields at the match input's type arguments.
-                                    let instantiate inputNodeId fieldType =
-                                        match completion inputNodeId with
-                                        | Some(GraphCompletion.Normal(TypeRef.Named(_, arguments))) ->
-                                            TypeParameters.instantiate targetType arguments fieldType
-                                        | _ -> fieldType
-                                    let body, repairedMatchCount =
-                                        repairMatches
-                                            request.SourceVariantId
-                                            addedVariant.Id
-                                            fieldMap
-                                            added
-                                            instantiate
-                                            functionEntity.Body
-                                    functionEntity, body, repairedMatchCount)
+                                try
+                                    baseSnapshot.Functions
+                                    |> List.map (fun functionEntity ->
+                                        let completion = completionResolver functionEntity
+                                        // A generic Union's added arm binds its extra fields at the match input's type arguments.
+                                        let instantiate inputNodeId fieldType =
+                                            match completion inputNodeId with
+                                            | Some(GraphCompletion.Normal(TypeRef.Named(_, arguments))) ->
+                                                TypeParameters.instantiate targetType arguments fieldType
+                                            | _ -> fieldType
+                                        let body, repairedMatchCount =
+                                            repairMatches
+                                                copies
+                                                request.SourceVariantId
+                                                addedVariant.Id
+                                                fieldMap
+                                                added
+                                                instantiate
+                                                functionEntity.Body
+                                        functionEntity, body, repairedMatchCount)
+                                with TooManyClonedNodes -> []
 
                             let repairedFunctionIds =
                                 repaired
@@ -288,20 +317,26 @@ module AgentUnionVariantEvolutionWorkflow =
                                     else
                                         functionEntity)
 
-                            Ok(updatedType, addedVariant, proposedFunctions, repairedFunctionIds, repairedMatchCount)
+                            if copies.ClonedNodes > maxClonedNodes then
+                                rejected
+                                    "UnionVariantEvolutionTooLarge"
+                                    $"Repairing the matches would clone more than {maxClonedNodes} nodes; nested matches on the source variant multiply each copy."
+                            else
+                                Ok(updatedType, addedVariant, proposedFunctions, repairedFunctionIds, repairedMatchCount, List.ofSeq copies.Copied)
 
         simulateStructural
             workspace
             prepare
-            (fun (updatedType, _, proposedFunctions, _, _) snapshot ->
+            (fun (updatedType, _, proposedFunctions, _, _, obligations) snapshot ->
                 { snapshot with
                     Types =
                         snapshot.Types
                         |> List.map (fun item ->
                             if item.Id = updatedType.Id then updatedType else item)
-                    Functions = proposedFunctions })
+                    Functions = proposedFunctions
+                    Obligations = snapshot.Obligations @ obligations })
         |> Result.map (fun candidate ->
-            let updatedType, addedVariant, _, repairedFunctionIds, repairedMatchCount = candidate.Prepared
+            let updatedType, addedVariant, _, repairedFunctionIds, repairedMatchCount, _ = candidate.Prepared
             let review =
                 { RequestedChange = request
                   Receipt = candidate.Receipt

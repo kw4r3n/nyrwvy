@@ -132,17 +132,38 @@ const Clone = struct {
         return builder.view(self.r.a, try builder.build(self.r.a, drafts, self.nodes.get(original.result()) orelse original.result()));
     }
 };
-fn clone(r: *query.Request, owner: Model, outer: tm.FieldBindings, graph: tm.GraphView) !struct { graph: tm.GraphView, ids: Ids } {
+/// State shared by every clone of one evolution: the cloned-node budget and the open
+/// missing-argument obligations copied onto cloned calls.
+const Copies = struct {
+    nodes: usize = 0,
+    obligations: std.ArrayList(*const tm.Obligation) = .empty,
+};
+// shortcut: nested matches on the source variant clone already-repaired arms (about 2^k nodes for
+// k levels), so one evolution clones at most 10_000 nodes; raise it if real programs need more.
+const max_cloned_nodes = 10_000;
+fn clone(r: *query.Request, owner: Model, outer: tm.FieldBindings, graph: tm.GraphView, copies: *Copies) anyerror!struct { graph: tm.GraphView, ids: Ids } {
     var context: Clone = .{ .r = r };
     const graph_model = edit.borrow(owner, .{ .graph = graph });
     var nodes: std.ArrayList(Model) = .empty;
     try collectNodes(r.a, graph_model, &nodes);
+    copies.nodes += nodes.items.len;
+    if (copies.nodes > max_cloned_nodes) return reject(r, "TooLarge", try std.fmt.allocPrint(r.a, "Repairing the matches would clone more than {d} nodes; nested matches on the source variant multiply each copy.", .{max_cloned_nodes}));
     for (nodes.items) |node| if (!context.nodes.contains(node.data.node.id())) try context.nodes.put(r.a, node.data.node.id(), try fresh(r, .node));
     for (0..outer.len()) |index| {
         const binding = outer.at(index).binding;
         if (!context.patterns.contains(binding.id)) try context.patterns.put(r.a, binding.id, try fresh(r, .binding));
     }
     for (model.typedPatternBindings(r.a, graph_model)) |binding| if (!context.patterns.contains(binding.data.binding.id)) try context.patterns.put(r.a, binding.data.binding.id, try fresh(r, .binding));
+    // A cloned call keeps its open missing-argument obligations, re-targeted at the copy; earlier
+    // copies count too, since an outer arm may hold an inner arm that was already cloned.
+    const copied = copies.obligations.items.len;
+    for ([_][]const *const tm.Obligation{ r.typedModel().data.snapshot.obligations, copies.obligations.items[0..copied] }) |group| for (group) |obligation| {
+        if (obligation.resolution != null) continue;
+        const call = context.nodes.get(obligation.call) orelse continue;
+        const next = try r.a.create(tm.Obligation);
+        next.* = .{ .id = try fresh(r, .obligation), .origin = obligation.origin, .call = call, .parameter = obligation.parameter, .resolution = null };
+        try copies.obligations.append(r.a, next);
+    };
     return .{ .graph = try context.graph(graph), .ids = context.patterns };
 }
 const RepairContext = struct {
@@ -153,6 +174,7 @@ const RepairContext = struct {
     variant: tm.Id,
     field_ids: *const Ids,
     extra_fields: []const tm.Typed,
+    copies: *Copies,
     count: usize = 0,
     fn repair(raw: *anyopaque, a: std.mem.Allocator, node: tm.Node) anyerror!?[]const builder.NodeDraft {
         const self: *RepairContext = @ptrCast(@alignCast(raw));
@@ -175,7 +197,7 @@ const RepairContext = struct {
                     value.* = .{ .arms = try builder.unionArms(a, mapped[0..arms.len()]) };
                     return try a.dupe(builder.NodeDraft, &.{draft});
                 }
-                const copied = try clone(self.r, self.function, source.fields, source.body);
+                const copied = try clone(self.r, self.function, source.fields, source.body, self.copies);
                 var bindings: std.ArrayList(tm.FieldBinding) = .empty;
                 for (0..source.fields.len()) |field_index| {
                     const field = source.fields.at(field_index);
@@ -265,8 +287,9 @@ fn simulate(r: *query.Request, wanted: []const u8, type_id: []const u8, source_i
     var rewritten: std.ArrayList(Model) = .empty;
     var ids: std.ArrayList(Value) = .empty;
     var count: usize = 0;
+    var copies: Copies = .{};
     for (r.typedModel().functions()) |function| {
-        var context: RepairContext = .{ .r = r, .function = function, .owner = owner_type, .source_id = source.data.variant.id, .variant = variant_id, .field_ids = &field_ids, .extra_fields = extra };
+        var context: RepairContext = .{ .r = r, .function = function, .owner = owner_type, .source_id = source.data.variant.id, .variant = variant_id, .field_ids = &field_ids, .extra_fields = extra, .copies = &copies };
         const graph = try builder.mapPostOrder(r.a, function.data.function.body.graph(0), .{ .context = &context, .apply = RepairContext.repair });
         if (context.count > 0) {
             const updated = try edit.changed(r.a, function, .{ .body = graph });
@@ -276,6 +299,7 @@ fn simulate(r: *query.Request, wanted: []const u8, type_id: []const u8, source_i
             count += context.count;
         }
     }
+    for (copies.obligations.items) |obligation| candidate = try edit.append(r.a, candidate, .obligations, edit.borrow(candidate, .{ .obligation = obligation }));
     const transaction = try m.id(r.a);
     const snapshot = try m.id(r.a);
     candidate = try migration.stamp(r, candidate, snapshot);
@@ -300,7 +324,8 @@ test "union clone remaps nested results and separate node binding domains while 
     const generation = try tm.load(a, &strings, root, null);
     var request: query.Request = .{ .a = a, .line = "", .root = .empty, .provenance = null, .generation = &generation, .interner = &strings };
     const function = request.typedModel().functions()[0];
-    const copied = try clone(&request, function, try builder.fieldBindings(a, &.{}), function.data.function.body.graph(0));
+    var copies: Copies = .{};
+    const copied = try clone(&request, function, try builder.fieldBindings(a, &.{}), function.data.function.body.graph(0), &copies);
     const root_node = copied.graph.body.findNode(copied.graph.result()).?;
     var root_payload = root_node.payload();
     _ = root_payload.next();

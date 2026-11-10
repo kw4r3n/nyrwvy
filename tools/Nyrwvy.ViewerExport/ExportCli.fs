@@ -58,8 +58,9 @@ let writeUtf8 (inputPath: string) (outputPath: string) (content: string) : Resul
         if String.IsNullOrEmpty(Path.GetFileName fullPath) then
             Error "Output must name a file."
         elif [ resolveEntry inputPath; resolveLinks (Path.GetFullPath inputPath) ]
-           |> List.exists (fun input -> String.Equals(input, outputEntry, comparison)) then
-            Error "Output must not replace the input snapshot."
+             |> List.collect (fun input -> [ for suffix in [ ""; ".lock"; ".dependency.json"; ".backends.json" ] -> input + suffix ])
+             |> List.exists (fun protectedPath -> String.Equals(protectedPath, outputEntry, comparison)) then
+            Error "Output must not replace the input snapshot, its lock or its dependency or backends sidecar."
         elif not (isNull (FileInfo(outputEntry).LinkTarget)) then
             Error "Output must not be a symbolic link."
         else

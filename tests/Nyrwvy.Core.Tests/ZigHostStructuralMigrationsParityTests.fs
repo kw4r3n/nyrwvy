@@ -300,3 +300,47 @@ module ZigHostStructuralMigrationsParityTests =
                             yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
             let actual = seededPair "structural-symbolic-types" path lines
             for line in actual do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Release users migrate with their operation and union evolution keeps cloned obligations within a node cap`` () =
+        withDirectory (fun dir ->
+            let write name (json: string) =
+                let path = Path.Combine(dir, name, "snapshot.json")
+                Directory.CreateDirectory(Path.GetDirectoryName path) |> ignore
+                File.WriteAllText(path, json)
+                path
+            let ok (reply: string) =
+                use parsed = parseDocument reply
+                Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), reply)
+            let primitive name = sprintf """{"kind":"primitive","primitive":"%s"}""" name
+            let result value = sprintf """{"kind":"builtinGeneric","generic":"result","arguments":[%s,%s]}""" value (primitive "string")
+            let operation name (output: string) = sprintf """{"id":"%s","displayName":"%s","parameters":[{"id":"%s-v","displayName":"value","type":%s}],"resultType":%s,"effectId":"io"}""" name name name (primitive "string") output
+            let body = sprintf """{"id":"body","displayName":"body","parameters":[{"id":"body-h","displayName":"handle","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"nodes":[{"id":"b1","kind":"parameterReference","parameterId":"body-h"},{"id":"b2","kind":"resultOk","errorType":%s,"valueNodeId":"b1"}],"resultNodeId":"b2"}}""" (primitive "string") (result (primitive "string")) (primitive "string")
+            // `user` invokes only `open`; it reaches `close` solely as its useResource release.
+            let user = sprintf """{"id":"user","displayName":"user","parameters":[{"id":"user-f","displayName":"files","type":{"kind":"capability","capabilityId":"files"}}],"resultType":%s,"requiredEffects":["io"],"body":{"nodes":[{"id":"u1","kind":"parameterReference","parameterId":"user-f"},{"id":"u2","kind":"stringLiteral","value":"x"},{"id":"u3","kind":"capabilityInvoke","capabilityValueNodeId":"u1","operationId":"open","arguments":[{"targetCapabilityParameterId":"open-v","valueNodeId":"u2"}]},{"id":"u4","kind":"parameterReference","parameterId":"user-f"},{"id":"u5","kind":"useResource","acquireNodeId":"u3","releaseCapabilityNodeId":"u4","releaseOperationId":"close","bodyFunctionId":"body"}],"resultNodeId":"u5"}}""" (result (primitive "string"))
+            let resource = write "resource" (sprintf """{"schemaVersion":24,"snapshotId":"s","types":[],"effects":[{"id":"io","displayName":"IO"}],"capabilities":[{"id":"files","displayName":"Files","operations":[%s,%s]}],"functions":[%s,%s],"obligations":[]}""" (operation "open" (result (primitive "string"))) (operation "close" (primitive "unit")) body user)
+            let migrate repairs = sprintf """{"id":"sm","op":"simulateCapabilityOperationSignatureMigration","operationId":"close","parameterTypes":[{"parameterId":"close-v","type":%s}],"resultType":%s,"functionRepairs":[%s]}""" (primitive "string") (result (primitive "unit")) repairs
+            let repair = sprintf """{"functionId":"user","parameterTypes":[{"parameterId":"user-f","type":{"kind":"capability","capabilityId":"files"}}],"resultType":%s,"replacement":{"kind":"resultOk","errorType":%s,"value":{"kind":"stringLiteral","value":"y"}}}""" (result (primitive "string")) (primitive "string")
+            match seededPair "structural-release-users" resource [ migrate repair; migrate "" ] with
+            | [ repaired; unrepaired ] ->
+                ok repaired
+                Assert.Contains("OperationSignatureMigrationRepairMismatch", unrepaired)
+                Assert.Contains("Missing: [user]", unrepaired)
+            | other -> failwithf "%A" other
+            let choice = """{"id":"choice","displayName":"Choice","exported":true,"kind":"union","variants":[{"id":"A","displayName":"A","fields":[]},{"id":"B","displayName":"B","fields":[]}]}"""
+            let arm variant (graph: string) = sprintf """{"variantId":"%s","fieldBindings":[],"body":%s}""" variant graph
+            let leaf id (value: int) = sprintf """{"nodes":[{"id":"%s","kind":"int64Literal","value":%d}],"resultNodeId":"%s"}""" id value id
+            let matching id (a: string) = sprintf """{"nodes":[{"id":"p%s","kind":"parameterReference","parameterId":"m-c"},{"id":"m%s","kind":"matchUnion","inputNodeId":"p%s","arms":[%s,%s]}],"resultNodeId":"m%s"}""" id id id (arm "A" a) (arm "B" (leaf ("b" + id) 3)) id
+            let union (functions: string) (obligations: string) =
+                sprintf """{"schemaVersion":24,"snapshotId":"s","types":[%s],"effects":[],"capabilities":[],"functions":[%s],"obligations":[%s]}""" choice functions obligations
+            let matcher graph = sprintf """{"id":"m","displayName":"m","parameters":[{"id":"m-c","displayName":"c","type":{"kind":"named","typeId":"choice"}}],"resultType":%s,"requiredEffects":[],"body":%s}""" (primitive "int64") graph
+            // The A arm's call to `f` has an open obligation for `x`, so its copy needs one too.
+            let callee = sprintf """{"id":"f","displayName":"f","parameters":[{"id":"f-x","displayName":"x","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (primitive "int64") (primitive "int64") (leaf "f1" 1)
+            let obligation = """{"id":"o","kind":"missingArgument","originTransactionId":"t","callNodeId":"call","parameterId":"f-x","status":"open"}"""
+            let call = """{"nodes":[{"id":"call","kind":"directCall","targetFunctionId":"f","arguments":[]}],"resultNodeId":"call"}"""
+            let obligated = write "obligated" (union (callee + "," + matcher (matching "1" call)) obligation)
+            // Fourteen matches nested in each other's A arm would clone about 2^14 nodes.
+            let nested = write "nested" (union (matcher (List.fold (fun graph level -> matching (string level) graph) (leaf "leaf" 0) [ 1 .. 14 ])) "")
+            let evolve = """{"id":"u","op":"simulateAddUnionVariantLikeByName","type":"Choice","sourceVariant":"A","displayName":"C"}"""
+            seededPair "structural-union-obligations" obligated [ evolve ] |> List.exactlyOne |> ok
+            Assert.Contains("UnionVariantEvolutionTooLarge", seededPair "structural-union-cap" nested [ evolve ] |> List.exactlyOne))

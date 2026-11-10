@@ -217,11 +217,15 @@ fn mapPoint(point: u21, runs: []const [4]i32) u21 {
 
 /// `String.Contains(text, StringComparison.OrdinalIgnoreCase)`: both sides upper-cased by code point.
 // shortcut: .NET's ordinal casing is taken to be the invariant simple upper case; the parity transcript checks non-ASCII cases.
-fn containsIgnoringCase(a: Allocator, haystack: []const u16, needle: []const u16) !bool {
-    const h = try points(a, haystack);
-    const n = try points(a, needle);
-    for (h) |*p| p.* = mapPoint(p.*, &case_runs.upper);
-    for (n) |*p| p.* = mapPoint(p.*, &case_runs.upper);
+fn upperPoints(a: Allocator, units: []const u16) ![]u21 {
+    const p = try points(a, units);
+    for (p) |*c| c.* = mapPoint(c.*, &case_runs.upper);
+    return p;
+}
+/// `n` is the needle already through `upperPoints`, so a search upper-cases it once.
+fn containsIgnoringCase(a: Allocator, haystack: []const u16, n: []const u21) !bool {
+    if (haystack.len < n.len) return false; // a haystack has at most one point per unit
+    const h = try upperPoints(a, haystack);
     return std.mem.indexOf(u21, h, n) != null;
 }
 
@@ -284,8 +288,12 @@ pub fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const
     var close: std.ArrayList(Close) = .empty;
     for (names.items) |name| {
         const lower = try lowered(a, try utf16(a, name));
+        const threshold = @max(2, wanted.len / 3);
+        const contained = wanted.len >= 3 and (std.mem.indexOf(u16, lower, wanted) != null or std.mem.indexOf(u16, wanted, lower) != null);
+        // The distance is at least the length difference, so a far-off length cannot qualify.
+        if (!contained and (if (lower.len > wanted.len) lower.len - wanted.len else wanted.len - lower.len) > threshold) continue;
         const distance = try editDistance(a, wanted, lower);
-        if (distance <= @max(2, wanted.len / 3) or (wanted.len >= 3 and (std.mem.indexOf(u16, lower, wanted) != null or std.mem.indexOf(u16, wanted, lower) != null)))
+        if (distance <= threshold or contained)
             try close.append(a, .{ .name = name, .distance = distance });
     }
     // Stable, as `List.sortBy` is: ties keep the names' order.
@@ -467,6 +475,7 @@ pub fn search(r: *Request, out: *Writer) Fail!void {
     const text = try requiredString(r, r.root, "text");
     const needle = try utf16(r.a, text);
     if (isBlank(needle)) return r.fail("text must not be empty.", .{});
+    const needle_points = try upperPoints(r.a, needle);
     var limit: i64 = 50;
     if (r.root.get("limit")) |value| {
         limit = switch (value) {
@@ -491,7 +500,7 @@ pub fn search(r: *Request, out: *Writer) Fail!void {
     }.f;
     inline for (.{ .{ "function", "functionId", .function }, .{ "type", "typeId", .type }, .{ "effect", "effectId", .effect } }) |group| {
         for (try typedVisible(r, group[0])) |item| {
-            if (try containsIgnoringCase(r.a, item.displayName(), needle)) try matches.append(r.a, try named(r.a, i, group[0], group[1], group[2], switch (item.data) {
+            if (try containsIgnoringCase(r.a, item.displayName(), needle_points)) try matches.append(r.a, try named(r.a, i, group[0], group[1], group[2], switch (item.data) {
                 .function => |v| v.id,
                 .type_declaration => |v| v.id,
                 .effect => |v| v.id,
@@ -506,14 +515,14 @@ pub fn search(r: *Request, out: *Writer) Fail!void {
     }
     for (try typedVisible(r, "capability")) |record| {
         const item = record.data.capability;
-        if (try containsIgnoringCase(r.a, i.stringText(item.name), needle)) try matches.append(r.a, try named(r.a, i, "capability", "capabilityId", .capability, item.id, item.name));
+        if (try containsIgnoringCase(r.a, i.stringText(item.name), needle_points)) try matches.append(r.a, try named(r.a, i, "capability", "capabilityId", .capability, item.id, item.name));
         const operations = try r.a.dupe(model.session_model.Operation, item.operations);
         std.mem.sort(model.session_model.Operation, operations, i, struct {
             fn less(interner: *const model.session_model.Interner, x: model.session_model.Operation, y: model.session_model.Operation) bool {
                 return interner.less(.operation, x.id, y.id);
             }
         }.less);
-        for (operations) |operation| if (try containsIgnoringCase(r.a, i.stringText(operation.name), needle)) {
+        for (operations) |operation| if (try containsIgnoringCase(r.a, i.stringText(operation.name), needle_points)) {
             var entry: Writer.Allocating = .init(r.a);
             try entry.writer.writeAll("{\"kind\":\"capabilityOperation\",\"capability\":");
             try model.writeString(&entry.writer, i.stringText(item.name));
@@ -530,7 +539,7 @@ pub fn search(r: *Request, out: *Writer) Fail!void {
         for (try function.body.depthFirst(r.a)) |node| {
             const handle = node.stringLiteral() orelse continue;
             const value = i.stringText(handle);
-            if (!try containsIgnoringCase(r.a, value, needle)) continue;
+            if (!try containsIgnoringCase(r.a, value, needle_points)) continue;
             var entry: Writer.Allocating = .init(r.a);
             try entry.writer.writeAll("{\"kind\":\"stringLiteral\",\"function\":");
             try model.writeString(&entry.writer, i.stringText(function.name));
