@@ -2,7 +2,7 @@
 // the replies with the expected values. Usage: node libraries/core/check/run.mjs [<host executable>]
 import { spawn } from "node:child_process"
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { hostExchange } from "../../host-client.mjs"
+import { hostExchange, hostSend } from "../../host-client.mjs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,17 +12,14 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../../..")
 const executable = process.argv[2] ?? join(repo, "tools/zig/host/bin/nyrwvy-host")
 const work = mkdtempSync(join(tmpdir(), "nyr-core-check-"))
+process.on("exit", () => rmSync(work, { recursive: true, force: true }))
 copyFileSync(join(here, "../core.json"), join(work, "core.json"))
 const cli = spawn(executable, ["create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "core.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
 const exchange = hostExchange(cli)
 const raw = async request => {
   return exchange(request)
 }
-const send = async request => {
-  const reply = await raw(request)
-  if (!reply.ok) throw new Error(`${request.op}: ${JSON.stringify(reply.error)}`)
-  return reply.result
-}
+const send = hostSend(raw)
 const string = { kind: "primitive", primitive: "string" }
 const int64 = { kind: "primitive", primitive: "int64" }
 const bool = { kind: "primitive", primitive: "bool" }
@@ -115,6 +112,5 @@ const mistyped = await raw({ op: "simulateCreateFunctionByName", displayName: "m
 assert.equal(mistyped.ok, false)
 assert.equal(mistyped.error.details.diagnostics[0].code, "PureExpressionCallArgumentTypeMismatch")
 cli.stdin.end()
-rmSync(work, { recursive: true, force: true })
 if (failed) process.exit(1)
 console.log(`${cases.length * 2} calls agree`)

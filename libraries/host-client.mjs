@@ -16,3 +16,10 @@ export function hostExchange(child) {
     return JSON.parse(line.value)
   }
 }
+
+// Wraps an exchange: throws on a failed reply and returns its result. `label` names the request in the error.
+export const hostSend = (exchange, label = request => request.op) => async request => {
+  const reply = await exchange(request)
+  if (!reply.ok) throw new Error(`${label(request)}: ${JSON.stringify(reply.error)}`)
+  return reply.result
+}

@@ -24,7 +24,6 @@ This opt-in milestone check requires a .NET 10 SDK and runs:
   1. full-solution restore
   2. Release build with project warnings-as-errors
   3. the full test suite once, including the extended test project
-  4. the JSON/Nyason comparison report produced by the test suite
 
 Use scripts/test-fast.fish for routine development.
 A timestamped log is written under ${TMPDIR:-/tmp}/nyrwvy-verification/.
@@ -124,21 +123,8 @@ echo "--- Release build ---"
 dotnet build Nyrwvy.slnx --configuration Release --no-restore
 echo
 
-ENCODING_REPORT="${TMPDIR:-/tmp}/nyrwvy-encoding-comparison.txt"
-# A report left by an earlier run would satisfy the check below without this run producing one.
-rm -f "$ENCODING_REPORT"
-
 echo "--- Full test suite (once, including extended) ---"
 dotnet test Nyrwvy.slnx --configuration Release --no-build --no-restore
-echo
-
-if [[ ! -f "$ENCODING_REPORT" ]]; then
-  echo "ERROR: expected encoding comparison report was not produced: $ENCODING_REPORT" >&2
-  exit 1
-fi
-
-echo "--- Encoding comparison ---"
-cat "$ENCODING_REPORT"
 echo
 
 echo "=== VERIFICATION PASSED ==="

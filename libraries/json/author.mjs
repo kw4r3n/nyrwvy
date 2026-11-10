@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process"
 import { copyFileSync, mkdtempSync, renameSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { hostExchange } from "../host-client.mjs"
+import { hostExchange, hostSend } from "../host-client.mjs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -12,14 +12,11 @@ const executable = process.argv[2] ?? resolve(here, "../../tools/zig/host/bin/ny
 const outDir = resolve(process.argv[3] ?? here)
 // Written to a temp dir and moved over the tracked file only after the host succeeded.
 const work = mkdtempSync(join(tmpdir(), "nyr-json-author-"))
+process.on("exit", () => rmSync(work, { recursive: true, force: true }))
 const snapshot = join(work, "json.json")
 const cli = spawn(executable, ["create", "--snapshot", snapshot], { stdio: ["pipe", "pipe", "inherit"], cwd: resolve(here, "../..") })
 const exchange = hostExchange(cli)
-const send = async request => {
-  const reply = await exchange(request)
-  if (!reply.ok) throw new Error(`${request.op} ${request.displayName ?? request.function ?? ""}: ${JSON.stringify(reply.error)}`)
-  return reply.result
-}
+const send = hostSend(exchange, request => `${request.op} ${request.displayName ?? request.function ?? ""}`)
 const commit = async created => send({ op: "commit", proposalId: created.proposalId })
 const define = async (displayName, parameters, resultType, body, exported = false) => commit(await send({ op: "simulateCreateFunctionByName",
   displayName, exported, requiredEffects: [], resultType, body, parameters: Object.entries(parameters).map(([name, type]) => ({ displayName: name, type })) }))
@@ -210,4 +207,3 @@ if (cli.exitCode !== 0) throw new Error(`host exited (${cli.exitCode ?? cli.sign
 const target = join(outDir, "json.json")
 copyFileSync(snapshot, target + ".tmp")
 renameSync(target + ".tmp", target)
-rmSync(work, { recursive: true, force: true })
