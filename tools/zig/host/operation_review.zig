@@ -121,6 +121,13 @@ pub fn finalizeDiff(r: *query.Request, candidate: Model, accumulated: Value) any
                 if (seen) continue;
             }
             var encoded = value;
+            // Affected nodes that a later operation deleted are not part of the net change.
+            const affected_key: ?[]const u8 = if (m.same(key, "productFieldsRemoved")) "affectedConstructNodeIds" else if (m.same(key, "parametersRemoved")) "affectedCallNodeIds" else if (m.same(key, "unionVariantsRemoved")) "affectedMatchNodeIds" else null;
+            if (affected_key) |affected| {
+                var live: std.ArrayList(Value) = .empty;
+                for (model.arrayItems(value, affected)) |id| if (liveNode(a, candidate, model.utf8(id.string))) try live.append(a, id);
+                encoded = try edit.set(a, value, affected, .{ .array = live.items });
+            }
             if (m.same(key, "capabilityOperationsAdded")) {
                 var source: std.Io.Writer.Allocating = .init(a);
                 try @import("wire.zig").capabilityOperation(&source.writer, model.property(value, "operation").?);
@@ -150,6 +157,10 @@ pub fn finalizeDiff(r: *query.Request, candidate: Model, accumulated: Value) any
     }
     if (!has_changes) return engine.rejected(r, "NoChange", "The transaction has no net semantic change.");
     return .{ .object = fields.items };
+}
+fn liveNode(a: std.mem.Allocator, root: Model, node: []const u8) bool {
+    for (typed_edit.children(root, .functions)) |function| for (model.typedBodyNodes(a, function)) |item| if (typed_edit.hasId(item, node)) return true;
+    return false;
 }
 fn liveCall(a: std.mem.Allocator, root: Model, call: []const u8, parameter: []const u8) bool {
     var found_call = false;

@@ -190,6 +190,16 @@ module ProductFieldEvolutionTests =
         | Error error -> failwithf "Reopen failed: %A" error
 
     [<Fact>]
+    let ``Product field removal omits constructs that a later deletion removed from the diff`` () =
+        let added = published (workspace (fixture ())) (simulate (workspace (fixture ())) (AgentOperationIntent.AddProductField(intent plans)))
+        let fieldId = (newField (AgentWorkspace.snapshotForStructuralEditing added)).Id
+        match AgentWorkflow.simulate added [ AgentOperationIntent.RemoveProductField fieldId; AgentOperationIntent.DeleteFunction directId ] with
+        | Ok proposal ->
+            let removed = List.exactlyOne (AgentChangeProposal.review proposal).ResultingChange.Diff.ProductFieldsRemoved
+            Assert.Equal<GraphNodeId list>([ falseProductId; trueProductId ] |> List.sortBy StableId.value, removed.AffectedConstructNodeIds)
+        | Error error -> failwithf "Unexpected simulation error: %A" error
+
+    [<Fact>]
     let ``Product field deletion rejects live accesses and invalid field identities`` () =
         let initial = fixture ()
         let productInput: SemanticParameter =
@@ -287,17 +297,9 @@ Console.WriteLine(NyFunctions.{nested}("second").{field});
 """
             File.WriteAllText(Path.Combine(temp, "Program.cs"), program)
             let run args =
-                let start = ProcessStartInfo("dotnet")
-                start.WorkingDirectory <- temp
-                start.RedirectStandardOutput <- true
-                start.RedirectStandardError <- true
-                for arg in args do start.ArgumentList.Add(arg)
-                use child = Process.Start(start)
-                let output = child.StandardOutput.ReadToEndAsync()
-                let errors = child.StandardError.ReadToEndAsync()
-                child.WaitForExit()
-                if child.ExitCode <> 0 then failwithf "dotnet %A failed: %s\n%s" args output.Result errors.Result
-                output.Result
+                let code, output, errors = Dotnet.run temp args
+                if code <> 0 then failwithf "dotnet %A failed: %s\n%s" args output errors
+                output
             run [ "build"; "Generated.csproj"; "-v:q" ] |> ignore
             let output = run [ Path.Combine(temp, "bin", "Debug", "net10.0", "Generated.dll") ]
             Assert.Equal("first\nsecond", output.Replace("\r\n", "\n").Trim())

@@ -266,17 +266,9 @@ module ListFoldTests =
                 $"Console.WriteLine({digitCall}(NyList<long>.Create(1L, 2L, 3L)));\n" +
                 $"Console.WriteLine({digitCall}(NyList<long>.Empty()));\n")
             let start args =
-                let info = ProcessStartInfo("dotnet")
-                info.WorkingDirectory <- tempRoot
-                info.RedirectStandardOutput <- true
-                info.RedirectStandardError <- true
-                for arg in args do info.ArgumentList.Add(arg)
-                use child = Process.Start(info)
-                let stdout = child.StandardOutput.ReadToEndAsync()
-                let stderr = child.StandardError.ReadToEndAsync()
-                child.WaitForExit()
-                if child.ExitCode <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout.Result stderr.Result
-                stdout.Result
+                let code, stdout, stderr = Dotnet.run tempRoot args
+                if code <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout stderr
+                stdout
             start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
             let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
             Assert.Equal("True\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\n123\n0", output.Replace("\r\n", "\n").Trim())
@@ -316,17 +308,9 @@ module ListFoldTests =
                 |> String.concat "\n"
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), program)
             let start args =
-                let info = ProcessStartInfo("dotnet")
-                info.WorkingDirectory <- tempRoot
-                info.RedirectStandardOutput <- true
-                info.RedirectStandardError <- true
-                for arg in args do info.ArgumentList.Add(arg)
-                use child = Process.Start(info)
-                let stdout = child.StandardOutput.ReadToEndAsync()
-                let stderr = child.StandardError.ReadToEndAsync()
-                child.WaitForExit()
-                if child.ExitCode <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout.Result stderr.Result
-                stdout.Result
+                let code, stdout, stderr = Dotnet.run tempRoot args
+                if code <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout stderr
+                stdout
             start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
             let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
             Assert.Equal("<none>\n<none>\nfirst\nsecond\nthird\n<none>", output.Replace("\r\n", "\n").Trim())
@@ -365,17 +349,9 @@ module ListFoldTests =
                 |> String.concat "\n"
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), program)
             let start args =
-                let info = ProcessStartInfo("dotnet")
-                info.WorkingDirectory <- tempRoot
-                info.RedirectStandardOutput <- true
-                info.RedirectStandardError <- true
-                for arg in args do info.ArgumentList.Add(arg)
-                use child = Process.Start(info)
-                let stdout = child.StandardOutput.ReadToEndAsync()
-                let stderr = child.StandardError.ReadToEndAsync()
-                child.WaitForExit()
-                if child.ExitCode <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout.Result stderr.Result
-                stdout.Result
+                let code, stdout, stderr = Dotnet.run tempRoot args
+                if code <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout stderr
+                stdout
             start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
             let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
             Assert.Equal("first\n<none>\n<none>\nother", output.Replace("\r\n", "\n").Trim())

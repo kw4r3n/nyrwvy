@@ -90,3 +90,10 @@ module ViewerExportTests =
                 let code, _, errors = export [ "--input"; app; "--output"; output ]
                 Assert.True((code = 2), errors)
                 Assert.Equal<byte[] option>(before, (if File.Exists output then Some(File.ReadAllBytes output) else None)))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``focus rejects a blank path without a stack trace`` () =
+        for args in [ [ "--input"; "" ]; [ "--input"; "app.json"; "--output"; "" ] ] do
+            let code, _, errors = export args
+            Assert.True((code = 2), errors)
+            Assert.Contains("missing its value", errors)
