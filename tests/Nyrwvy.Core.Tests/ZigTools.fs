@@ -25,9 +25,10 @@ module internal BoundedOutput =
 module internal ZigTools =
     /// Runs a process and returns its exit code with bounded output; timeouts and I/O failures are
     /// errors. `phase` names the timed step in the timeout diagnostic.
-    let launch (executable: string) (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
+    let launchWith (environment: (string * string) list) (executable: string) (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
         try
             let info = ProcessStartInfo(executable)
+            for key, value in environment do info.Environment[key] <- value
             info.WorkingDirectory <- workingDirectory
             info.RedirectStandardInput <- true
             info.RedirectStandardOutput <- true
@@ -63,6 +64,8 @@ module internal ZigTools =
         | :? IOException as error -> Error("RunIoFailure", error.Message)
         | :? UnauthorizedAccessException as error -> Error("RunIoFailure", error.Message)
         | :? AggregateException as error -> Error("RunIoFailure", error.Message)
+
+    let launch executable phase workingDirectory args timeoutMs = launchWith [] executable phase workingDirectory args timeoutMs
 
     let processFailure (output: string) (errors: string) =
         let details = output + "\n" + errors
@@ -137,6 +140,14 @@ module internal ZigTools =
             Path.GetRelativePath(folder, file) + "\u0000" + contents)
         |> String.concat "\u0000"
 
+    /// The selected compiler's `zig version`, part of each build key so a Zig upgrade rebuilds; empty
+    /// when it cannot run (the build then reports the failure).
+    let private zigVersion =
+        lazy (
+            match launch (executable ()) "Zig version" directory.Value [ "version" ] 30000 with
+            | Ok(0, output, _) -> output.Trim()
+            | _ -> "")
+
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,
     /// keyed by a hash of every file in its directory and in the directories it imports.
     let tool (name: string) =
@@ -167,7 +178,7 @@ module internal ZigTools =
                     let roots = if OperatingSystem.IsMacOS() then "-lc" :: moduleRoots else moduleRoots
                     // The build options are part of the key, so a build made with other options is not reused.
                     let options = String.Join(" ", roots |> List.map (fun arg -> if arg.EndsWith ".zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
-                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options)).Substring(0, 32))
+                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options + "\u0000" + zigVersion.Value)).Substring(0, 32))
                     let built = Path.Combine(target, name + (if OperatingSystem.IsWindows() then ".exe" else ""))
                     let result =
                         if File.Exists built then Ok()
@@ -192,3 +203,12 @@ module internal ZigTools =
                 with
                 | :? IOException as error -> Error("RunIoFailure", error.Message)
                 | :? UnauthorizedAccessException as error -> Error("RunIoFailure", error.Message))
+
+/// `dotnet` for the tests that build and run generated C#: bounded like `ZigTools.launch`, so a hung
+/// build or program is killed with its process tree instead of hanging the suite.
+module internal Dotnet =
+    /// The exit code, standard output and standard error; a start failure or timeout fails the test.
+    let run (workingDirectory: string) (arguments: string list) : int * string * string =
+        match ZigTools.launchWith [ "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1"; "DOTNET_NOLOGO", "1" ] "dotnet" ("dotnet " + String.concat " " arguments) workingDirectory arguments 600000 with
+        | Ok result -> result
+        | Error(code, message) -> failwith $"{code}: {message}"

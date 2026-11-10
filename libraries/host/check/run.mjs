@@ -2,8 +2,8 @@
 // Program.cs, which calls every host class and a Nyrwvy function driving a pty. Linux, needs dotnet and cat.
 // Usage: node libraries/host/check/run.mjs [<host executable>] (default: the Zig host, `npm run build:host`)
 import { spawn, spawnSync } from "node:child_process"
-import { hostExchange } from "../../host-client.mjs"
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { hostExchange, hostSend } from "../../host-client.mjs"
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,15 +12,12 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../../..")
 const executable = process.argv[2] ?? join(repo, "tools/zig/host/bin/nyrwvy-host")
 const work = mkdtempSync(join(tmpdir(), "nyr-host-check-"))
+process.on("exit", () => rmSync(work, { recursive: true, force: true }))
 copyFileSync(join(here, "../host.json"), join(work, "host.json"))
 
 const cli = spawn(executable, ["create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"] })
 const exchange = hostExchange(cli)
-const send = async request => {
-  const reply = await exchange(request)
-  if (!reply.ok) throw new Error(`${request.op}: ${JSON.stringify(reply.error)}`)
-  return reply.result
-}
+const send = hostSend(exchange)
 const str = { kind: "primitive", primitive: "string" }
 const P = name => ({ kind: "parameter", name }), R = name => ({ kind: "patternReference", name })
 const invoke = (capabilityValue, capability, operation, args = {}) => ({ kind: "capabilityInvoke", capabilityValue, capability, operation,

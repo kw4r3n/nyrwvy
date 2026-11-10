@@ -2,7 +2,7 @@
 // host.zig.json, and calls its exports from a Zig test with a checking allocator. Linux, needs zig and sh.
 // Usage: node libraries/host/check/run-zig.mjs [<host executable>] (default: the Zig host, `npm run build:host`)
 import { spawn, spawnSync } from "node:child_process"
-import { hostExchange } from "../../host-client.mjs"
+import { hostExchange, hostSend } from "../../host-client.mjs"
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -12,6 +12,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../../..")
 const executable = process.argv[2] ?? join(repo, "tools/zig/host/bin/nyrwvy-host")
 const work = mkdtempSync(join(tmpdir(), "nyr-host-zig-check-"))
+process.on("exit", () => rmSync(work, { recursive: true, force: true }))
 for (const file of ["host.json", "host.zig", "host.zig.json"]) copyFileSync(join(here, "..", file), join(work, file))
 const snapshot = join(work, "check.json")
 writeFileSync(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], zigTables: ["host.zig.json"],
@@ -20,11 +21,7 @@ writeFileSync(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"],
 
 const cli = spawn(executable, ["create", "--snapshot", snapshot, "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
 const exchange = hostExchange(cli)
-const send = async request => {
-  const reply = await exchange(request)
-  if (!reply.ok) throw new Error(`${request.op}: ${JSON.stringify(reply.error)}`)
-  return reply.result
-}
+const send = hostSend(exchange)
 const str = { kind: "primitive", primitive: "string" }
 const int = { kind: "primitive", primitive: "int64" }
 const P = name => ({ kind: "parameter", name })
@@ -213,5 +210,4 @@ for (const step of steps) {
   status = run.status ?? 1
   if (status !== 0) break
 }
-rmSync(work, { recursive: true, force: true })
 process.exit(status)

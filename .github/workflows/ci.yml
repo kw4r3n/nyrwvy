@@ -141,12 +141,12 @@ jobs:
         with:
           version: '0.17.0'
       - run: npm ci --no-audit --no-fund
-      - name: Prime the standalone C# compiler packages
-        run: dotnet build tools/zig/host/csharp/Compiler.csproj --configuration Release
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: tools/zig/host/bin
           key: zig-host-${{ runner.os }}-${{ hashFiles('tools/zig/**', 'src/Nyrwvy.Viewer/**', 'mise.toml', 'scripts/build-zig-host.mjs') }}
+      - name: Prime the standalone C# compiler packages
+        run: dotnet build tools/zig/host/csharp/Compiler.csproj --configuration Release
       - run: npm run build:host
       - run: npm run test:host
       - name: Test native process lifetime

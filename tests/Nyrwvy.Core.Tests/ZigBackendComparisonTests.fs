@@ -199,6 +199,17 @@ module ZigBackendComparisonTests =
               (bind create (bind (startOn "loggedPark" 1 0) (bind (startOn "loggedPark" 2 1) (bind (startOn "loggedPark" 3 2) (bind (startOn "loggedPark" 4 3)
                   (bind (caught (value 4) (lit 0)) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 4; 3; 2; 1 ]},"mode":"all"}}""" (ok (value 0)))))))))
           scoped "unwindInOrder" waited "unwindInOrderBody"
+          // An inner body throws while its scope's task waits on an outer task parked on a cell the outer body
+          // completes only later: closing the inner scope deadlocks, and the body's failure must still win.
+          let taskType = generic "task" [ outcome ]
+          effectful "awaitTask" [ "svc", svcType; "t0", taskType; "n", int64Type ] outcome
+              (bind $"""{{"kind":"taskWait","tasks":{{"kind":"listConstruct","itemType":{taskType},"items":[{p "t0"}]}},"mode":"all"}}""" (ok (p "n")))
+          effectful "throwInnerBody" [ "svc", svcType; "t0", taskType; "scope", scopeType ] outcome
+              (bind $"""{{"kind":"taskStart","scope":{p "scope"},"worker":"awaitTask","item":{lit 1},"context":[{{"parameter":"svc","value":{p "svc"}}},{{"parameter":"t0","value":{p "t0"}}}]}}""" (bind (work (lit 1)) (ok (lit 0))))
+          inScope "throwOuterBody" outcome
+              (bind create (bind (startOn "parked" 1 0) (bind $"""{{"kind":"taskScope","body":"throwInnerBody","context":[{{"parameter":"svc","value":{p "svc"}}},{{"parameter":"t0","value":{value 0}}}]}}"""
+                  (bind $"""{{"kind":"oneShotComplete","cell":{value 2},"value":{lit 5}}}""" (ok (lit 0))))))
+          scoped "throwInScope" outcome "throwOuterBody"
           inScope "failWaitBody" waited (bind (start "job" 1) (bind $"""{{"kind":"taskWait","tasks":{tasks [ 0 ]},"mode":"all"}}""" (ok (value 0))))
           scoped "failWait" waited "failWaitBody"
           inScope "failCloseBody" outcome (bind (start "job" 1) (bind (start "job" 2) (ok (lit 0))))
@@ -450,6 +461,7 @@ module ZigBackendComparisonTests =
           false, "manyStuck", [ fake [] [] ]
           false, "manyStuckCancel", [ fake [] [] ]
           true, "unwindInOrder", [ fake [ for n in 1 .. 5 -> response (10 * n) None ] [] ]
+          false, "throwInScope", [ fake [ throw "boom" ] [] ]
           false, "failWait", [ fake [ throws ] [] ]
           false, "failClose", [ fake [ response 1 (Some 5); throws ] [] ]
           false, "failClose", [ fake [ throws; response 2 None ] [] ]

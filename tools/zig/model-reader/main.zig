@@ -1950,6 +1950,102 @@ pub fn typedReferencesTo(allocator: std.mem.Allocator, root: Model, kind: []cons
     return out.items;
 }
 
+/// One reference `typedReferencesTo` reports, with the subject it refers to: `kind` is "function",
+/// "type", "capability" or "capabilityOperation".
+pub const ReferenceEdge = struct { reference: Reference, kind: []const u8, id: Str };
+
+/// The references `typedReferencesTo` finds for every function, type, capability and capability
+/// operation subject, in one walk of the model. Targets may be undeclared IDs, which callers drop;
+/// edges are neither sorted nor deduplicated.
+pub fn typedReferenceEdges(allocator: std.mem.Allocator, root: Model) []const ReferenceEdge {
+    a = allocator;
+    var out: List(ReferenceEdge) = .empty;
+    // The member IDs whose use refers to their owning type or capability.
+    var field_type: std.StringHashMapUnmanaged(Str) = .empty;
+    var variant_type: std.StringHashMapUnmanaged(Str) = .empty;
+    var operation_capability: std.StringHashMapUnmanaged(Str) = .empty;
+    const bytes = std.mem.sliceAsBytes;
+    for (root.types()) |item| {
+        for (item.fields()) |field| field_type.put(a, bytes(field.id()), item.id()) catch oom();
+        for (item.variants()) |variant| {
+            variant_type.put(a, bytes(variant.id()), item.id()) catch oom();
+            for (variant.fields()) |field| field_type.put(a, bytes(field.id()), item.id()) catch oom();
+        }
+    }
+    for (root.capabilities()) |item| for (item.operations()) |operation| operation_capability.put(a, bytes(operation.id()), item.id()) catch oom();
+    const Emit = struct {
+        list: *List(ReferenceEdge),
+        reference: Reference,
+        fn to(self: @This(), kind: []const u8, id: Str) void {
+            self.list.append(a, .{ .reference = self.reference, .kind = kind, .id = id }) catch oom();
+        }
+        fn mentions(self: @This(), t: TypeRef) void {
+            if (t.kind == .named) self.to("type", t.name);
+            if (t.kind == .capability) self.to("capability", t.name);
+            for (t.args) |arg| self.mentions(arg);
+            if (t.result) |result| self.mentions(result.*);
+        }
+        fn owned(self: @This(), map: std.StringHashMapUnmanaged(Str), kind: []const u8, id: Str) void {
+            if (map.get(std.mem.sliceAsBytes(id))) |owner| self.to(kind, owner);
+        }
+        fn operation(self: @This(), map: std.StringHashMapUnmanaged(Str), id: Str) void {
+            self.to("capabilityOperation", id);
+            self.owned(map, "capability", id);
+        }
+    };
+    for (root.functions()) |function| {
+        const owner = semanticDecoded(function.id());
+        const signature: Emit = .{ .list = &out, .reference = .{ .owner = .function, .owner_id = owner, .site = .{ .tag = .result_type } } };
+        for (function.parameters()) |parameter| signature.mentions(typeRefOf(parameter.declaredType()));
+        signature.mentions(typeRefOf(function.resultType()));
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
+        for (nodes.items) |node| {
+            const e: Emit = .{ .list = &out, .reference = .{ .owner = .function, .owner_id = owner, .site = .{ .tag = .node, .a = semanticDecoded(node.id()) } } };
+            for (functionReferences(node)) |reference| e.to("function", reference.function_id);
+            var payload: List(TypeRef) = .empty;
+            payloadTypeRefs(node, &payload);
+            for (payload.items) |t| e.mentions(t);
+            const node_kind = node.kind();
+            if (isName(node_kind, "productConstruct") or isName(node_kind, "unionConstruct") or isName(node_kind, "productUpdate"))
+                for (node.fields()) |binding| e.owned(field_type, "type", binding.reference("targetFieldId"));
+            if (isName(node_kind, "productConstruct") or isName(node_kind, "productUpdate")) {
+                if (node.optionalReference("typeId")) |type_id| e.to("type", type_id);
+            } else if (isName(node_kind, "unionConstruct")) {
+                e.owned(variant_type, "type", node.reference("variantId"));
+            } else if (isName(node_kind, "fieldAccess")) {
+                e.owned(field_type, "type", node.reference("fieldId"));
+            } else if (isName(node_kind, "matchUnion")) {
+                for (node.arms()) |arm| {
+                    if (arm.optionalReference("variantId")) |single| e.owned(variant_type, "type", single);
+                    for (arm.variantIds()) |variant| e.owned(variant_type, "type", variant.literal());
+                    for (arm.fieldBindings()) |binding| e.owned(field_type, "type", binding.reference("sourceFieldId"));
+                }
+            } else if (isName(node_kind, "capabilityConstruct")) {
+                e.to("capability", node.reference("capabilityId"));
+                for (node.implementations()) |implementation| e.operation(operation_capability, implementation.reference("operationId"));
+            } else if (isName(node_kind, "capabilityInvoke")) {
+                e.operation(operation_capability, node.reference("operationId"));
+            } else if (isName(node_kind, "useResource")) {
+                e.operation(operation_capability, node.reference("releaseOperationId"));
+            }
+            for (nestedScopes(node)) |scope| for (scope.bindings) |binding| e.mentions(typeRefOf(binding.declaredType()));
+        }
+    }
+    for (root.types()) |item| {
+        const e: Emit = .{ .list = &out, .reference = .{ .owner = .type, .owner_id = semanticDecoded(item.id()), .site = .{ .tag = .field_type } } };
+        for (item.fields()) |field| e.mentions(typeRefOf(field.declaredType()));
+        for (item.variants()) |variant| for (variant.fields()) |field| e.mentions(typeRefOf(field.declaredType()));
+    }
+    for (root.capabilities()) |item| for (item.operations()) |operation| {
+        const e: Emit = .{ .list = &out, .reference = .{ .owner = .capability, .owner_id = semanticDecoded(item.id()), .site = .{ .tag = .operation_result_type, .a = semanticDecoded(operation.id()) } } };
+        for (operation.parameters()) |parameter| e.mentions(typeRefOf(parameter.declaredType()));
+        e.mentions(typeRefOf(operation.resultType()));
+        if (operation.failureType()) |failure| e.mentions(typeRefOf(failure));
+    };
+    return out.items;
+}
+
 /// `ValueGraph.collectNodes` of a function body.
 pub fn typedBodyNodes(allocator: std.mem.Allocator, function: Model) []const Model {
     a = allocator;

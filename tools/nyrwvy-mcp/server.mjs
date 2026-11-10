@@ -88,8 +88,9 @@ if (values.help) {
   }
   const finish = () => { void shutdown().catch(error => { console.error(error); process.exitCode = 1 }) }
   process.stdin.once("end", finish)
-  process.once("SIGINT", finish)
-  process.once("SIGTERM", finish)
+  // The first signal closes the host; a repeated one exits even if that close hangs.
+  let signaled = false
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => { if (signaled) process.exit(130); signaled = true; finish() })
   // The SDK owns legacy/modern negotiation. Probing must not open a graph.
   handle = await serveStdio(createServer, { onerror: error => console.error(error) })
   if (lifetime.signal.aborted) await handle.close()

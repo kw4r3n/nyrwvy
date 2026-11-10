@@ -196,24 +196,6 @@ module Float64Tests =
         let _, execution = lower fixture
         CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
 
-    let private runDotnet (workingDirectory: string) (arguments: string list) =
-        let startInfo = ProcessStartInfo("dotnet")
-        startInfo.WorkingDirectory <- workingDirectory
-        startInfo.UseShellExecute <- false
-        startInfo.RedirectStandardOutput <- true
-        startInfo.RedirectStandardError <- true
-        startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] <- "1"
-        startInfo.Environment["DOTNET_NOLOGO"] <- "1"
-        for argument in arguments do
-            startInfo.ArgumentList.Add(argument)
-
-        use childProcess = Process.Start(startInfo)
-        if isNull childProcess then failwith "Failed to start dotnet process."
-        let stdoutTask = childProcess.StandardOutput.ReadToEndAsync()
-        let stderrTask = childProcess.StandardError.ReadToEndAsync()
-        childProcess.WaitForExit()
-        childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
-
     let private replaceNodeKind functionId targetNodeId replacementKind (snapshot: Snapshot) =
         let functions =
             snapshot.Functions
@@ -431,12 +413,12 @@ module Float64Tests =
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
 
             let buildExit, buildOut, buildErr =
-                runDotnet tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
+                Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
             if buildExit <> 0 then
                 failwithf "Generated Float64 C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
 
             let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = runDotnet tempRoot [ assemblyPath ]
+            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
             if runExit <> 0 then
                 failwithf "Generated Float64 C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
 

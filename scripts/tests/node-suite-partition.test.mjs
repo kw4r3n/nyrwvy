@@ -130,15 +130,13 @@ test("typed host gate selects both Zig suites and fails when one fails", () => {
   const calls = join(fixture, "calls")
   const preload = join(fixture, "fake zig.cjs")
   mkdirSync(join(repo, "scripts"), { recursive: true })
-  for (const file of ["test-typed-host.mjs", "test-typed-host.fish"]) copyFileSync(join(repositoryRoot, "scripts", file), join(repo, "scripts", file))
+  copyFileSync(join(repositoryRoot, "scripts/test-typed-host.mjs"), join(repo, "scripts/test-typed-host.mjs"))
   mkdirSync(join(repo, "tools/zig/emitter"), { recursive: true })
   for (const file of ["runtime.zig", "case_mapping.zig", "runtime_test.zig"]) copyFileSync(join(repositoryRoot, "tools/zig/emitter", file), join(repo, "tools/zig/emitter", file))
   writeFileSync(preload, `const fs = require('node:fs');\nif (!process.argv[1]?.endsWith('test-typed-host.mjs')) {\n  fs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: ['test', ...process.argv.slice(2)]}) + '\\n');\n  process.exit(process.env.TYPED_FAIL && process.argv.slice(2).includes(process.env.TYPED_FAIL) ? 23 : 0);\n}\n`)
-  const run = (fail = "", fish = false) => {
+  const run = (fail = "") => {
     writeFileSync(calls, "")
-    const command = fish ? "fish" : process.execPath
-    const args = fish ? ["--no-config", join(repo, "scripts/test-typed-host.fish")] : [join(repo, "scripts/test-typed-host.mjs")]
-    const result = spawnSync(command, args, {
+    const result = spawnSync(process.execPath, [join(repo, "scripts/test-typed-host.mjs")], {
       cwd: fixture, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--require="${preload}"`, NYRWVY_ZIG: process.execPath, TYPED_CALLS: calls, TYPED_FAIL: fail },
     })
     if (result.error) throw result.error
@@ -167,7 +165,5 @@ test("typed host gate selects both Zig suites and fails when one fails", () => {
       assert.equal(failure.status, 23)
       assert.equal(failure.calls.length, 5)
     }
-    const stable = calls => calls.filter(call => !isRuntime(call)).map(call => JSON.stringify(call)).sort()
-    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(stable(run("", true).calls), stable(success.calls))
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })

@@ -2,7 +2,7 @@
 // with the expected values. Usage: node libraries/json/check/run.mjs [<host executable>]
 import { spawn } from "node:child_process"
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs"
-import { hostExchange } from "../../host-client.mjs"
+import { hostExchange, hostSend } from "../../host-client.mjs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -11,14 +11,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../../..")
 const executable = process.argv[2] ?? join(repo, "tools/zig/host/bin/nyrwvy-host")
 const work = mkdtempSync(join(tmpdir(), "nyr-json-check-"))
+process.on("exit", () => rmSync(work, { recursive: true, force: true }))
 copyFileSync(join(here, "../json.json"), join(work, "json.json"))
 const cli = spawn(executable, ["create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "json.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
 const exchange = hostExchange(cli)
-const send = async request => {
-  const reply = await exchange(request)
-  if (!reply.ok) throw new Error(`${request.op} ${request.displayName ?? ""}: ${JSON.stringify(reply.error)}`)
-  return reply.result
-}
+const send = hostSend(exchange, request => `${request.op} ${request.displayName ?? ""}`)
 const string = { kind: "primitive", primitive: "string" }
 const int64 = { kind: "primitive", primitive: "int64" }
 const P = name => ({ kind: "parameter", name })
@@ -114,6 +111,5 @@ for (const backend of ["zig", "csharp"]) for (const [functionName, args, expecte
   }
 }
 cli.stdin.end()
-rmSync(work, { recursive: true, force: true })
 if (failed) process.exit(1)
 console.log(`${cases.length * 2} calls agree`)

@@ -413,7 +413,7 @@ fn replaceDependencyPairUsing(a: std.mem.Allocator, next_source: []const u8, nex
     const previous = try std.mem.concat(a, u8, &.{ sidecar, ".previous" });
     const source = readText(a, snapshot_path) catch |err| return .{ .code = "IoFailure", .message = @errorName(err) };
     // The backup and the rollback keep the sidecar's exact bytes (a BOM, ill-formed UTF-8).
-    const manifest_bytes = std.Io.Dir.cwd().readFileAlloc(host_io, sidecar, a, .unlimited) catch |err| return .{ .code = "IoFailure", .message = @errorName(err) };
+    const manifest_bytes = std.Io.Dir.cwd().readFileAlloc(host_io, sidecar, a, .limited(max_text_bytes)) catch |err| return .{ .code = "IoFailure", .message = @errorName(err) };
     const manifest = try decodeText(a, manifest_bytes);
     if (!std.mem.eql(u8, source, persisted_source) or !std.mem.eql(u8, manifest, dependency_manifest.?)) return .{ .code = "ExternalModification", .message = "The snapshot file changed outside this session." };
     if (try replace(a, previous, manifest_bytes)) |problem| return problem;
@@ -717,7 +717,7 @@ fn loadUsing(io: std.Io, a: std.mem.Allocator, path: []const u8, source_override
     // settles; with no live writer the failure is real and is reported at once.
     var retries: u16 = 0;
     while (true) {
-        const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
+        const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .limited(max_text_bytes)) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
         // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
         const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
         const source: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)});

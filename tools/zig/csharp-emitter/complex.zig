@@ -131,7 +131,8 @@ pub fn emit(w: *Writer, c: Context, fn_: Value, i: Value) anyerror!void {
         try line(w, &.{ "var ", scope, " = new NyTaskScope(NyRuntime.Cancellation.Value);" });
         try line(w, &.{ rt, " ", body, ";" });
         try line(w, &.{ "try { ", body, " = ", try f.invocation(c, b.str(i, "bodyFunctionId"), context, &.{scope}), "; }" });
-        try line(w, &.{ "catch { ", scope, ".Close(bodyThrew: true); throw; }" });
+        // The body's failure wins over one from closing (e.g. a deadlock while joining), as in Zig.
+        try line(w, &.{ "catch { try { ", scope, ".Close(bodyThrew: true); } catch { } throw; }" });
         try line(w, &.{ scope, ".Close(bodyThrew: false);" });
         try line(w, &.{ target, " = ", body, ";" });
         w.pop();

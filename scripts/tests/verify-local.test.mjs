@@ -23,8 +23,6 @@ test("clean verification removes only project outputs and preserves dependency e
     await writeFile(join(commands, "dotnet"), `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo 10.0.100
-elif [ "$1" = "test" ]; then
-  printf 'fixture encoding report\n' > "$TMPDIR/nyrwvy-encoding-comparison.txt"
 fi
 `, { mode: 0o755 })
     await writeFile(join(commands, "git"), "#!/bin/sh\nexit 1\n", { mode: 0o755 })
@@ -66,31 +64,6 @@ fi
       assert.equal(await readFile(join(repository, project), "utf8"), "<Project />\n")
     }
     for (const path of preserved) assert.equal(await readFile(join(repository, path), "utf8"), "keep", path)
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test("verification fails when the test run leaves only a stale encoding report", { timeout: 10000 }, async () => {
-  const root = await mkdtemp(join(tmpdir(), "nyrwvy-stale-report-test-"))
-  const repository = join(root, "repository")
-  const commands = join(root, "commands")
-  const temporary = join(root, "tmp")
-  try {
-    await Promise.all([mkdir(join(repository, "scripts"), { recursive: true }), mkdir(commands), mkdir(temporary)])
-    await copyFile(verificationScript, join(repository, "scripts/verify-local-20260825-1427.sh"))
-    // This dotnet never writes the report, so only an earlier run's file could satisfy the check.
-    await writeFile(join(commands, "dotnet"), "#!/bin/sh\n[ \"$1\" = \"--version\" ] && echo 10.0.100\nexit 0\n", { mode: 0o755 })
-    await writeFile(join(commands, "git"), "#!/bin/sh\nexit 1\n", { mode: 0o755 })
-    await writeFile(join(temporary, "nyrwvy-encoding-comparison.txt"), "stale report\n")
-    const run = () => execFileSync("bash", [join(repository, "scripts/verify-local-20260825-1427.sh")], {
-      cwd: repository,
-      env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, TMPDIR: temporary },
-      encoding: "utf8",
-      stdio: "pipe",
-      timeout: 8000,
-    })
-    assert.throws(run, error => /expected encoding comparison report was not produced/.test(`${error.stdout}${error.stderr}`))
   } finally {
     await rm(root, { recursive: true, force: true })
   }

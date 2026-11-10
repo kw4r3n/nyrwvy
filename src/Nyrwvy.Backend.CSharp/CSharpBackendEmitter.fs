@@ -1281,7 +1281,7 @@ module CSharpBackend =
             writer.Line("var " + scope + " = new NyTaskScope(NyRuntime.Cancellation.Value);")
             writer.Line(formatType instruction.Result.Type + " " + body + ";")
             writer.Line("try { " + body + " = " + renderInvocation parametersOf bodyFunctionId context [ scope ] + "; }")
-            writer.Line("catch { " + scope + ".Close(bodyThrew: true); throw; }")
+            writer.Line("catch { try { " + scope + ".Close(bodyThrew: true); } catch { } throw; }")
             writer.Line(scope + ".Close(bodyThrew: false);")
             writer.Line(target + " = " + body + ";")
             writer.Pop()

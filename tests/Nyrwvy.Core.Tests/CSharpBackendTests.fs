@@ -45,26 +45,6 @@ module CSharpBackendTests =
             | Error error -> failwithf "Unexpected C# backend error: %A" error
         fixture, execution, artifact
 
-    let internal runDotnet (workingDirectory: string) (arguments: string list) =
-        let startInfo = ProcessStartInfo("dotnet")
-        startInfo.WorkingDirectory <- workingDirectory
-        startInfo.UseShellExecute <- false
-        startInfo.RedirectStandardOutput <- true
-        startInfo.RedirectStandardError <- true
-        startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] <- "1"
-        startInfo.Environment["DOTNET_NOLOGO"] <- "1"
-        for argument in arguments do
-            startInfo.ArgumentList.Add(argument)
-
-        use childProcess = Process.Start(startInfo)
-        if isNull childProcess then
-            failwith "Failed to start dotnet process."
-
-        let stdoutTask = childProcess.StandardOutput.ReadToEndAsync()
-        let stderrTask = childProcess.StandardError.ReadToEndAsync()
-        childProcess.WaitForExit()
-        childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
-
     let private buildHarness (fixture: MilestoneZeroFixture) =
         let rawTypeId = StableId.createForTesting<TypeTag> "type-raw-user-input"
         let rawNameFieldId = StableId.createForTesting<FieldTag> "field-raw-name"
@@ -134,9 +114,9 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
             File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), project)
             File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
-            let buildExit, buildOut, buildErr = runDotnet tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
+            let buildExit, buildOut, buildErr = Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
             Assert.True((buildExit = 0), $"Generated Bind build failed:\n{buildOut}\n{buildErr}\n{artifact.Source}")
-            let runExit, runOut, runErr = runDotnet tempRoot [ Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll") ]
+            let runExit, runOut, runErr = Dotnet.run tempRoot [ Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll") ]
             Assert.True((runExit = 0), $"Generated Bind execution failed:\n{runOut}\n{runErr}")
             Assert.Equal("acquire,message,payload,second\nacquire,second,message,payload\nskipped", runOut.Replace("\r\n", "\n").Trim())
         finally
@@ -401,12 +381,12 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), buildHarness fixture)
 
             let buildExit, buildOut, buildErr =
-                runDotnet tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
+                Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
             if buildExit <> 0 then
                 failwithf "Generated C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
 
             let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = runDotnet tempRoot [ assemblyPath ]
+            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
             if runExit <> 0 then
                 failwithf "Generated C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
 

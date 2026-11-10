@@ -1088,22 +1088,6 @@ fn nyUnique(box: anytype) bool {
     return nyHeader(box).count == 1;
 }
 
-fn nyListAppend(comptime T: type, list: []const T, item: T) []const T {
-    const items = nyAlloc(T, list.len + 1);
-    nyCopyItems(T, items[0..list.len], list);
-    items[list.len] = nyShare(item);
-    return items;
-}
-
-fn nyListConcat(comptime T: type, left: []const T, right: []const T) []const T {
-    if (left.len == 0) return nyShare(right);
-    if (right.len == 0) return nyShare(left);
-    const items = nyAlloc(T, left.len + right.len);
-    nyCopyItems(T, items[0..left.len], left);
-    nyCopyItems(T, items[left.len..], right);
-    return items;
-}
-
 fn nyListReverse(comptime T: type, list: []const T) []const T {
     const items = nyAlloc(T, list.len);
     for (list, 0..) |item, position| items[list.len - 1 - position] = nyShare(item);
@@ -1127,15 +1111,6 @@ fn nyListSlice(comptime T: type, list: []const T, start: i64, end: i64) []const 
     const from = nyClamp(start, list.len);
     const to = nyClamp(end, list.len);
     return if (to <= from) &.{} else nyListOf(T, list[from..to]);
-}
-
-fn nyListSetAt(comptime T: type, list: []const T, index: i64, item: T) []const T {
-    const at = nyIndex(index, list.len) orelse return nyShare(list);
-    const items = nyAlloc(T, list.len);
-    nyCopyItems(T, items[0..at], list[0..at]);
-    items[at] = nyShare(item);
-    nyCopyItems(T, items[at + 1 ..], list[at + 1 ..]);
-    return items;
 }
 
 /// Insertion that consumes `list` (reused when unique) and borrows `item`.

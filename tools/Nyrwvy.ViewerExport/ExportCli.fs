@@ -20,7 +20,7 @@ let parseOptions (allowed: Set<string>) (arguments: string list) : Result<Map<st
                 Error $"Unsupported option '{key}'."
             elif Map.containsKey key values then
                 Error $"Duplicate option '{key}'."
-            elif isOption value then
+            elif isOption value || value = "" then
                 Error $"Option '{key}' is missing its value."
             else
                 loop (Map.add key value values) rest
