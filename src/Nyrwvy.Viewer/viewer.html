@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="generator" content="Nyrwvy viewer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-QW9eJs3dMtTDrKXNoWt75snuMi6Iopg8FPhiOe2rhhQ='">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-sgOCu3n8va1RaS7krxDWJUZG2fzPKq521jAU0PygD9A='">
   <title>Nyrwvy viewer</title>
   <style>
     :root {
@@ -71,6 +71,17 @@
     .branch-label { font-size: .84rem; margin-top: .2rem; }
     .graph .branches { margin: .1rem 0 .25rem .35rem; padding-left: .85rem; border-left: 1px solid var(--rule); }
     .changed > .node-line, .node:target > .node-line { background: var(--mark); }
+    [hidden] { display: none !important; }
+    section[id], article[id] { scroll-margin-top: 5.5rem; }
+    .toolbar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; align-items: center; margin: 1.2rem 0 0; padding: .55rem 0; background: var(--paper); border-bottom: 1px solid var(--rule); font-size: .88rem; }
+    .toolbar input[type="search"] { font: inherit; width: 16rem; max-width: 100%; padding: .3rem .55rem; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: .3rem; }
+    .toolbar nav { display: flex; flex-wrap: wrap; gap: .15rem .9rem; }
+    .toolbar kbd { font: .8em var(--mono); padding: 0 .3em; border: 1px solid var(--rule); border-radius: .2rem; }
+    .table-scroll { overflow-x: auto; max-width: 100%; }
+    .name-table code { overflow-wrap: normal; }
+    .name-table td:not(:first-child) { min-width: 9rem; }
+    .name-table td:first-child { white-space: nowrap; }
+    h3 .sig { display: block; margin-top: .15rem; font-weight: 400; font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
     .diagram { overflow-x: auto; max-width: 100%; margin: .5rem 0 .9rem; }
     .diagram svg { display: block; font: 12px var(--mono); }
     .diagram text { fill: var(--ink); }
@@ -89,6 +100,7 @@
       body { padding: 1.25rem 1rem 3rem; }
       .graph .branches { margin-left: .1rem; padding-left: .5rem; }
       table { display: block; overflow-x: auto; }
+      .toolbar { position: static; }
     }
     @media (forced-colors: active) {
       .verdict { border-color: CanvasText; }
@@ -710,7 +722,7 @@ var NyrwvyViewer = (function () {
     var shared = function (id) { return (users.get(id) || 0) >= sharedHelperUsers; };
     pairs = pairs.filter(function (pair) { return !shared(pair[0]) && !shared(pair[1]); });
     pairs.forEach(function (pair) { linked.add(pair[0]); linked.add(pair[1]); });
-    w.line("<section>" + heading(2, "Overview"));
+    w.line("<section id=\"overview\">" + heading(2, "Overview"));
     w.line("<p class=\"muted\">Exported functions only. An arrow from A to B means A calls B, directly or through private functions; a box counts the private functions it reaches. " +
       "Helpers used by " + sharedHelperUsers + " or more exported functions are listed below the diagram, not drawn.</p>");
     var drawn = boxes.filter(function (box) { return linked.has(box.id); });
@@ -1207,62 +1219,70 @@ var NyrwvyViewer = (function () {
       fact(data.effects.length, "effect", "effects") + "</li></ul>");
     emitIds(w, [["Snapshot", "snapshot:" + data.snapshotId]]);
     w.line("</header>");
+    // Filled and wired by the page script: section links, and a name filter over the Calls rows and function sections.
+    w.line("<div class=\"toolbar\" role=\"search\"><label>Find function <input type=\"search\" id=\"fn-filter\" autocomplete=\"off\" spellcheck=\"false\" aria-keyshortcuts=\"/\"></label> " +
+      "<label><input type=\"checkbox\" id=\"fn-exported\"> Exported only</label> <span id=\"fn-count\" class=\"muted\" role=\"status\"></span>" +
+      "<nav aria-label=\"Sections\"></nav><span class=\"muted\">Press <kbd>/</kbd> to search</span></div>");
+    var filterKey = function (fn) { return " data-fn=\"" + html(fn.displayName.toLowerCase()) + "\"" + (fn.exported ? " data-exported" : ""); };
 
     emitOverview(w, ctx, data);
-    w.line("<section>" + heading(2, "Calls"));
+    w.line("<section id=\"calls\">" + heading(2, "Calls"));
     w.line("<p class=\"muted\">Exported functions are the entry points. A private function nobody calls is dead code" +
       (uncalled.length === 0 ? "; there is none." : ": " + fnList(uncalled.map(function (focus) { return focus.function.id; })) + ".") + "</p>");
     if (data.functions.length === 0) w.line("<p>No functions.</p>");
     else {
-      w.line("<table><thead><tr><th scope=\"col\">Function</th><th scope=\"col\">Calls</th><th scope=\"col\">Called by</th></tr></thead><tbody>");
+      w.line("<div class=\"table-scroll\"><table class=\"name-table\"><thead><tr><th scope=\"col\">Function</th><th scope=\"col\">Calls</th><th scope=\"col\">Called by</th></tr></thead><tbody>");
       data.functions.forEach(function (focus) {
         var unique = function (sites, key) { var seen = []; sites.forEach(function (site) { if (seen.indexOf(site[key]) < 0) seen.push(site[key]); }); return seen; };
-        w.line("<tr><td>" + functionRef(ctx, focus.function.id) + (focus.function.exported ? " <span class=\"status\">exported</span>" : "") + "</td><td>" +
+        w.line("<tr" + filterKey(focus.function) + "><td>" + functionRef(ctx, focus.function.id) + (focus.function.exported ? " <span class=\"status\">exported</span>" : "") + "</td><td>" +
           fnList(unique(focus.callees, "calleeFunctionId")) + "</td><td>" + fnList(unique(focus.callers, "callerFunctionId")) + "</td></tr>");
       });
-      w.line("</tbody></table>");
+      w.line("</tbody></table></div>");
     }
     w.line("</section>");
 
-    w.line("<section>" + heading(2, "Type usage"));
+    w.line("<section id=\"type-usage\">" + heading(2, "Type usage"));
     if (data.types.length === 0) w.line("<p>No types.</p>");
     else {
-      w.line("<table><thead><tr><th scope=\"col\">Type</th><th scope=\"col\">Taken by</th><th scope=\"col\">Returned by</th><th scope=\"col\">Constructed in</th><th scope=\"col\">Fields read in</th></tr></thead><tbody>");
+      w.line("<div class=\"table-scroll\"><table class=\"name-table\"><thead><tr><th scope=\"col\">Type</th><th scope=\"col\">Taken by</th><th scope=\"col\">Returned by</th><th scope=\"col\">Constructed in</th><th scope=\"col\">Fields read in</th></tr></thead><tbody>");
       data.types.forEach(function (type) {
         var product = type.typeKind.kind === "product";
         w.line("<tr><td><a href=\"#ty-" + html(type.id) + "\" title=\"" + html("type:" + type.id) + "\">" + html(type.displayName) + "</a> <span class=\"status\">" + (product ? "product" : "union") +
           "</span></td><td>" + fnList(takes.get(type.id)) + "</td><td>" + fnList(returns.get(type.id)) + "</td><td>" + fnList(constructs.get(type.id)) +
           "</td><td>" + (product ? fnList(reads.get(type.id)) : "<span class=\"muted\">n/a</span>") + "</td></tr>");
       });
-      w.line("</tbody></table>");
+      w.line("</tbody></table></div>");
     }
     w.line("</section>");
 
-    w.line("<section>" + heading(2, "Effects and capabilities"));
+    w.line("<section id=\"effects\">" + heading(2, "Effects and capabilities"));
     if (data.effects.length === 0) w.line("<p>No effects.</p>");
     else {
-      w.line("<table><thead><tr><th scope=\"col\">Effect</th><th scope=\"col\">Declared as required by</th><th scope=\"col\">Arises in the body of</th></tr></thead><tbody>");
+      w.line("<div class=\"table-scroll\"><table class=\"name-table\"><thead><tr><th scope=\"col\">Effect</th><th scope=\"col\">Declared as required by</th><th scope=\"col\">Arises in the body of</th></tr></thead><tbody>");
       data.effects.forEach(function (effect) {
         w.line("<tr><td title=\"" + html("effect:" + effect.id) + "\">" + html(effect.displayName) + "</td><td>" + fnList(requires.get(effect.id)) + "</td><td>" + fnList(arises.get(effect.id)) + "</td></tr>");
       });
-      w.line("</tbody></table>");
+      w.line("</tbody></table></div>");
     }
     if (data.capabilities.length === 0) w.line("<p>No capabilities.</p>");
     else {
-      w.line("<table><thead><tr><th scope=\"col\">Capability</th><th scope=\"col\">Operations</th><th scope=\"col\">Taken by</th><th scope=\"col\">Invoked in</th></tr></thead><tbody>");
+      w.line("<div class=\"table-scroll\"><table class=\"name-table\"><thead><tr><th scope=\"col\">Capability</th><th scope=\"col\">Operations</th><th scope=\"col\">Taken by</th><th scope=\"col\">Invoked in</th></tr></thead><tbody>");
       data.capabilities.forEach(function (capability) {
         w.line("<tr><td title=\"" + html("capability:" + capability.id) + "\">" + html(capability.displayName) + "</td><td>" +
           (capability.operations.length === 0 ? "<span class=\"muted\">none</span>" : sortById(capability.operations).map(function (operation) { return html(operation.displayName); }).join(", ")) +
           "</td><td>" + fnList(takesCapability.get(capability.id)) + "</td><td>" + fnList(invokes.get(capability.id)) + "</td></tr>");
       });
-      w.line("</tbody></table>");
+      w.line("</tbody></table></div>");
     }
     w.line("</section>");
 
-    w.line("<section>" + heading(2, "Functions"));
+    w.line("<section id=\"functions\">" + heading(2, "Functions"));
     if (data.functions.length === 0) w.line("<p>No functions.</p>");
     data.functions.forEach(function (focus, index) {
-      w.line("<article id=\"fn" + index + "\">" + heading(3, html(focus.function.displayName) + (focus.function.exported ? " <span class=\"status\">exported</span>" : "")));
+      var fn = focus.function;
+      var signature = "(" + fn.parameters.map(function (parameter) { return parameter.displayName + ": " + typeText(names, parameter.type); }).join(", ") + ") -> " + typeText(names, fn.resultType) +
+        (fn.requiredEffects.length === 0 ? "" : " ! " + fn.requiredEffects.map(function (id) { return nameOf(names, "effect", id); }).join(", "));
+      w.line("<article id=\"fn" + index + "\"" + filterKey(fn) + ">" + heading(3, html(fn.displayName) + (fn.exported ? " <span class=\"status\">exported</span>" : "") + "<code class=\"sig\">" + html(signature) + "</code>"));
       w.line("<details><summary>Body and details</summary>");
       emitFocusBody(w, focus, { top: 3, names: names, prefix: "f" + index, embedded: true, changed: null, functions: anchors });
       w.line("</details></article>");
@@ -1270,7 +1290,7 @@ var NyrwvyViewer = (function () {
     w.line("</section>");
 
     if (data.types.length + data.capabilities.length + data.effects.length > 0) {
-      w.line("<section>" + heading(2, "Declarations"));
+      w.line("<section id=\"declarations\">" + heading(2, "Declarations"));
       if (data.types.length > 0) {
         w.line(heading(3, "Types"));
         data.types.forEach(function (type) { w.line("<div id=\"ty-" + html(type.id) + "\">"); emitTypeEntity(w, names, type); w.line("</div>"); });
@@ -1287,6 +1307,28 @@ var NyrwvyViewer = (function () {
     }
   }
 
+  // The index of nyrwvy-views: every view page in the directory, grouped by the kind its file name starts with.
+  function renderIndex(w, data) {
+    var kinds = [["nyrwvy-program", "Program"], ["nyrwvy-focus-", "Function focus"], ["nyrwvy-change-review-", "Change review"]];
+    var groups = kinds.map(function (kind) { return { title: kind[1], prefix: kind[0], files: [] }; }).concat([{ title: "Other", prefix: "", files: [] }]);
+    data.files.forEach(function (file) {
+      for (var i = 0; i < groups.length; i++) if (file.lastIndexOf(groups[i].prefix, 0) === 0) { groups[i].files.push(file); return; }
+    });
+    w.line("<header><h1>Nyrwvy views</h1><p class=\"muted\">The view pages in this directory, rewritten each time a view is written here.</p></header>");
+    if (data.files.length === 0) w.line("<p>No views yet.</p>");
+    groups.forEach(function (group) {
+      if (group.files.length === 0) return;
+      w.line("<section>" + heading(2, html(group.title) + " <span class=\"status\">" + group.files.length + "</span>") + "<ul>");
+      group.files.forEach(function (file) {
+        var label = file.slice(group.prefix.length).replace(/\.html$/, "") || group.title;
+        // A focus page ends in its function's stable ID, which tells same-named functions apart.
+        var id = /^(.+)-([0-9a-f]{8}-[0-9a-f-]{27})$/.exec(label);
+        w.line("<li><a href=\"" + html(encodeURIComponent(file)) + "\">" + html(id === null ? label : id[1]) + "</a>" + (id === null ? "" : " <span class=\"muted\" title=\"" + html(id[2]) + "\">" + html(id[2].slice(0, 8)) + "</span>") + "</li>");
+      });
+      w.line("</ul></section>");
+    });
+  }
+
   // The page title and body markup of one viewer data object.
   function render(data) {
     var w = new Writer();
@@ -1299,6 +1341,7 @@ var NyrwvyViewer = (function () {
         break;
       case "changeReview": title = "Nyrwvy Change Review"; renderChangeReview(w, data); break;
       case "program": title = "Nyrwvy Program"; renderProgram(w, data); break;
+      case "index": title = "Nyrwvy views"; renderIndex(w, data); break;
       case "proposalReview": title = "Nyrwvy Change Review — " + data.proposalKind; renderProposalReview(w, data); break;
       default: throw new Error("Unknown view " + data.view);
     }
@@ -1316,6 +1359,7 @@ var NyrwvyViewer = (function () {
       try { id = decodeURIComponent(location.hash.slice(1)); } catch (error) { return; }
       var target = id === "" ? null : document.getElementById(id);
       if (target === null) return;
+      for (var shown = target; shown !== null; shown = shown.parentElement) shown.hidden = false;
       for (var parent = target.parentElement; parent !== null; parent = parent.parentElement) if (parent.tagName === "DETAILS") parent.open = true;
       // A link to a function's section also opens its body.
       var own = target.tagName === "ARTICLE" ? target.querySelector(":scope > details") : null;
@@ -1328,6 +1372,33 @@ var NyrwvyViewer = (function () {
       if (link !== null && link.getAttribute("href") === location.hash) reveal();
     });
     reveal();
+    var filter = document.getElementById("fn-filter");
+    if (filter !== null) {
+      var nav = document.querySelector(".toolbar nav");
+      document.querySelectorAll("main > section[id] > h2").forEach(function (h2) {
+        var link = document.createElement("a");
+        link.href = "#" + h2.parentElement.id;
+        link.textContent = h2.textContent;
+        nav.appendChild(link);
+      });
+      var exportedOnly = document.getElementById("fn-exported"), count = document.getElementById("fn-count");
+      var keyed = document.querySelectorAll("[data-fn]");
+      var apply = function () {
+        var wanted = filter.value.trim().toLowerCase(), only = exportedOnly.checked, total = 0, matched = 0;
+        keyed.forEach(function (element) {
+          var hide = (only && !element.hasAttribute("data-exported")) || element.getAttribute("data-fn").indexOf(wanted) < 0;
+          element.hidden = hide;
+          if (element.tagName === "ARTICLE") { total++; if (!hide) matched++; }
+        });
+        count.textContent = wanted === "" && !only ? "" : matched + " of " + total + " functions";
+      };
+      filter.addEventListener("input", apply);
+      exportedOnly.addEventListener("change", apply);
+      document.addEventListener("keydown", function (event) {
+        var typing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]") !== null;
+        if (event.key === "/" && !typing && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); filter.focus(); }
+      });
+    }
   }
   return { render: render, layout: layout };
 })();

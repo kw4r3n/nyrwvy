@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { copyFile, mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
 import { Client } from "@modelcontextprotocol/client"
@@ -170,6 +170,11 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(reviewData.transactionId, discard.proposalId)
     assert.ok(reviewData.changedFunctions.some(change => change.proposed.function.id === functionId))
     assert.match(await renderedPage(review.path), /Change Review — replaceBody/)
+    // Default-directory pages carry readable names, and the directory's index links each of them.
+    const focus = (await call(first, "view", { functionId })).result
+    assert.equal(basename(focus.path), `nyrwvy-focus-value-${functionId}.html`)
+    const index = await renderedPage(join(dirname(program.path), "index.html"))
+    for (const page of [program.path, focus.path, review.path]) assert.ok(index.includes(`href="${encodeURIComponent(basename(page))}"`), basename(page))
     await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })
     await failed(first, "view", { proposalId: discard.proposalId })
