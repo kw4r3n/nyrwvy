@@ -1033,13 +1033,18 @@ pub const Infer = struct {
 
     /// `PureFunctions.isPure`: no required effects, no intrinsically effectful node, transitively.
     fn isPure(self: *Infer, id: []const u8) Fail!bool {
-        var seen: std.ArrayList([]const u8) = .empty;
+        // The first declaration of each ID wins, as in `preflight.typedDeclaration`.
+        var functions: std.StringHashMapUnmanaged(Model) = .empty;
+        for (self.r.typedModel().declarations("functions")) |item| {
+            const entry = try functions.getOrPut(self.a, query.idOf(item));
+            if (!entry.found_existing) entry.value_ptr.* = item;
+        }
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
         var pending: std.ArrayList([]const u8) = .empty;
         try pending.append(self.a, id);
         while (pending.pop()) |current| {
-            if (preflight.contains(seen.items, current)) continue;
-            try seen.append(self.a, current);
-            const declared = preflight.typedDeclaration(self.r, "functions", current) orelse return false;
+            if ((try seen.getOrPut(self.a, current)).found_existing) continue;
+            const declared = functions.get(current) orelse return false;
             if ((declared).requiredEffects().len > 0) return false;
             for (model.typedBodyNodes(self.a, declared)) |node| {
                 const kind = model.utf8((node).kind());
