@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises"
+import { copyFile, mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -290,6 +290,82 @@ test("MCP creates and reopens a pinned dependency with relative paths and read-o
     await client?.close().catch(() => undefined)
     await rm(root, { recursive: true, force: true })
   }
+})
+
+// The diagrams draw one arrow per value dependency whose input node is on the page, and each call
+// diagram one arrow per caller or callee it shows (distinct, not the function itself, at most 7 of
+// more than 8; the rest is one "+N more" box).
+test("MCP view pages draw node and call diagrams from the page's own data", { timeout: 60000 }, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-diagram-"))
+  let client
+  try {
+    await copyFile(fileURLToPath(new URL("../../examples/verification-planner/planner.snapshot.nyrec", import.meta.url)), join(workspace, "planner.nyrec"))
+    client = await connect(workspace, workspace)
+    await call(client, "open", { mode: "open", snapshot: "planner.nyrec", workspace })
+    const page = async args => {
+      const path = (await call(client, "view", args)).result.path
+      const data = JSON.parse((await readFile(path, "utf8")).match(/id="nyrwvy-data">([\s\S]*?)<\/script>/)[1])
+      return { data, body: await renderedPage(path) }
+    }
+    const each = (graph, visit) => graph.nodes.forEach(node => { visit(node); node.branches.forEach(branch => each(branch.graph, visit)) })
+    const dependencyEdges = graph => {
+      const ids = new Set(), count = { n: 0 }
+      each(graph, node => ids.add(node.id))
+      each(graph, node => node.valueDependencies.forEach(dependency => { if (ids.has(dependency.nodeId)) count.n++ }))
+      return count.n
+    }
+    const count = (body, pattern) => (body.match(pattern) || []).length
+    const shown = (focus, sites, key) => { const n = new Set(sites.map(site => site[key]).filter(id => id !== focus.function.id)).size; return n > 8 ? 7 : n }
+    const callEdges = focus => shown(focus, focus.callers, "callerFunctionId") + shown(focus, focus.callees, "calleeFunctionId")
+    const program = await page({ output: "program.html" })
+    const calls = program.data.functions.reduce((sum, focus) => sum + callEdges(focus), 0)
+    assert.ok(calls > 0)
+    assert.equal(count(program.body, /class="dg-edge dg-call"/g), calls)
+    // The overview: exported A -> exported B when A reaches B through private functions only; a
+    // function reached by 4 or more others is a shared helper, listed instead of drawn.
+    const byId = new Map(program.data.functions.map(focus => [focus.function.id, focus]))
+    const exported = program.data.functions.filter(focus => focus.function.exported)
+    const collapsed = exported.flatMap(focus => {
+      const seen = new Set(), reached = new Set(), todo = focus.callees.map(site => site.calleeFunctionId)
+      while (todo.length > 0) {
+        const id = todo.pop(), callee = byId.get(id)
+        if (seen.has(id) || !callee) continue
+        seen.add(id)
+        if (!callee.function.exported) todo.push(...callee.callees.map(site => site.calleeFunctionId))
+        else if (id !== focus.function.id) reached.add(id)
+      }
+      return [...reached].map(id => [focus.function.id, id])
+    })
+    const users = id => collapsed.filter(pair => pair[1] === id).length
+    const drawnPairs = collapsed.filter(pair => users(pair[0]) < 4 && users(pair[1]) < 4)
+    assert.equal(count(program.body, /class="dg-edge dg-overview"/g), drawnPairs.length)
+    const overviewSection = program.body.match(/<h2>Overview<\/h2>[\s\S]*?<\/section>/)[0]
+    const boxIds = [...overviewSection.matchAll(/\(function:([^)]+)\)<\/title>/g)].map(match => match[1])
+    const listed = line => [...(overviewSection.match(new RegExp(`<p>${line}[^\n]*`)) ?? [""])[0].matchAll(/href="#fn(\d+)"/g)].map(match => program.data.functions[+match[1]].function.id)
+    const placesOf = [...boxIds, ...listed("Used by many"), ...listed("Not connected")].sort()
+    assert.deepEqual(placesOf, exported.map(focus => focus.function.id).sort())
+    assert.match(program.body, /<h2>Overview<\/h2>/)
+    assert.equal(count(program.body, /class="dg-edge"/g), program.data.functions.reduce((sum, focus) => sum + dependencyEdges(focus.graph), 0))
+    const branched = program.data.functions.find(focus => focus.graph.nodes.some(node => node.branches.length > 0))
+    const focus = await page({ functionId: branched.function.id, output: "focus.html" })
+    assert.ok(dependencyEdges(focus.data.focus.graph) > 0)
+    assert.equal(count(focus.body, /class="dg-edge"/g), dependencyEdges(focus.data.focus.graph))
+    assert.match(focus.body, /<svg role="img" aria-label="Diagram of/)
+    assert.equal(count(focus.body, /class="dg-edge dg-call"/g), callEdges(focus.data.focus))
+    await call(client, "close")
+  } finally {
+    await client?.close().catch(() => undefined)
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test("the viewer's diagram layout places every box of a cycle", async () => {
+  const page = await readFile(fileURLToPath(new URL("../../src/Nyrwvy.Viewer/viewer.html", import.meta.url)), "utf8")
+  const script = page.match(/<script>\n([\s\S]*?)<\/script>/)[1]
+  const boxes = ["a", "b", "c", "d"].map(id => ({ id, w: 40, h: 20 }))
+  const placed = runInNewContext(`${script}\nNyrwvyViewer.layout(boxes, [["a", "b"], ["b", "c"], ["c", "a"], ["c", "d"], ["d", "d"]], 1000)`, { boxes }, { timeout: 1000 })
+  assert.deepEqual([...placed.at.keys()].sort(), ["a", "b", "c", "d"])
+  assert.ok(placed.at.get("a").y < placed.at.get("b").y && placed.at.get("b").y < placed.at.get("c").y && placed.at.get("c").y < placed.at.get("d").y)
 })
 
 test("MCP --allow-host-sources starts the session with host sources enabled", { timeout: 30000 }, async () => {

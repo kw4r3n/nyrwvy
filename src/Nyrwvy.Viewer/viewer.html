@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="generator" content="Nyrwvy viewer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-NsHA7/wqg7Mtz+4V+Wn3Z2PR8VdJZsZilnN9pYMLqnk='">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-QW9eJs3dMtTDrKXNoWt75snuMi6Iopg8FPhiOe2rhhQ='">
   <title>Nyrwvy viewer</title>
   <style>
     :root {
@@ -71,6 +71,20 @@
     .branch-label { font-size: .84rem; margin-top: .2rem; }
     .graph .branches { margin: .1rem 0 .25rem .35rem; padding-left: .85rem; border-left: 1px solid var(--rule); }
     .changed > .node-line, .node:target > .node-line { background: var(--mark); }
+    .diagram { overflow-x: auto; max-width: 100%; margin: .5rem 0 .9rem; }
+    .diagram svg { display: block; font: 12px var(--mono); }
+    .diagram text { fill: var(--ink); }
+    .diagram .dg-note { fill: var(--muted); }
+    .dg-box { fill: var(--raised); stroke: var(--rule); }
+    .dg-result { stroke: var(--ink); stroke-width: 2; }
+    .dg-changed { fill: var(--mark); stroke: var(--warn); stroke-width: 2; }
+    .dg-external { fill: none; stroke: var(--muted); stroke-dasharray: 4 3; }
+    .dg-frame { fill: none; stroke: var(--rule); stroke-dasharray: 3 3; }
+    .dg-edge { fill: none; stroke: var(--muted); }
+    .diagram .dg-role { paint-order: stroke; stroke: var(--paper); stroke-width: 4px; }
+    .dg-link { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; }
+    .dg-arrow { fill: var(--muted); }
+    .diagram a:focus-visible rect { stroke: var(--link); stroke-width: 2; }
     @media (max-width: 40rem) {
       body { padding: 1.25rem 1rem 3rem; }
       .graph .branches { margin-left: .1rem; padding-left: .5rem; }
@@ -79,6 +93,12 @@
     @media (forced-colors: active) {
       .verdict { border-color: CanvasText; }
       .changed > .node-line, .node:target > .node-line { outline: 1px solid Highlight; }
+      .dg-box, .dg-frame { fill: Canvas; stroke: CanvasText; }
+      .diagram text, .diagram .dg-note { fill: CanvasText; }
+      .dg-edge, .dg-link { stroke: CanvasText; }
+      .diagram .dg-role { stroke: Canvas; }
+      .dg-arrow { fill: CanvasText; }
+      .dg-result, .dg-changed { stroke: Highlight; stroke-width: 3; }
     }
   </style>
 </head>
@@ -388,6 +408,329 @@ var NyrwvyViewer = (function () {
     w.pop();
     w.line("</ul>");
   }
+
+  // Diagrams keep within the page's content width (72rem less the body's side padding), less the
+  // right margin an edge back up uses.
+  var budget = 1068;
+  // Layered layout of boxes ({id, w, h}) joined by edges ([from, to]): each box one layer below its
+  // furthest input, a box with no input one layer above its nearest consumer. A layer wider than
+  // `limit` wraps onto further rows, so a diagram grows down rather than sideways.
+  function layout(boxes, edges, limit) {
+    var index = new Map(), preds = [], succs = [], waiting = [], layer = [], rows = [], order = [];
+    boxes.forEach(function (box, i) { index.set(box.id, i); preds.push([]); succs.push([]); waiting.push(0); layer.push(0); });
+    edges.forEach(function (edge) {
+      var i = index.get(edge[0]), j = index.get(edge[1]);
+      if (i === undefined || j === undefined) return;
+      succs[i].push(j); preds[j].push(i); waiting[j]++;
+    });
+    var queue = boxes.map(function (box, i) { return i; }).filter(function (i) { return waiting[i] === 0; });
+    for (var q = 0; q < boxes.length; q++) {
+      // A cycle leaves no box ready: its first waiting box is released with the layer it has reached.
+      if (q === queue.length) { var stuck = waiting.findIndex(function (n) { return n > 0; }); waiting[stuck] = -1; queue.push(stuck); }
+      var from = queue[q];
+      succs[from].forEach(function (j) { if (waiting[j] < 0) return; layer[j] = Math.max(layer[j], layer[from] + 1); if (--waiting[j] === 0) queue.push(j); });
+    }
+    preds.forEach(function (list, j) {
+      if (list.length === 0 && succs[j].length > 0) layer[j] = Math.max(0, Math.min.apply(null, succs[j].map(function (k) { return layer[k]; })) - 1);
+    });
+    boxes.forEach(function (box, i) { (rows[layer[i]] = rows[layer[i]] || []).push(i); });
+    rows = rows.filter(function (row) { return row !== undefined; });
+    // Barycenter sweeps (down, up, down) to cut crossings: a box moves toward the boxes it connects to.
+    rows.forEach(function (row) { row.forEach(function (i, at) { order[i] = at; }); });
+    var sweep = function (r, links) {
+      var key = new Map();
+      rows[r].forEach(function (i) {
+        key.set(i, links[i].length === 0 ? order[i] : links[i].reduce(function (sum, j) { return sum + order[j]; }, 0) / links[i].length);
+      });
+      rows[r].sort(function (a, b) { return key.get(a) - key.get(b); });
+      rows[r].forEach(function (i, at) { order[i] = at; });
+    };
+    for (var r = 1; r < rows.length; r++) sweep(r, preds);
+    for (r = rows.length - 2; r >= 0; r--) sweep(r, succs);
+    for (r = 1; r < rows.length; r++) sweep(r, preds);
+    var gapX = 24, gapY = 44, wrapGap = 16, lines = [], width = 0, y = 0, at = new Map();
+    rows.forEach(function (row) {
+      var line = [], used = 0;
+      row.forEach(function (i) {
+        if (line.length > 0 && used + gapX + boxes[i].w > limit) { lines.push({ boxes: line, w: used, gap: wrapGap }); line = []; used = 0; }
+        used += (line.length > 0 ? gapX : 0) + boxes[i].w;
+        line.push(i);
+      });
+      lines.push({ boxes: line, w: used, gap: gapY });
+    });
+    lines.forEach(function (line) {
+      width = Math.max(width, line.w);
+      line.y = y;
+      y += line.boxes.reduce(function (most, i) { return Math.max(most, boxes[i].h); }, 0) + line.gap;
+    });
+    // A row moves as one under the boxes it reads (or, failing that, over the boxes reading it), so a
+    // box is not left far from its inputs; a row with neither is centred.
+    var middle = function (i) { return boxes[i].mid !== undefined ? boxes[i].mid : boxes[i].w / 2; };
+    var left = [], put = function (line, x) {
+      line.boxes.forEach(function (i) { at.set(boxes[i].id, { x: x, y: line.y }); left[i] = x; x += boxes[i].w + gapX; });
+    };
+    var align = function (line, links) {
+      var offsets = [], x = 0;
+      line.boxes.forEach(function (i) {
+        links[i].forEach(function (j) { if (left[j] !== undefined) offsets.push(left[j] + middle(j) - x - middle(i)); });
+        x += boxes[i].w + gapX;
+      });
+      if (offsets.length === 0) return false;
+      put(line, Math.min(Math.max(0, offsets.reduce(function (sum, d) { return sum + d; }, 0) / offsets.length), width - line.w));
+      return true;
+    };
+    var pending = lines.filter(function (line) { return !align(line, preds); });
+    pending.reverse().forEach(function (line) { if (!align(line, succs)) put(line, (width - line.w) / 2); });
+    return { at: at, w: width, h: Math.max(0, y - gapY) };
+  }
+
+  // Diagram text is monospace, so its width is estimated from the character count.
+  var charWidth = 7.3, lineHeight = 16, pad = 8, maxChars = 36;
+  // A raw stable ID ("capability-parameter:01a1…") reads as its kind; the tooltip keeps the ID.
+  function readable(text) {
+    return text.replace(/\b([a-z]+(?:-[a-z]+)*):[0-9a-f]{8}-[0-9a-f-]{27}\b/g, function (all, kind) { return kind.replace("-binding", "").replace(/-/g, " ") + " (unnamed)"; });
+  }
+  function clip(text, max) {
+    text = readable(text);
+    max = max || maxChars;
+    return text.length > max ? text.slice(0, max - 1) + "…" : text;
+  }
+  function boxSize(lines, max) {
+    return { w: Math.max.apply(null, lines.map(function (line) { return clip(line, max).length; })) * charWidth + 2 * pad, h: lines.length * lineHeight + pad };
+  }
+  // One box: a rectangle with its text lines (the first plain, the rest muted), a link when it has an href.
+  function svgBox(g, lines, title, href, className, max) {
+    var text = lines.map(function (line, i) {
+      return "<text x=\"" + (g.x + pad) + "\" y=\"" + (g.y + pad / 2 + lineHeight * (i + 1) - 4) + "\"" + (i > 0 ? " class=\"dg-note\"" : "") + ">" + html(clip(line, max)) + "</text>";
+    }).join("");
+    var body = "<title>" + html(title) + "</title><rect class=\"" + className + "\" x=\"" + g.x + "\" y=\"" + g.y + "\" width=\"" + g.w + "\" height=\"" + g.h + "\" rx=\"4\"/>" + text;
+    return href === null ? "<g>" + body + "</g>" : "<a href=\"#" + html(href) + "\">" + body + "</a>";
+  }
+  // One edge, from the bottom of `a` to the top of `b`; an edge back up runs along the right sides,
+  // inside the drawing's spare right margin.
+  function svgEdge(a, b, title, className, marker) {
+    var d;
+    if (b.y + b.h <= a.y) d = "M" + (a.x + a.w) + " " + (a.y + a.h / 2) + "C" + (a.x + a.w + 36) + " " + (a.y + a.h / 2) + " " + (b.x + b.w + 36) + " " + (b.y + b.h / 2) + " " + (b.x + b.w) + " " + (b.y + b.h / 2);
+    else {
+      var sx = a.x + a.w / 2, sy = a.y + a.h, tx = b.x + b.w / 2, ty = b.y, bend = Math.max(20, Math.abs(ty - sy) / 2);
+      d = "M" + sx + " " + sy + "C" + sx + " " + (sy + bend) + " " + tx + " " + (ty - bend) + " " + tx + " " + ty;
+    }
+    return "<path class=\"" + className + "\" d=\"" + d + "\" marker-end=\"url(#" + html(marker) + ")\"><title>" + html(title) + "</title></path>";
+  }
+  function svgDiagram(w, label, size, marker, parts) {
+    var width = Math.ceil(size.w + 40), height = Math.ceil(size.h + 4);
+    w.line("<div class=\"diagram\"><svg role=\"img\" aria-label=\"" + html(label) + "\" width=\"" + width + "\" height=\"" + height + "\" viewBox=\"-2 -2 " + width + " " + height +
+      "\"><defs><marker id=\"" + html(marker) + "\" viewBox=\"0 0 8 8\" refX=\"8\" refY=\"4\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto\"><path class=\"dg-arrow\" d=\"M0 0L8 4L0 8z\"/></marker></defs>");
+    w.line(parts.join(""));
+    w.line("</svg></div>");
+  }
+
+  // The structured graph as boxes and value-dependency arrows. Each branch's graph is laid out on its
+  // own and drawn as a labelled frame under the node that owns it, joined to it by a connector;
+  // arrows between any two nodes on the page are drawn.
+  function emitNodeDiagram(w, ctx, graph) {
+    var names = ctx.names, owner = new Map(), geometry = new Map(), frames = [], boxes = [], edges = [], obstacles = [], labels = [];
+    var frameGap = 12, labelHeight = 20, indent = 16;
+    function lines(node) {
+      var head = roleLabel(names, node.role);
+      var constructsVariant = node.relations.some(function (relation) { return relation.kind === "ConstructsVariant"; });
+      node.relations.forEach(function (relation) {
+        var label = relationLabels[relation.kind];
+        if (label[1] !== "node" && !(relation.kind === "ConstructsType" && constructsVariant)) head += " " + nameOf(names, label[1], relation.id);
+      });
+      return [head, node.type !== null ? ": " + typeText(names, node.type) : "type unknown"];
+    }
+    // Lays out one graph within `limit`: a node's branch frames go in rows under it, side by side
+    // while they fit, and a dependency inside its branches counts as the node's own.
+    function measure(graph, parent, limit) {
+      var ids = new Set(), inner = Math.max(240, limit - indent - 2 * frameGap);
+      graph.nodes.forEach(function (node) { ids.add(node.id); owner.set(node.id, parent); });
+      var units = graph.nodes.map(function (node) {
+        var own = boxSize(lines(node)), rows = [], row = null, width = own.w, height = own.h;
+        node.branches.forEach(function (branch) {
+          var sub = measure(branch.graph, node.id, inner), label = branchLabel(names, branch);
+          var frame = { sub: sub, label: label, w: Math.max(sub.w, clip(label).length * charWidth + 12) + 2 * frameGap, h: sub.h + labelHeight + frameGap };
+          if (row === null || row.w + frameGap + frame.w > limit - indent) { row = { frames: [], w: -frameGap, h: 0 }; rows.push(row); }
+          row.frames.push(frame);
+          row.w += frameGap + frame.w;
+          row.h = Math.max(row.h, frame.h);
+        });
+        rows.forEach(function (row) { width = Math.max(width, indent + row.w); height += frameGap + row.h; });
+        // `mid`: arrows meet the node's own box, which sits at the unit's left.
+        return { id: node.id, node: node, own: own, rows: rows, w: width, h: height, mid: own.w / 2 };
+      });
+      var local = [];
+      var representative = function (id) { while (id !== null && id !== undefined && !ids.has(id)) id = owner.get(id); return id; };
+      units.forEach(function (unit) {
+        eachNode({ nodes: [unit.node] }, function (node) {
+          node.valueDependencies.forEach(function (dependency) {
+            var from = representative(dependency.nodeId);
+            if (ids.has(from) && from !== unit.id) local.push([from, unit.id]);
+          });
+        });
+      });
+      var placed = layout(units, local, limit);
+      return { units: units, at: placed.at, w: placed.w, h: placed.h };
+    }
+    function place(scope, ox, oy) {
+      scope.units.forEach(function (unit) {
+        var at = scope.at.get(unit.id), x = ox + at.x, y = oy + at.y, node = unit.node;
+        var g = { x: x, y: y, w: unit.own.w, h: unit.own.h };
+        geometry.set(node.id, g);
+        obstacles.push(g);
+        var className = "dg-box" + (node.id === ctx.changed ? " dg-changed" : "") + (node.id === graph.resultNodeId ? " dg-result" : "");
+        var text = lines(node);
+        var title = text[0] + (node.type !== null ? text[1] : " (type unknown)") + (className.indexOf("dg-result") >= 0 ? " (result)" : "") + (node.id === ctx.changed ? " (target of this proposal)" : "");
+        boxes.push(svgBox(g, text, title, anchor(ctx, node.id), className));
+        // The connector: a spine down from the node, a bus over each row of frames, a tick into each frame.
+        var top = y + unit.own.h, spine = x + 8, link = "", bus = top;
+        unit.rows.forEach(function (row) {
+          var fx = x + indent, tick = 0;
+          top += frameGap;
+          bus = top - frameGap / 2;
+          row.frames.forEach(function (frame) {
+            frames.push("<rect class=\"dg-frame\" x=\"" + fx + "\" y=\"" + top + "\" width=\"" + frame.w + "\" height=\"" + frame.h + "\" rx=\"6\"/><text class=\"dg-note\" x=\"" + (fx + 6) + "\" y=\"" + (top + 14) + "\">" + html(clip(frame.label)) + "</text>");
+            obstacles.push({ x: fx, y: top, w: clip(frame.label).length * charWidth + 12, h: labelHeight });
+            tick = fx + 10;
+            link += "M" + tick + " " + bus + "V" + top;
+            place(frame.sub, fx + (frame.w - frame.sub.w) / 2, top + labelHeight);
+            fx += frame.w + frameGap;
+          });
+          link += "M" + spine + " " + bus + "H" + tick;
+          top += row.h;
+        });
+        if (link !== "") frames.push("<path class=\"dg-link\" d=\"M" + spine + " " + (y + unit.own.h) + "V" + bus + link + "\"/>");
+      });
+    }
+    var top = measure(graph, null, budget);
+    place(top, 0, 0);
+    var marker = ctx.prefix + "-arrow";
+    eachNode(graph, function (node) {
+      var target = geometry.get(node.id), several = node.valueDependencies.length > 1;
+      node.valueDependencies.forEach(function (dependency) {
+        if (!geometry.has(dependency.nodeId)) return;
+        var source = geometry.get(dependency.nodeId), role = dependencyLabel(names, dependency);
+        edges.push(svgEdge(source, target, role + ": " + ctx.labels.get(dependency.nodeId) + " → " + ctx.labels.get(node.id), "dg-edge", marker));
+        if (several && source.y + source.h < target.y) labels.push([source, target, role]);
+      });
+    });
+    // A role label tells several inputs apart. It goes at the first spot along its arrow, from the end
+    // back, that covers no box, frame label or other role label; one that fits nowhere stays in the tooltip.
+    labels.forEach(function (item) {
+      var a = item[0], b = item[1], text = clip(item[2], 24), lw = text.length * charWidth + 4, lh = 14;
+      var sx = a.x + a.w / 2, sy = a.y + a.h, tx = b.x + b.w / 2, ty = b.y, bend = Math.max(20, (ty - sy) / 2);
+      [0.85, 0.7, 0.55, 0.4, 0.25].some(function (t) {
+        var u = 1 - t, px = Math.round((u * u * u + 3 * u * u * t) * sx + (3 * u * t * t + t * t * t) * tx);
+        var py = Math.round(u * u * u * sy + 3 * u * u * t * (sy + bend) + 3 * u * t * t * (ty - bend) + t * t * t * ty);
+        var r = { x: px - lw / 2, y: py - lh + 3, w: lw, h: lh };
+        if (r.x < 0 || r.x + r.w > top.w + 36 || obstacles.some(function (o) { return r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h; })) return false;
+        obstacles.push(r);
+        edges.push("<text class=\"dg-note dg-role\" text-anchor=\"middle\" x=\"" + px + "\" y=\"" + py + "\">" + html(text) + "</text>");
+        return true;
+      });
+    });
+    svgDiagram(w, "Diagram of " + plural(ctx.count, "node") + " and their value dependencies; the list below describes the same graph.", top, marker, frames.concat(edges, boxes));
+  }
+
+  // The function between its distinct callers (above) and callees (below). A long row ends in one
+  // "+N more" box; the text below lists every call.
+  function emitCallDiagram(w, ctx, focus) {
+    var self = focus.function.id, cap = 8, gap = 16, rowGap = 36, parts = [], marker = ctx.prefix + "-call";
+    var distinct = function (sites, key) {
+      var seen = [];
+      sites.forEach(function (site) { if (site[key] !== self && seen.indexOf(site[key]) < 0) seen.push(site[key]); });
+      return seen;
+    };
+    var callers = distinct(focus.callers, "callerFunctionId"), callees = distinct(focus.callees, "calleeFunctionId");
+    if (callers.length + callees.length === 0) return;
+    var recursive = focus.callees.some(function (site) { return site.calleeFunctionId === self; });
+    var row = function (ids) {
+      var shown = ids.length > cap ? ids.slice(0, cap - 1) : ids;
+      var items = shown.map(function (id) { return { id: id, lines: [nameOf(ctx.names, "function", id)] }; });
+      if (shown.length < ids.length) items.push({ id: null, lines: ["+" + (ids.length - shown.length) + " more"] });
+      // A row too wide for the page shares the width equally; its names are clipped, the tooltip keeps them.
+      var natural = items.reduce(function (sum, item) { return sum + boxSize(item.lines).w + gap; }, -gap);
+      var max = natural > budget ? Math.max(8, Math.floor(((budget - gap * (items.length - 1)) / items.length - 2 * pad) / charWidth)) : maxChars;
+      items.forEach(function (item) { var size = boxSize(item.lines, max); item.w = size.w; item.h = size.h; item.max = max; });
+      return items;
+    };
+    var middle = [{ id: self, lines: [focus.function.displayName].concat(recursive ? ["also calls itself"] : []), self: true }];
+    middle[0].w = boxSize(middle[0].lines).w;
+    middle[0].h = boxSize(middle[0].lines).h;
+    var rows = [row(callers), middle, row(callees)].filter(function (items) { return items.length > 0; });
+    var widths = rows.map(function (items) { return items.reduce(function (sum, item) { return sum + item.w + gap; }, -gap); });
+    var width = Math.max.apply(null, widths), y = 0;
+    rows.forEach(function (items, r) {
+      var x = (width - widths[r]) / 2, height = 0;
+      items.forEach(function (item) { item.g = { x: x, y: y, w: item.w, h: item.h }; x += item.w + gap; height = Math.max(height, item.h); });
+      y += height + rowGap;
+    });
+    var callName = function (id) { return nameOf(ctx.names, "function", id); };
+    var link = function (items, up) {
+      items.forEach(function (item) {
+        if (item.id === null) return;
+        parts.push(up ? svgEdge(item.g, middle[0].g, callName(item.id) + " calls " + callName(self), "dg-edge dg-call", marker)
+          : svgEdge(middle[0].g, item.g, callName(self) + " calls " + callName(item.id), "dg-edge dg-call", marker));
+      });
+    };
+    if (callers.length > 0) link(rows[0], true);
+    if (callees.length > 0) link(rows[rows.length - 1], false);
+    rows.forEach(function (items) {
+      items.forEach(function (item) {
+        var href = item.id !== null && ctx.functions.has(item.id) ? ctx.functions.get(item.id) : null;
+        var title = item.id === null ? item.lines[0] + "; the text below lists them" : callName(item.id) + " (function:" + item.id + ")" + (item.self && recursive ? ", also calls itself" : "");
+        parts.push(svgBox(item.g, item.lines, title, href, item.id === null ? "dg-box dg-external" : item.self ? "dg-box dg-result" : "dg-box", item.max));
+      });
+    });
+    svgDiagram(w, "Call diagram: " + plural(callers.length, "caller") + " above " + focus.function.displayName + ", " + plural(callees.length, "callee") + " below; the text below lists the same calls.",
+      { w: width, h: y - rowGap }, marker, parts);
+  }
+  // Exported functions only: A -> B when A reaches B through private functions alone, which are
+  // folded into the arrows and counted on A's box. Shared helpers and exported functions without
+  // arrows are listed instead of drawn.
+  // An exported function reached by this many others is a shared helper: its arrows would cross the whole diagram.
+  var sharedHelperUsers = 4;
+  function emitOverview(w, ctx, data) {
+    var byId = new Map(), boxes = [], pairs = [], linked = new Set(), users = new Map();
+    data.functions.forEach(function (focus) { byId.set(focus.function.id, focus); });
+    data.functions.forEach(function (focus) {
+      if (!focus.function.exported) return;
+      var start = focus.function.id, seen = new Set(), reached = 0, todo = focus.callees.map(function (site) { return site.calleeFunctionId; });
+      while (todo.length > 0) {
+        var id = todo.pop(), callee = byId.get(id);
+        if (seen.has(id) || callee === undefined) continue;
+        seen.add(id);
+        if (callee.function.exported) { if (id !== start) { pairs.push([start, id]); users.set(id, (users.get(id) || 0) + 1); } }
+        else { reached++; callee.callees.forEach(function (site) { todo.push(site.calleeFunctionId); }); }
+      }
+      var lines = [focus.function.displayName].concat(reached > 0 ? [plural(reached, "private function")] : []);
+      boxes.push({ id: start, lines: lines, w: boxSize(lines).w, h: 2 * lineHeight + pad });
+    });
+    if (boxes.length === 0) return;
+    var shared = function (id) { return (users.get(id) || 0) >= sharedHelperUsers; };
+    pairs = pairs.filter(function (pair) { return !shared(pair[0]) && !shared(pair[1]); });
+    pairs.forEach(function (pair) { linked.add(pair[0]); linked.add(pair[1]); });
+    w.line("<section>" + heading(2, "Overview"));
+    w.line("<p class=\"muted\">Exported functions only. An arrow from A to B means A calls B, directly or through private functions; a box counts the private functions it reaches. " +
+      "Helpers used by " + sharedHelperUsers + " or more exported functions are listed below the diagram, not drawn.</p>");
+    var drawn = boxes.filter(function (box) { return linked.has(box.id); });
+    if (pairs.length > 0) {
+      var placed = layout(drawn, pairs, budget), geometry = new Map(), parts = [];
+      drawn.forEach(function (box) { var at = placed.at.get(box.id); geometry.set(box.id, { x: at.x, y: at.y, w: box.w, h: box.h }); });
+      pairs.forEach(function (pair) {
+        parts.push(svgEdge(geometry.get(pair[0]), geometry.get(pair[1]), nameOf(ctx.names, "function", pair[0]) + " reaches " + nameOf(ctx.names, "function", pair[1]), "dg-edge dg-overview", "ov-arrow"));
+      });
+      drawn.forEach(function (box) {
+        parts.push(svgBox(geometry.get(box.id), box.lines, box.lines.join(", ") + " (function:" + box.id + ")", ctx.functions.get(box.id), "dg-box"));
+      });
+      svgDiagram(w, "Overview of " + plural(drawn.length, "exported function") + " and " + plural(pairs.length, "arrow") + "; the Calls table lists every call.", placed, "ov-arrow", parts);
+    }
+    var helpers = boxes.filter(function (box) { return shared(box.id); }).sort(function (a, b) { return users.get(b.id) - users.get(a.id); });
+    if (helpers.length > 0) w.line("<p>Used by many exported functions (not drawn): " + helpers.map(function (box) { return functionRef(ctx, box.id) + " (" + users.get(box.id) + ")"; }).join(", ") + ".</p>");
+    var alone = boxes.filter(function (box) { return !linked.has(box.id) && !shared(box.id); });
+    if (alone.length > 0) w.line("<p>Not connected to other exported functions: " + alone.map(function (box) { return functionRef(ctx, box.id); }).join(", ") + ".</p>");
+    w.line("</section>");
+  }
   function callSites(ctx, sites, endpoint) {
     if (sites.length === 0) return "none";
     var groups = new Map();
@@ -501,12 +844,14 @@ var NyrwvyViewer = (function () {
     }
 
     w.line("<section>" + heading(section, "Calls"));
+    emitCallDiagram(w, ctx, focus);
     w.line("<p>Called by: " + callSites(ctx, focus.callers, "callerFunctionId") + ".</p>");
     w.line("<p>Calls: " + callSites(ctx, focus.callees, "calleeFunctionId") + ".</p>");
     w.line("</section>");
 
     w.line("<section>" + heading(section, "Structured graph"));
     w.line("<p class=\"muted\">" + plural(ctx.count, "node") + ". Each line is one node: its operation, what it names, and its type. Inputs link to the nodes they read.</p>");
+    emitNodeDiagram(w, ctx, focus.graph);
     emitNodes(w, ctx, focus.graph, "graph");
     w.line("</section>");
 
@@ -863,6 +1208,7 @@ var NyrwvyViewer = (function () {
     emitIds(w, [["Snapshot", "snapshot:" + data.snapshotId]]);
     w.line("</header>");
 
+    emitOverview(w, ctx, data);
     w.line("<section>" + heading(2, "Calls"));
     w.line("<p class=\"muted\">Exported functions are the entry points. A private function nobody calls is dead code" +
       (uncalled.length === 0 ? "; there is none." : ": " + fnList(uncalled.map(function (focus) { return focus.function.id; })) + ".") + "</p>");
@@ -983,7 +1329,7 @@ var NyrwvyViewer = (function () {
     });
     reveal();
   }
-  return { render: render };
+  return { render: render, layout: layout };
 })();
 </script>
 </body>
