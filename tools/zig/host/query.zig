@@ -1591,9 +1591,8 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
         r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No function has the ID '{s}'.", .{model.utf8(wanted)}) };
         return error.Rejected;
     };
-    const id_text = model.utf8(wanted);
-    // `ViewerArtifact.focusFileName`: named by the function's ID, its UTF-8 bytes in lower-case hex.
-    const name = try std.fmt.allocPrint(r.a, "nyrwvy-focus-function-{x}", .{id_text});
+    // Named for a person by the display name, and kept unique by the stable ID (names can repeat across dependencies).
+    const name = try std.mem.concat(r.a, u8, &.{ "nyrwvy-focus-", try fileNamePart(r.a, model.utf8(function.displayName())), "-", try fileNameId(r.a, model.utf8(wanted)) });
     const path = try writeView(r, format, output, name, try viewer.typedFocusData(r.a, typedRoot(r), r.snapshot_id, function));
     try out.writeAll("{\"functionId\":");
     try writeId(out, wanted);
@@ -1611,6 +1610,53 @@ pub fn viewFormat(r: *Request) Fail!viewer.Format {
     return r.fail("format must be \"html\" or \"json\".", .{});
 }
 
+/// A readable file-name part of display text: ASCII letters, digits, `-` and `_` kept, each run of
+/// other bytes one `_`, at most 48 bytes; `_` when nothing is left.
+pub fn fileNamePart(a: Allocator, text: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (text) |c| {
+        if (out.items.len >= 48) break;
+        if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_') try out.append(a, c) else if (out.items.len == 0 or out.items[out.items.len - 1] != '_') try out.append(a, '_');
+    }
+    return if (out.items.len == 0) "_" else out.items;
+}
+
+/// A stable ID as a file-name part: as it is when every byte is safe (UUIDs are), else its bytes in lower-case hex.
+pub fn fileNameId(a: Allocator, id: []const u8) ![]const u8 {
+    for (id) |c| {
+        if (!(std.ascii.isAlphanumeric(c) or c == '-' or c == '_')) return std.fmt.allocPrint(a, "{x}", .{id});
+    }
+    return if (id.len == 0) "_" else id;
+}
+
+test "view file names are readable and keep unusual bytes out" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings("csvStreamChunk", try fileNamePart(a, "csvStreamChunk"));
+    try std.testing.expectEqualStrings("a_b_c", try fileNamePart(a, "a/../b c"));
+    try std.testing.expectEqualStrings("_", try fileNamePart(a, "\u{3042}"));
+    try std.testing.expectEqual(@as(usize, 48), (try fileNamePart(a, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")).len);
+    try std.testing.expectEqualStrings("01a16ced-9003-7f53", try fileNameId(a, "01a16ced-9003-7f53"));
+    try std.testing.expectEqualStrings("612f62", try fileNameId(a, "a/b"));
+}
+
+/// Rewrites `nyrwvy-views/index.html`, the page listing every view page there. Best effort: a view
+/// already written stays written when its index cannot be.
+fn writeIndex(r: *Request) void {
+    const files = view_file.listViews(r.a, r.snapshot_path) catch return;
+    var data: Writer.Allocating = .init(r.a);
+    const w = &data.writer;
+    w.writeAll("{\"view\":\"index\",\"files\":[") catch return;
+    for (files, 0..) |file, index| {
+        if (index > 0) w.writeByte(',') catch return;
+        @import("root").writeString(w, file) catch return;
+    }
+    w.writeAll("]}") catch return;
+    const page = viewer.file(r.a, .html, data.written()) catch return;
+    _ = view_file.write(r.a, r.snapshot_path, null, ".html", "index.html", viewer.fileHeader(.html), page) catch {};
+}
+
 /// Writes one view beside the snapshot (or at `output`) as `<name>.html` or `<name>.json`; returns its path.
 pub fn writeView(r: *Request, format: viewer.Format, output: ?[]const u8, name: []const u8, data: []const u8) Fail![]const u8 {
     const file_name = try std.mem.concat(r.a, u8, &.{ name, viewer.extension(format) });
@@ -1623,7 +1669,10 @@ pub fn writeView(r: *Request, format: viewer.Format, output: ?[]const u8, name: 
             r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
             return error.Rejected;
         },
-        .written => |path| return path,
+        .written => |path| {
+            if (output == null and format == .html) writeIndex(r);
+            return path;
+        },
     }
 }
 

@@ -881,7 +881,7 @@ pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, ve
         }
         try w.writeByte('}');
     }
-    const name = try std.fmt.allocPrint(r.a, "nyrwvy-change-review-transaction-{x}", .{p.id});
+    const name = try std.mem.concat(r.a, u8, &.{ "nyrwvy-change-review-", try query.fileNameId(r.a, p.id) });
     return query.writeView(r, format, output, name, data.written());
 }
 

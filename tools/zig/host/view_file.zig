@@ -244,6 +244,27 @@ test "generated output preflight refuses invalid paths without publication" {
     try std.testing.expect(nul == .internal);
 }
 
+/// The view pages in the default directory beside the snapshot, sorted by name: `.html` files other than
+/// `index.html` and dot files. Empty when the directory does not exist.
+pub fn listViews(a: Allocator, snapshot_path: []const u8) ![]const []const u8 {
+    const io = getIo();
+    const path = try std.fs.path.join(a, &.{ std.fs.path.dirname(snapshot_path) orelse "/", default_directory_name });
+    var views = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true, .follow_symlinks = false }) catch return &.{};
+    defer views.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    var entries = views.iterate();
+    while (try entries.next(io)) |entry| {
+        if (entry.kind != .file or entry.name[0] == '.' or !std.mem.endsWith(u8, entry.name, ".html") or std.mem.eql(u8, entry.name, "index.html")) continue;
+        try names.append(a, try a.dupe(u8, entry.name));
+    }
+    std.mem.sort([]const u8, names.items, {}, struct {
+        fn less(_: void, left: []const u8, right: []const u8) bool {
+            return std.mem.lessThan(u8, left, right);
+        }
+    }.less);
+    return names.items;
+}
+
 /// Create without replacing a racing writer, after flushing the complete temporary.
 pub fn createAtomic(a: Allocator, path: []const u8, content: []const u8) !Outcome {
     return writeConfined(a, std.fs.path.dirname(path) orelse "/", &.{}, std.fs.path.basename(path), content, true, true);
