@@ -748,6 +748,18 @@ const Key = struct { kind: []const u8, id: Str };
 fn keyEql(x: Key, y: Key) bool {
     return std.mem.eql(u8, x.kind, y.kind) and std.mem.eql(u16, x.id, y.id);
 }
+const KeyContext = struct {
+    pub fn hash(_: KeyContext, key: Key) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(key.kind);
+        hasher.update(std.mem.sliceAsBytes(key.id));
+        return hasher.final();
+    }
+    pub fn eql(_: KeyContext, x: Key, y: Key) bool {
+        return keyEql(x, y);
+    }
+};
+const KeySet = std.HashMapUnmanaged(Key, void, KeyContext, 80);
 
 /// `unreferenced` of `AuthoringProtocol`: the local functions, capability operations and types
 /// nothing else refers to, or that `roots` (function names) do not reach.
@@ -778,21 +790,25 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
     for (capabilities) |item| for (item.operations()) |operation|
         try subjects.append(r.a, .{ .key = .{ .kind = "operation", .id = decodedId(operation) }, .kind = "capabilityOperation" });
     for (capabilities) |item| try subjects.append(r.a, .{ .key = .{ .kind = "capability", .id = decodedId(item) }, .kind = "capability" });
-    const Edge = struct { owner: Key, target: Key };
-    var edges: std.ArrayList(Edge) = .empty;
-    for (subjects.items) |subject| {
-        const found = model.typedReferencesTo(r.a, typedRoot(r), subject.kind, subject.key.id) orelse continue;
-        for (found) |reference| {
-            const owner: Key = switch (reference.owner) {
-                .function => .{ .kind = "function", .id = reference.owner_id },
-                .type => .{ .kind = "type", .id = reference.owner_id },
-                .capability => switch (reference.site.tag) {
-                    .operation_parameter_type, .operation_result_type, .operation_failure_type, .operation_effect => .{ .kind = "operation", .id = reference.site.a.? },
-                    else => .{ .kind = "capability", .id = reference.owner_id },
-                },
-            };
-            try edges.append(r.a, .{ .owner = owner, .target = subject.key });
-        }
+    var subject_keys: KeySet = .empty;
+    for (subjects.items) |subject| try subject_keys.put(r.a, subject.key, {});
+    // Each owner's references to subjects (`typedReferencesTo` per subject, in one walk).
+    var edges: std.HashMapUnmanaged(Key, std.ArrayList(Key), KeyContext, 80) = .empty;
+    for (model.typedReferenceEdges(r.a, typedRoot(r))) |edge| {
+        const target: Key = .{ .kind = if (std.mem.eql(u8, edge.kind, "capabilityOperation")) "operation" else edge.kind, .id = edge.id };
+        if (!subject_keys.contains(target)) continue;
+        const reference = edge.reference;
+        const owner: Key = switch (reference.owner) {
+            .function => .{ .kind = "function", .id = reference.owner_id },
+            .type => .{ .kind = "type", .id = reference.owner_id },
+            .capability => switch (reference.site.tag) {
+                .operation_parameter_type, .operation_result_type, .operation_failure_type, .operation_effect => .{ .kind = "operation", .id = reference.site.a.? },
+                else => .{ .kind = "capability", .id = reference.owner_id },
+            },
+        };
+        const targets = try edges.getOrPut(r.a, owner);
+        if (!targets.found_existing) targets.value_ptr.* = .empty;
+        try targets.value_ptr.append(r.a, target);
     }
     var roots: std.ArrayList(Key) = .empty;
     if (root_names) |names| for (names) |wanted| {
@@ -807,24 +823,20 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
         try roots.append(r.a, .{ .kind = "function", .id = decodedId(match.?) });
     };
     // The keys that stay: unreferenced by anything but themselves, or unreachable from the roots.
-    var marked: std.ArrayList(Key) = .empty;
+    var marked: KeySet = .empty;
     if (root_names == null) {
-        for (edges.items) |edge| if (!keyEql(edge.owner, edge.target)) try marked.append(r.a, edge.target);
+        var owners = edges.iterator();
+        while (owners.next()) |entry| for (entry.value_ptr.items) |target| if (!keyEql(entry.key_ptr.*, target)) try marked.put(r.a, target, {});
     } else {
         var frontier = roots;
         while (frontier.pop()) |item| {
-            const seen = for (marked.items) |m| {
-                if (keyEql(m, item)) break true;
-            } else false;
-            if (seen) continue;
-            try marked.append(r.a, item);
-            for (edges.items) |edge| if (keyEql(edge.owner, item)) try frontier.append(r.a, edge.target);
+            if ((try marked.getOrPut(r.a, item)).found_existing) continue;
+            if (edges.get(item)) |targets| try frontier.appendSlice(r.a, targets.items);
         }
     }
     const keep = struct {
-        fn f(m: []const Key, key: Key) bool {
-            for (m) |item| if (keyEql(item, key)) return false;
-            return true;
+        fn f(m: KeySet, key: Key) bool {
+            return !m.contains(key);
         }
     }.f;
     const Row = struct { sort: []const Str, item: model.Model, owner: ?model.Model = null };
@@ -849,15 +861,15 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
         }
     }.f;
     var unused_functions: std.ArrayList(Row) = .empty;
-    for (functions) |item| if (try local(r, "function", item) and keep(marked.items, .{ .kind = "function", .id = decodedId(item) }))
+    for (functions) |item| if (try local(r, "function", item) and keep(marked, .{ .kind = "function", .id = decodedId(item) }))
         try unused_functions.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
     var unused_operations: std.ArrayList(Row) = .empty;
     for (capabilities) |capability| if (try local(r, "capability", capability)) for (capability.operations()) |operation| {
-        if (keep(marked.items, .{ .kind = "operation", .id = decodedId(operation) }))
+        if (keep(marked, .{ .kind = "operation", .id = decodedId(operation) }))
             try unused_operations.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(operation), displayName(capability), decodedId(operation) }), .item = operation, .owner = capability });
     };
     var unused_types: std.ArrayList(Row) = .empty;
-    for (types) |item| if (try local(r, "type", item) and keep(marked.items, .{ .kind = "type", .id = decodedId(item) }))
+    for (types) |item| if (try local(r, "type", item) and keep(marked, .{ .kind = "type", .id = decodedId(item) }))
         try unused_types.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
     inline for (.{ &unused_functions, &unused_operations, &unused_types }) |rows| std.mem.sort(Row, rows.items, {}, rowLess);
     const lists = [_]struct { []const u8, []const Row }{ .{ "functions", unused_functions.items }, .{ "operations", unused_operations.items }, .{ "types", unused_types.items } };

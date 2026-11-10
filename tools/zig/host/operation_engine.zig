@@ -189,6 +189,12 @@ fn nodes(s: *State) ![]const OwnedNode {
     for (s.root.functions()) |function| for (model.typedBodyNodes(s.r.a, function)) |node| try result.append(s.r.a, .{ .function = function, .node = node });
     return result.items;
 }
+/// The node `id` as it is now in `function` (from an earlier root), looked up in that function alone.
+fn currentNode(s: *State, function: Record, id: []const u8) !?Record {
+    const current = edit.find(s.root, .functions, query.idOf(function)) orelse return null;
+    const node = current.data.function.body.findNode(try intern(s.r, .node, id)) orelse return null;
+    return edit.borrow(current, .{ .node = node });
+}
 fn updateNode(s: *State, id: []const u8, replacement: Record) !void {
     s.root = try edit.replaceNode(s.r.a, s.root, try intern(s.r, .node, id), replacement);
 }
@@ -349,9 +355,7 @@ fn addProduct(s: *State, p: Prepared) !void {
             if (edit.hasId(site.node, plan.construct)) break plan;
         } else unreachable;
         // Fetch the node after insertion: nested plan nodes may already have changed its graph.
-        const node = for (try nodes(s)) |current| {
-            if (edit.hasId(current.node, plan.construct)) break current.node;
-        } else unreachable;
+        const node = (try currentNode(s, site.function, plan.construct)).?;
         const binding: tm.Target = .{ .target = p.member.?.data.slot.value.id, .value = plan.value };
         try updateNode(s, plan.construct, try edit.nodePayload(a, node, "fields", .{ .fields = try targetList(a, node.payload("fields").?.fields, binding) }));
         try s.add(.productFieldsBound, try m.object(a, &.{ try m.member(a, "ownerFunctionId", idValue(site.function)), try m.member(a, "constructNodeId", idValue(node)), try m.member(a, "fieldId", idValue(p.member.?)), try m.member(a, "valueNodeId", nodeValue(s.r, plan.value)) }));
@@ -399,9 +403,7 @@ fn addUnion(s: *State, p: Prepared) !void {
         const plan = for (p.plans.arms) |plan| {
             if (edit.hasId(site.node, plan.match)) break plan;
         } else unreachable;
-        const node = for (try nodes(s)) |current| {
-            if (edit.hasId(current.node, plan.match)) break current.node;
-        } else unreachable;
+        const node = (try currentNode(s, site.function, plan.match)).?;
         var arms: std.ArrayList(tm.UnionArm) = .empty;
         var iterator = node.payload("arms").?.arms.iterator();
         while (iterator.next()) |arm| try arms.append(a, arm);
@@ -470,9 +472,10 @@ fn addParameter(s: *State, p: Prepared) !void {
     s.root = try edit.replace(a, s.root, .functions, try reconcile(s, try edit.append(a, function, .parameters, p.member.?)));
     for (request.calls, p.missing) |plan, missing| switch (plan) {
         .bind => |bind| {
-            const node = for (try nodes(s)) |site| {
-                if (edit.hasId(site.node, bind.call)) break site.node;
+            const owner = for (affected.items) |site| {
+                if (edit.hasId(site.node, bind.call)) break site.function;
             } else unreachable;
+            const node = (try currentNode(s, owner, bind.call)).?;
             try attachArgument(s, node, p.member.?.data.slot.value.id, try intern(s.r, .node, bind.value));
         },
         .leave_missing => |call| {
@@ -834,9 +837,7 @@ fn removeUnion(s: *State, id: []const u8) !void {
     var affected_ids: std.ArrayList(Value) = .empty;
     for (matches.items) |site| {
         try affected_ids.append(a, idValue(site.node));
-        const node = for (try nodes(s)) |current| {
-            if (edit.hasId(current.node, query.idOf(site.node))) break current.node;
-        } else continue;
+        const node = (try currentNode(s, site.function, query.idOf(site.node))) orelse continue;
         var arms: std.ArrayList(tm.UnionArm) = .empty;
         var iterator = node.payload("arms").?.arms.iterator();
         while (iterator.next()) |arm| {
