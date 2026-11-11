@@ -92,6 +92,7 @@ extern "c" fn posix_spawn_file_actions_init(actions: *SpawnBuffer) c_int;
 extern "c" fn posix_spawn_file_actions_destroy(actions: *SpawnBuffer) c_int;
 extern "c" fn posix_spawn_file_actions_addopen(actions: *SpawnBuffer, fd: c_int, path: [*:0]const u8, flags: c_int, mode: c_uint) c_int;
 extern "c" fn posix_spawn_file_actions_adddup2(actions: *SpawnBuffer, fd: c_int, new_fd: c_int) c_int;
+extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *SpawnBuffer, path: [*:0]const u8) c_int;
 extern "c" fn posix_spawnattr_init(attr: *SpawnBuffer) c_int;
 extern "c" fn posix_spawnattr_destroy(attr: *SpawnBuffer) c_int;
 extern "c" fn posix_spawnattr_setflags(attr: *SpawnBuffer, flags: c_short) c_int;
@@ -142,6 +143,15 @@ fn setSize(fd: c_int, cols: i64, rows: i64) void {
 
 /// The child inherits this process's environment with `environment`'s variables replaced or added.
 pub fn ptyOpen(allocator: Allocator, argv: []const []const u8, environment: Environment, cols: i64, rows: i64) !*Pty {
+    return ptyOpenImpl(allocator, argv, environment, cols, rows, null);
+}
+
+/// `ptyOpen` starting in `cwd` instead of this process's working directory. A bad `cwd` fails the open.
+pub fn ptyOpenAt(allocator: Allocator, argv: []const []const u8, environment: Environment, cols: i64, rows: i64, cwd: ?[]const u8) !*Pty {
+    return ptyOpenImpl(allocator, argv, environment, cols, rows, cwd);
+}
+
+fn ptyOpenImpl(allocator: Allocator, argv: []const []const u8, environment: Environment, cols: i64, rows: i64, cwd: ?[]const u8) !*Pty {
     if (argv.len == 0) return error.EmptyArgv;
     const c_argv = try allocator.allocSentinel(?[*:0]const u8, argv.len, null);
     for (c_argv, argv) |*slot, item| slot.* = try allocator.dupeSentinel(u8, item, 0);
@@ -177,6 +187,10 @@ pub fn ptyOpen(allocator: Allocator, argv: []const []const u8, environment: Envi
     if (posix_spawn_file_actions_addopen(&actions, 0, &name, openFlags(.{ .ACCMODE = .RDWR }), 0) != 0 or
         posix_spawn_file_actions_adddup2(&actions, 0, 1) != 0 or posix_spawn_file_actions_adddup2(&actions, 0, 2) != 0 or
         posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID) != 0) return error.SpawnFailed;
+    if (cwd) |dir| {
+        const c_dir = try allocator.dupeSentinel(u8, dir, 0);
+        if (posix_spawn_file_actions_addchdir_np(&actions, c_dir) != 0) return error.SpawnFailed;
+    }
     var pid: c_int = 0;
     switch (posix_spawnp(&pid, c_argv[0].?, &actions, &attr, c_argv, @ptrCast(env.items.ptr))) {
         0 => {},

@@ -14,6 +14,7 @@
       "run": { "declaration": "processRun" } } },
     "Ptys": { "operations": {
       "open": { "declaration": "ptyOpen" },
+      "openAt": { "declaration": "ptyOpenAt" },
       "close": { "declaration": "ptyClose", "closes": "pty" } } },
     "Pty": { "handle": "Pty", "operations": {
       "read": { "declaration": "ptyRead" },

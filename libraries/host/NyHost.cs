@@ -94,7 +94,14 @@ public sealed class ProcessHost : ProcessBase
 public sealed class PtysHost : PtysBase
 {
     /// The child inherits this process's environment with `environment`'s variables replaced or added.
-    public override NyResult<Pty, NyStr> open(NyList<NyStr> argv, NyMap<NyStr, NyStr> environment, long cols, long rows)
+    public override NyResult<Pty, NyStr> open(NyList<NyStr> argv, NyMap<NyStr, NyStr> environment, long cols, long rows) =>
+        Open(argv, environment, cols, rows, null);
+
+    /// `open` starting in `cwd` instead of this process's working directory. A bad `cwd` fails the open.
+    public override NyResult<Pty, NyStr> openAt(NyList<NyStr> argv, NyMap<NyStr, NyStr> environment, long cols, long rows, NyOption<NyStr> cwd) =>
+        Open(argv, environment, cols, rows, cwd.HasValue ? cwd.Value.Text : null);
+
+    static NyResult<Pty, NyStr> Open(NyList<NyStr> argv, NyMap<NyStr, NyStr> environment, long cols, long rows, string? cwd)
     {
         var args = new string[argv.Length];
         for (long i = 0; i < argv.Length; i++) args[i] = argv.ItemAt(i).Value;
@@ -104,7 +111,7 @@ public sealed class PtysHost : PtysBase
             .Select(e => $"{e.Key}={e.Value}")
             .Concat(environment.Fold(new List<string>(), (list, name, value) => { list.Add($"{(string)name}={(string)value}"); return list; }))
             .ToArray();
-        try { return NyResult<Pty, NyStr>.Ok(new PtyHost(args, env, cols, rows)); }
+        try { return NyResult<Pty, NyStr>.Ok(new PtyHost(args, env, cols, rows, cwd)); }
         catch (IOException e) { return NyResult<Pty, NyStr>.Err(e.Message); }
     }
 
@@ -121,7 +128,7 @@ public sealed unsafe class PtyHost : PtyBase
     readonly byte[] _buffer = new byte[65536];
     bool _closed;
 
-    internal PtyHost(string[] argv, string[] env, long cols, long rows)
+    internal PtyHost(string[] argv, string[] env, long cols, long rows, string? cwd = null)
     {
         // Close-on-exec from the start, and no slave fd in this process: neither can leak into a child
         // that another thread starts, which would keep this pty's reads from ever seeing EIO.
@@ -147,6 +154,7 @@ public sealed unsafe class PtyHost : PtyBase
             if (r == 0) r = Libc.ActionsDup2(fa, 0, 2);
             if (r == 0) r = Libc.AttrInit(attr);
             if (r == 0) r = Libc.AttrSetFlags(attr, Libc.POSIX_SPAWN_SETSID);
+            if (r == 0 && cwd != null) r = WithCStrings([cwd], a => Libc.ActionsChdir(fa, a[0]));
             if (r == 0) r = WithCStrings(argv, a => WithCStrings(env, e => Libc.SpawnP(out pid, a[0], fa, attr, a, e)));
         }
         finally { Libc.ActionsDestroy(fa); }
@@ -259,6 +267,7 @@ static unsafe partial class Libc
     [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_destroy")] public static partial int ActionsDestroy(void* fa);
     [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_addopen")] public static partial int ActionsOpen(void* fa, int fd, byte* path, int flags, uint mode);
     [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_adddup2")] public static partial int ActionsDup2(void* fa, int fd, int newFd);
+    [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_addchdir_np")] public static partial int ActionsChdir(void* fa, byte* path);
     [LibraryImport(Lib, EntryPoint = "posix_spawnattr_init")] public static partial int AttrInit(void* attr);
     [LibraryImport(Lib, EntryPoint = "posix_spawnattr_setflags")] public static partial int AttrSetFlags(void* attr, short flags);
 }

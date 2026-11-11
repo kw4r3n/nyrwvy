@@ -4,7 +4,7 @@ Operating-system access for Nyrwvy programs without host code of their own: a wo
 
 All operations use the effect `System`. A failure the program can act on is a `Result` whose error is the OS's message.
 
-Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Process.run`, `Pty.read`, `Pty.write` (it blocks while the pty's buffer is full, until the child reads) and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Ptys.open`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
+Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Process.run`, `Pty.read`, `Pty.write` (it blocks while the pty's buffer is full, until the child reads) and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Ptys.open`, `Ptys.openAt`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
 
 | Capability | Operation | Result |
 | --- | --- | --- |
@@ -15,6 +15,7 @@ Operations that can wait for an external event for an unbounded time are marked 
 | `Process` | `spawn(program, args)` | `Result<Unit, String>`; starts without waiting |
 | `Process` | `run(program, args)` | `Result<ProcessOutput, String>`; runs to completion with empty standard input and waits until stdout and stderr close, as Python's `subprocess.run` does (a background process left holding them keeps it waiting); `ProcessOutput` has `exitCode`, `stdout` and `stderr` (Bytes) |
 | `Ptys` | `open(argv, environment, cols, rows)` | `Result<Pty, String>`; a program on a new pseudo terminal, inheriting this process's environment with `environment` (`Map<String, String>`, for example `TERM`) replaced or added |
+| `Ptys` | `openAt(argv, environment, cols, rows, cwd)` | `Result<Pty, String>`; `open` starting in `cwd` (`Option<String>`, `None` for the inherited directory); a bad `cwd` fails the open |
 | `Ptys` | `close(pty)` | `Option<Int64>`; hangs up the child's process group and reaps it: its exit code, or `None` when a signal ended it. A child still running 2 s after the hangup is killed. |
 | `Pty` | `read()` | `Option<Bytes>`; blocks for the next chunk, `None` once the child has exited |
 | `Pty` | `write(data)` | `Unit` |
@@ -23,7 +24,7 @@ Operations that can wait for an external event for an unbounded time are marked 
 
 `Pty` is a [capability handle](../../docs/decisions/capability-handles.md): an operation on a closed `Pty` throws "Handle is not open". `close` may run while another thread is blocked in `read`; that `read` then returns `None`. `Ptys` needs Linux with glibc.
 
-Not provided yet: directory operations, file deletion, a working directory for `open` and `run`, standard input for `run`, sockets and clocks. They are added when a program needs them.
+Not provided yet: directory operations, file deletion, a working directory for `run`, standard input for `run`, sockets and clocks. They are added when a program needs them.
 
 ## Using it
 
@@ -37,7 +38,7 @@ Zig's [library mode](../../docs/decisions/zig-backend-memory-ownership.md#librar
 
 1. Import the workspace as above.
 2. Copy `host.zig` and `host.zig.json` beside the snapshot and add `"zigTables": ["host.zig.json"]` to `<snapshot>.backends.json`, next to `"exports"`.
-3. Emit with `emitZigLibrary` into the same directory and build with `zig build-lib -dynamic -lc`. An export's `Fs`, `Env`, `Process` or `Ptys` parameter is not part of its C signature. A `Pty` crosses as an opaque `ny_handle *`: an export returning `Result<Pty, String>` gives it through `ny_handle **out` (status 4 is `Err`, its text through `ny_last_failure`), and an export taking one takes the pointer. `Ptys.close` is the release; `ny_open_handles()` counts handles not yet closed. `Ptys.open` takes a `List` and a `Map`, which have no C form, so a Nyrwvy function builds them and is exported instead.
+3. Emit with `emitZigLibrary` into the same directory and build with `zig build-lib -dynamic -lc`. An export's `Fs`, `Env`, `Process` or `Ptys` parameter is not part of its C signature. A `Pty` crosses as an opaque `ny_handle *`: an export returning `Result<Pty, String>` gives it through `ny_handle **out` (status 4 is `Err`, its text through `ny_last_failure`), and an export taking one takes the pointer. `Ptys.close` is the release; `ny_open_handles()` counts handles not yet closed. `Ptys.open` and `Ptys.openAt` take a `List` and a `Map`, which have no C form, so a Nyrwvy function builds them and is exported instead.
 
 The behaviour matches the table above, except that an `Err` holds the Zig error's name (`FileNotFound`) instead of the OS's message. `Pty.read` returns at most 64 KiB, so a C host passes a buffer that large: status 3 re-runs the read and loses the chunk. An export that may wait runs its waiting operations with the library's lock released, so other threads' calls go on meanwhile.
 

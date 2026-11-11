@@ -88,6 +88,16 @@ Check("Ptys.close of a hung-up child has no exit code", !ptys.close(blocked).Has
 var readerEnded = reader.Join(5000);
 Check($"close while another thread reads (reader got {readerEnd ?? "nothing"})", readerEnded && readerEnd == "None");
 Check("Ptys.open missing program", !ptys.open(Strings("nyr-host-no-such-program"), xterm, 80, 24).IsOk);
+var inDir = ptys.openAt(Strings("pwd"), xterm, 80, 24, NyOption<NyStr>.Some(dir.FullName));
+Check("Ptys.openAt", inDir.IsOk);
+var pwdPty = (PtyHost)inDir.OkValue;
+var pwdOutput = new StringBuilder();
+while (!pwdOutput.ToString().Contains(dir.FullName) && pwdPty.read() is { HasValue: true } pwdChunk)
+    pwdOutput.Append(Encoding.Latin1.GetString(pwdChunk.Value.Span));
+Check("Ptys.openAt starts in the directory", pwdOutput.ToString().Contains(dir.FullName));
+ptys.close(pwdPty);
+Check("Ptys.openAt missing directory", !ptys.openAt(Strings("pwd"), xterm, 80, 24, NyOption<NyStr>.Some("/nyr-host-no-such-dir")).IsOk);
+Check("Ptys.openAt with no directory", ptys.openAt(Strings("true"), xterm, 80, 24, NyOption<NyStr>.None()).IsOk);
 var stubborn = ptys.open(Strings("sh", "-c", "trap '' HUP; while :; do sleep 1; done"), xterm, 80, 24).OkValue;
 System.Threading.Thread.Sleep(200);
 var watch = System.Diagnostics.Stopwatch.StartNew();

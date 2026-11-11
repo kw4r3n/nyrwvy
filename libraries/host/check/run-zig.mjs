@@ -17,7 +17,7 @@ for (const file of ["host.json", "host.zig", "host.zig.json"]) copyFileSync(join
 const snapshot = join(work, "check.json")
 writeFileSync(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], zigTables: ["host.zig.json"],
   exports: ["readOr", "readBytesOr", "write", "env", "exitCode", "stdout", "stderr", "runError", "spawned",
-    "openShell", "ptyRead", "ptyWrite", "ptyResize", "ptyForeground", "ptyClose"] }))
+    "openShell", "openShellAt", "ptyRead", "ptyWrite", "ptyResize", "ptyForeground", "ptyClose"] }))
 
 const cli = spawn(executable, ["create", "--snapshot", snapshot, "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
 const exchange = hostExchange(cli)
@@ -59,6 +59,11 @@ await define("openShell", "Ptys", generic("result", pty, str), ["program", "scri
   argv: { kind: "listConstruct", itemType: str, items: [P("program"), text("-c"), P("script")] },
   environment: { kind: "mapInsert", map: { kind: "mapEmpty", keyType: str, valueType: str }, key: text("TERM"), value: text("xterm-256color") },
   cols: { kind: "int64Literal", value: "100" }, rows: { kind: "int64Literal", value: "30" } }))
+await define("openShellAt", "Ptys", generic("result", pty, str), ["program", "script", "dir"], invoke("Ptys", "openAt", {
+  argv: { kind: "listConstruct", itemType: str, items: [P("program"), text("-c"), P("script")] },
+  environment: { kind: "mapInsert", map: { kind: "mapEmpty", keyType: str, valueType: str }, key: text("TERM"), value: text("xterm-256color") },
+  cols: { kind: "int64Literal", value: "100" }, rows: { kind: "int64Literal", value: "30" },
+  cwd: { kind: "optionSome", value: P("dir") } }))
 await define("ptyRead", "Pty", generic("option", bytes), [], invoke("Pty", "read"))
 await define("ptyWrite", "Pty", { kind: "primitive", primitive: "unit" }, [["data", bytes]], invoke("Pty", "write", { data: P("data") }))
 await define("ptyResize", "Pty", { kind: "primitive", primitive: "unit" }, [["cols", int], ["rows", int]], invoke("Pty", "resize", { cols: P("cols"), rows: P("rows") }))
@@ -196,6 +201,19 @@ test "pty on Zig" {
     try std.testing.expectEqual(@as(c_int, 0), ny_ptyClose(stubborn, &some, &code));
     try std.testing.expect(!some);
     try std.testing.expect(start.durationTo(std.Io.Clock.awake.now(std.testing.io)).toMilliseconds() < 5000);
+
+    // openAt starts the child in the given directory; a missing one fails the open.
+    const at_dir = ${JSON.stringify(work)};
+    var at_pty: ?*NyHandle = null;
+    try std.testing.expectEqual(@as(c_int, 0), ny_openShellAt("sh".ptr, 2, "pwd".ptr, 3, at_dir.ptr, at_dir.len, &at_pty));
+    try std.testing.expect(std.mem.indexOf(u8, try checkReadUntil(at_pty, at_dir), at_dir) != null);
+    var at_some = false;
+    var at_code: i64 = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_ptyClose(at_pty, &at_some, &at_code));
+    try std.testing.expect(at_some and at_code == 0);
+    const bad_dir = "/nyr-host-no-such-dir";
+    var bad_pty: ?*NyHandle = null;
+    try std.testing.expectEqual(@as(c_int, 4), ny_openShellAt("sh".ptr, 2, "pwd".ptr, 3, bad_dir.ptr, bad_dir.len, &bad_pty));
     try std.testing.expectEqual(@as(usize, 0), ny_open_handles());
     try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
 }
