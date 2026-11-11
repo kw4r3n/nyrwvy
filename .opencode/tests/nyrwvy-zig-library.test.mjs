@@ -288,14 +288,17 @@ fn call(option: bool, text: []const u8, key: ?[*]u8, key_cap: usize, key_len: *u
 `)
     zig(["test", join(directory, "harness.zig"), library, "-lc", "-rpath", directory])
 
-    // A Union result has no flat form, so emission names the type instead of guessing.
+    // A Union result has no flat form: it crosses as an opaque value the caller releases
+    // with ny_release, where emission used to refuse the type outright.
     await publish(context, { op: "simulateCreateTypeByName", displayName: "Choice", typeKind: { kind: "union", variants: [{ displayName: "a", fields: [] }] } })
     await publish(context, { op: "simulateCreateFunctionByName", displayName: "choice", resultType: named("Choice"), requiredEffects: [], parameters: [],
       body: { kind: "unionConstruct", type: "Choice", variant: "a", fields: [] } })
     await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], exports: ["choice"] }))
-    const refused = JSON.parse(await requestAuthoring({ op: "emitZigLibrary" }, context))
-    assert.equal(refused.ok, false)
-    assert.match(refused.error.message, /export result type/)
+    const boxed = await request(context, { op: "emitZigLibrary", output: "choice.zig" })
+    const boxedSource = await readFile(boxed.path, "utf8")
+    assert.match(boxedSource, /export fn ny_choice\(out: \*\?\*NyValue\)/)
+    const boxedLibrary = join(directory, "libchoice.so")
+    zig(["build-lib", "-dynamic", "-lc", "-O", "ReleaseSafe", "-fstrip", boxed.path, `-femit-bin=${boxedLibrary}`])
 
     // Shapes nest: this has to compile, and status 3 reports both buffers' lengths.
     await publish(context, { op: "simulateCreateTypeByName", displayName: "Pair", typeKind: { kind: "product", fields: [

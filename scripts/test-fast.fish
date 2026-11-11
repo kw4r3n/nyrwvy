@@ -17,11 +17,12 @@ if not contains -- --no-build $argv; and test -z "$NYRWVY_HOST_EXECUTABLE"
     end
 end
 
+set -l test_log (mktemp)
 dotnet test "$repo_root/tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj" \
     --configuration Release \
     --settings "$repo_root/tests/fast.runsettings" \
-    $argv
-set -l test_status $status
+    $argv | tee "$test_log"
+set -l test_status $pipestatus[1]
 
 if test -n "$host_build"
     wait
@@ -31,6 +32,15 @@ if test -n "$host_build"
 end
 test $test_status -eq 0; or exit $test_status
 test $host_status -eq 0; or exit $host_status
+# A filter or settings mistake can select zero tests and still exit 0. The run's own summary
+# is the count: a separate --list-tests pass would invoke dotnet a second time and break the
+# wrappers' argument-forwarding contract.
+if grep -Eq 'Total: +0,' "$test_log"
+    echo "test-fast: the fast suite ran 0 tests; refusing to pass an empty suite" >&2
+    rm "$test_log"
+    exit 1
+end
+rm "$test_log"
 
 cd "$repo_root"
 or exit $status
