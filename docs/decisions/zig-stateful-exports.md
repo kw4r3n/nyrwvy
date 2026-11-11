@@ -191,7 +191,7 @@ One difference remains: neither backend closes a forgotten handle, but C#'s obje
 
 - **Slice 1.** `libraries/host/check/run-zig.mjs` sets a checking allocator in its harness and asserts nothing is live after its calls. Rhifill's `tools/check-zig-layout-cases.mjs` and `tests/layout` still pass, and its bench gives the before and after.
 - **Slice 2.** `run-zig.mjs`, which today covers everything "except for the pty", gains the checks `check/Program.cs` makes against `NyHost.cs`: open, write, read, resize, foreground command, exit code. New: while one thread is blocked in `read`, a second thread's export returns (the lock is released); `close` from that thread makes `read` return `None`; use after close and a second close give status 1 and the C# message; a wrong-capability handle gives status 1; `ny_open_handles` is 0 at the end and nothing is live. Emitter unit tests in `main.zig` cover a handle capability without its table marks and the `taskBound` rejection.
-- **Slice 3.** A harness builds a value over many updates, checks old versions still read correctly, releases everything and asserts nothing is live (`tools/zig/emitter/value-handle-check/run.sh`, which also checks a wrong tag and a null box against status 1).
+- **Slice 3.** A harness builds a value over many updates, checks old versions still read correctly, releases everything and asserts no counted value is live (`tools/zig/emitter/value-handle-check/run.sh`, which also checks a wrong tag and a null box against status 1; the boxes themselves are allocated outside the checking allocator, so a missed `ny_release` is not caught here).
 - **Reply change.** The `mayWait` entries change `emitZigLibrary`'s reply, so run `scripts/test-extended.fish`.
 
 ## Size and scope
