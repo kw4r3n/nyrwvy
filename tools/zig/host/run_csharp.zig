@@ -96,14 +96,14 @@ fn runChecked(r: *q.Request, input: *v.Input, reach: []const u8, concurrent: boo
                 const output = try managed_text.decode(r.a, done.stdout);
                 const errors = try managed_text.decode(r.a, done.stderr);
                 if (managed_text.units(output) > 1048576 or managed_text.units(errors) > 1048576) return v.diagnostic(r, input, "RunOutputTooLarge", "The process produced more than 1 MiB of output.");
-                if (!done.term.success()) return v.csharpCrash(r, input, output, errors);
+                if (!done.term.success()) return v.csharpCrash(r, input, done.term, output, errors);
                 break :raw output;
             },
         }
     } else managed: {
         switch (try worker.run(r.a, root.host_io, try ensureWorker(r, input), assembly, input_path)) {
             .failed => |d| return v.diagnostic(r, input, d.code, d.message),
-            .crashed => |errors| return v.csharpCrash(r, input, "", try managed_text.decode(r.a, errors)),
+            .crashed => |errors| return v.csharpCrash(r, input, null, "", try managed_text.decode(r.a, errors)),
             .completed => |output| break :managed output,
         }
     };

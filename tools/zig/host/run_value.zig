@@ -1802,7 +1802,7 @@ pub fn crash(r: *q.Request, input: *Input, exit_code: i32, stderr: []const u8) F
     };
     return runtimeFailure(r, input, "fatal", if (panic != null) "ZigPanic" else "ZigCrash", panic orelse try std.fmt.allocPrint(r.a, "The Zig program stopped with exit code {d} (for example a stack overflow).", .{exit_code}), .{ .array = &.{} }, false);
 }
-pub fn csharpCrash(r: *q.Request, input: *Input, stdout: []const u8, stderr: []const u8) Fail!void {
+pub fn csharpCrash(r: *q.Request, input: *Input, term: ?std.process.Child.Term, stdout: []const u8, stderr: []const u8) Fail!void {
     if (std.mem.indexOf(u8, stderr, "Stack overflow") != null) {
         var frames: std.array_list.Managed(Json) = .init(r.a);
         var i: usize = 0;
@@ -1818,7 +1818,9 @@ pub fn csharpCrash(r: *q.Request, input: *Input, stdout: []const u8, stderr: []c
         defer r.generation = original;
         return runtimeFailureFrames(r, input, "fatal", "System.StackOverflowException", "Stack overflow: recursion was too deep. A self DirectCall in tail position runs as a loop (the body's result, a Bind body, a Conditional branch, a match arm or otherwise, or the right operand of BoolAnd/BoolOr); any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several thousand frames of a typical function. Make the self call the last step of each continuing branch, or iterate a List with ListFold (for text, over StringCodePoints).", .{ .array = &.{} }, false, .{ .array = frames });
     }
-    const details = try std.mem.concat(r.a, u8, &.{ stdout, "\n", stderr });
+    // The worker path has no term to pass (it reports a crash by protocol, not by exit status);
+    // the direct path names how the process ended, like `processFailure` does.
+    const details = if (term) |ended| try std.mem.concat(r.a, u8, &.{ try @import("run_process.zig").termLine(r.a, ended), "\n", stdout, "\n", stderr }) else try std.mem.concat(r.a, u8, &.{ stdout, "\n", stderr });
     return diagnostic(r, input, "RunProcessFailure", try @import("managed_text.zig").prefix(r.a, details, 4096));
 }
 fn envelopeWithinDepth(a: Allocator, text: []const u8) bool {

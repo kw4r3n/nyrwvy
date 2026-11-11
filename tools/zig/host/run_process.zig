@@ -109,9 +109,21 @@ pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []
     return .{ .completed = result };
 }
 
+/// How a child ended, as the first line of its failure diagnostic. An agent that reads
+/// "killed by signal 9" can tell an OOM kill from a compiler error; the captured output alone
+/// is empty in exactly that case, so the message used to be a single newline.
+pub fn termLine(a: Allocator, term: std.process.Child.Term) ![]const u8 {
+    return switch (term) {
+        .exited => |code| try std.fmt.allocPrint(a, "exited with code {d}", .{code}),
+        .signal => |signal| try std.fmt.allocPrint(a, "killed by signal {d}", .{@intFromEnum(signal)}),
+        .stopped => |signal| try std.fmt.allocPrint(a, "stopped by signal {d}", .{@intFromEnum(signal)}),
+        .unknown => |status| try std.fmt.allocPrint(a, "ended with status {d}", .{status}),
+    };
+}
+
 pub fn processFailure(a: Allocator, result: std.process.RunResult) !Diagnostic {
     const text = @import("managed_text.zig");
-    const details = try std.mem.concat(a, u8, &.{ try text.decode(a, result.stdout), "\n", try text.decode(a, result.stderr) });
+    const details = try std.mem.concat(a, u8, &.{ try termLine(a, result.term), "\n", try text.decode(a, result.stdout), "\n", try text.decode(a, result.stderr) });
     return .{ .code = "RunProcessFailure", .message = try text.prefix(a, details, 4096) };
 }
 
@@ -266,13 +278,16 @@ test "compiler diagnostics decode malformed text before a UTF16 prefix reaches t
     defer arena.deinit();
     const a = arena.allocator();
     const replaced = try processFailure(a, .{ .term = .{ .exited = 1 }, .stdout = try a.dupe(u8, "\xff"), .stderr = try a.dupe(u8, "\xe1\x80") });
-    try std.testing.expectEqualStrings("�\n�", replaced.message);
+    try std.testing.expectEqualStrings("exited with code 1\n�\n�", replaced.message);
+    // No output at all (the OOM-kill shape): the term line is the whole diagnosis.
+    const killed = try processFailure(a, .{ .term = .{ .signal = .KILL }, .stdout = "", .stderr = "" });
+    try std.testing.expectEqualStrings("killed by signal 9\n\n", killed.message);
     const ascii = try a.alloc(u8, 4095);
     @memset(ascii, 'a');
     const stdout = try std.mem.concat(a, u8, &.{ ascii, "😀" });
     const clipped = try processFailure(a, .{ .term = .{ .exited = 1 }, .stdout = stdout, .stderr = "" });
     try std.testing.expectEqual(@as(usize, 4096), @import("managed_text.zig").units(clipped.message));
-    try std.testing.expect(std.mem.endsWith(u8, clipped.message, "�"));
+    try std.testing.expect(std.mem.startsWith(u8, clipped.message, "exited with code 1\n"));
     try std.testing.expect(std.unicode.utf8ValidateSlice(clipped.message));
 }
 

@@ -2838,6 +2838,19 @@ fn boxedArgument(parameters: *List([]const u8), checks: *List(u8), doc: *List([]
 
 /// The C spelling of one flattened Zig parameter type, or null when it has none (the header then
 /// omits that export's declaration instead of guessing; the Zig source stays the authority).
+/// The exports `library_support` itself puts in every generated library.
+fn isRuntimeSymbol(name: []const u8) bool {
+    const taken = [_][]const u8{ "ny_last_failure", "ny_release", "ny_open_handles", "ny_arena_capacity" };
+    for (taken) |word| if (eql(name, word)) return true;
+    return false;
+}
+
+fn isZigKeyword(name: []const u8) bool {
+    const keywords = [_][]const u8{ "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm", "async", "await", "break", "callconv", "catch", "comptime", "const", "continue", "defer", "else", "enum", "errdefer", "error", "export", "extern", "false", "fn", "for", "if", "inline", "linksection", "noalias", "noinline", "nosuspend", "null", "opaque", "or", "orelse", "packed", "pub", "resume", "return", "struct", "suspend", "switch", "test", "threadlocal", "true", "try", "type", "undefined", "union", "usingnamespace", "var", "volatile", "while" };
+    for (keywords) |word| if (eql(name, word)) return true;
+    return false;
+}
+
 fn abiCType(zig_type: []const u8) ?[]const u8 {
     const table = .{
         .{ "i64", "int64_t" },     .{ "f64", "double" },       .{ "bool", "bool" },           .{ "usize", "size_t" },
@@ -2910,9 +2923,12 @@ fn abiCResultWrapper(symbol: []const u8, parameters: []const []const u8, doc: []
         const c_type = abiCType(zig_type) orelse return null;
         if (eql(name, "out_some") or std.mem.startsWith(u8, name, "out_f_")) {
             const member = if (eql(name, "out_some")) "some" else name[4..];
-            // A `*T` out parameter becomes a plain `T` member; a buffer or a plain value keeps
-            // its spelling (a pointer member for a buffer, the value itself for a `_cap`).
-            const member_type = if (std.mem.startsWith(u8, zig_type, "*")) c_type[0 .. c_type.len - 2] else c_type;
+            // A `*T` out parameter becomes a plain `T` member: drop ONE pointer level off the C
+            // spelling and trim the space it leaves (`int64_t *` -> `int64_t`, `void **` ->
+            // `void *`). Dropping two characters instead turned a handle member (`void **`)
+            // into `void `, which is not a type a C struct can hold. A buffer or a plain value
+            // keeps its spelling (a pointer member for a buffer, the value itself for a `_cap`).
+            const member_type = if (std.mem.startsWith(u8, zig_type, "*")) std.mem.trimEnd(u8, c_type[0 .. c_type.len - 1], " ") else c_type;
             push([]const u8, &members, cat(&.{ "    ", abiCSpelled(member_type, member), ";" }));
             push([]const u8, &call_args, if (std.mem.startsWith(u8, zig_type, "*")) cat(&.{ "&result->", member }) else cat(&.{ "result->", member }));
         } else if (std.mem.startsWith(u8, name, "out")) {
@@ -2946,6 +2962,9 @@ fn libraryExports(exports: []const Export) []const u8 {
         if (!capability_instances.contains(capability.id) or !implemented(capability.id)) lineCat(&out, &.{ "const ", identifier("C_", capability.id), " = struct {};" });
     }
     line(&out, "");
+    for (exports, 0..) |item, index| {
+        for (exports[0..index]) |prior| if (eql(prior.symbol, item.symbol)) problem(cat(&.{ "duplicate export symbol ", item.symbol }));
+    }
     for (exports) |item| {
         const fn_ = functions.get(item.id) orelse {
             problem(cat(&.{ "export of unknown function ", item.id }));
@@ -2955,8 +2974,13 @@ fn libraryExports(exports: []const Export) []const u8 {
             if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
         } else true;
         if (!valid) problem(cat(&.{ "export symbol ", item.symbol }));
+        // A symbol naming one of the runtime's own exports (a function called `release` exports
+        // as `ny_release`) or a Zig keyword passes the character check but breaks the generated
+        // library with a raw compiler error. Name it here, where the agent can act on it.
+        const taken = isRuntimeSymbol(item.symbol) or isZigKeyword(item.symbol);
+        if (taken) problem(cat(&.{ "export symbol ", item.symbol, " names a library runtime export or a Zig keyword" }));
         if (fn_.type_parameters.len > 0) problem(cat(&.{ "export of generic function ", item.symbol }));
-        if (!valid or fn_.type_parameters.len > 0) continue;
+        if (!valid or taken or fn_.type_parameters.len > 0) continue;
         var parameters: List([]const u8) = .empty;
         var arguments: List([]const u8) = .empty;
         var doc: List([]const u8) = .empty;
@@ -3502,6 +3526,54 @@ test "a library returns a handle capability only with its table mark, and never 
         };
         try std.testing.expect(std.mem.indexOf(u8, text, expected) != null);
         try std.testing.expectEqual(handle != null and !task_bound, result == .source);
+    }
+}
+
+test "a library header spells a handle field of a record result as a pointer member" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const pair_type =
+        \\{"kind":"named","typeId":"Pair","arguments":[]}
+    ;
+    const ir = try std.mem.concat(allocator, u8, &.{
+        \\{"types":[{"id":"Pair","kind":"product","fields":[{"id":"h","type":{"kind":"capability","capabilityId":"h"}},{"id":"n","type":{"kind":"primitiveInt64"}}]}],"capabilities":[{"id":"opener","operations":[{"id":"open","parameters":[],"resultType":{"kind":"capability","capabilityId":"h"}}]},{"id":"h","operations":[{"id":"read","parameters":[],"resultType":{"kind":"primitiveInt64"}}]}],"functions":[{"semanticFunctionId":"echoPair","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":
+        , pair_type,
+        \\}}],"resultType":
+        , pair_type,
+        \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    });
+    const bindings = [_]HostBinding{
+        .{ .capability = "opener", .operation = "open", .source = "host.zig", .declaration = "open" },
+        .{ .capability = "h", .operation = "read", .source = "host.zig", .declaration = "read", .handle = "H" },
+    };
+    const result = try library(allocator, ir, &.{.{ .id = "echoPair", .symbol = "ny_echoPair" }}, .{ .operations = &bindings });
+    try std.testing.expect(result == .source);
+    const header = takeLibraryHeader() orelse return error.MissingHeader;
+    // The member keeps one pointer level (`void *`), where dropping two characters off the C
+    // spelling of the `void **` out parameter used to leave `void `, which no C compiler accepts.
+    try std.testing.expect(std.mem.indexOf(u8, header, "    void *f_h;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "    int64_t f_n;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "int ny_echoPair(void *a0_f_h, int64_t a0_f_n, void **out_f_h, int64_t *out_f_n);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "&result->f_h") != null);
+}
+
+test "a library refuses export symbols that name a runtime export, a keyword, or another export" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const ir =
+        \\{"types":[],"capabilities":[],"functions":[{"semanticFunctionId":"echo","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"primitiveInt64"}}}],"resultType":{"kind":"primitiveInt64"},"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    ;
+    for ([_][]const Export{
+        &.{.{ .id = "echo", .symbol = "ny_release" }},
+        &.{.{ .id = "echo", .symbol = "test" }},
+        &.{ .{ .id = "echo", .symbol = "ny_echo" }, .{ .id = "echo", .symbol = "ny_echo" } },
+    }, [_][]const u8{ "names a library runtime export or a Zig keyword", "names a library runtime export or a Zig keyword", "duplicate export symbol ny_echo" }) |exports, expected| {
+        const result = try library(allocator, ir, exports, .{});
+        try std.testing.expect(result == .unsupported);
+        const text = try std.mem.join(allocator, ", ", result.unsupported);
+        try std.testing.expect(std.mem.indexOf(u8, text, expected) != null);
     }
 }
 

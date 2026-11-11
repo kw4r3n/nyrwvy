@@ -838,8 +838,10 @@ fn generate(a: A, io: std.Io, o: Options) !Result {
         try set(a, &table_caps, name, cap);
     }
     const table = try obj(a, &.{ "format", "version", "library", "capabilities" }, &.{ string("nyrwvy.csharp-mapping"), .{ .integer = 1 }, string(o.library), table_caps });
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = o.requests, .data = lines.written() });
+    // The spec check runs before ANY file is written: after the requests write it used to leave
+    // a requests file and a mapping table that disagree with each other on disk.
     if (masked_spec and containsSpecMarks(table)) return error.SpecInvalidUtf16;
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = o.requests, .data = lines.written() });
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = o.table, .data = try std.mem.concat(a, u8, &.{ try jsonText(a, table, true), "\n" }) });
     var caps: std.ArrayList(V) = .empty;
     for (ordered.items) |name| try caps.append(a, string(name));
