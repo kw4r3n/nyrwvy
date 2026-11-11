@@ -294,6 +294,9 @@ fn isCanonicalString(raw: []const u8) bool {
 }
 
 /// One UTF-16 unit as JavaScriptEncoder.Default writes it.
+/// The JSON escape table, spelled identically in the model reader's `escapeUnit` (and in
+/// `appendJsonString` below): the modules keep separate allocator state, so the table is
+/// mirrored by hand — change all three together.
 fn escapeUnit(out: *List(u8), unit: u16) void {
     switch (unit) {
         8 => out.appendSlice(a, "\\b") catch oom(),
@@ -1247,7 +1250,8 @@ var kinds_loaded = false;
 const Json = std.json.Value;
 
 /// A JSON string spelled as the F# writer spells it (`JavaScriptEncoder.Default`), so a value read
-/// from the writer's canonical JSON is written back byte for byte.
+/// from the writer's canonical JSON is written back byte for byte. Its escape table is the one
+/// in `escapeUnit` above and in the model reader — change all three together.
 fn appendJsonString(out: *List(u8), input: []const u8) void {
     out.append(a, '"') catch oom();
     var it = std.unicode.Utf8View.initUnchecked(input).iterator();

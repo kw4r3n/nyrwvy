@@ -10,9 +10,11 @@ set -l host_status 0
 if not contains -- --no-build $argv; and test -z "$NYRWVY_HOST_EXECUTABLE"
     set host_build (mktemp -d)
     sh -c 'cd "$1" && npm run build:host >"$2/log" 2>&1; echo $? >"$2/status"' sh "$repo_root" "$host_build" &
-    # A background job ignores Ctrl-C, so an interrupted wrapper stops the build itself.
-    function stop_host_build --on-signal INT --inherit-variable last_pid
+    # A background job ignores Ctrl-C, so an interrupted wrapper stops the build itself
+    # (and removes its temp directory, which the normal path below would have done).
+    function stop_host_build --on-signal INT --inherit-variable last_pid --inherit-variable host_build
         pkill -TERM -P $last_pid
+        rm -r "$host_build"
         exit 130
     end
 end

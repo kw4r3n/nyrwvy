@@ -31,12 +31,6 @@ fn owner(d: *recipe.Decoder, f: Model) !void {
     for ((f).parameters(), names) |p, *n| n.* = query.nameOf(p);
     d.owner = .{ .name = query.nameOf(f), .parameters = names, .existing = f };
 }
-fn body(d: *recipe.Decoder, path: []const u8, value: Json, raw: []const u8) !*const recipe.Node {
-    var resolved = value;
-    try recipe.resolveNames(d, path, &resolved, raw);
-    const tree = try d.recipe(path, resolved);
-    return if (d.owner != null) recipe.bindExistingTypes(d, tree) else tree;
-}
 fn at(r: *query.Request, path: []const u8, key: []const u8) ![]const u8 {
     return std.fmt.allocPrint(r.a, "{s}/{s}", .{ path, key });
 }
@@ -99,7 +93,7 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
                 try owner(&d, f);
                 break :blk query.idOf(f);
             } else try id(&d, entry, key);
-            rewrite.* = .{ .id = fid, .body = try body(&d, try at(r, path, "replacement"), try d.property(entry, "replacement"), try recipe.rawProperty(r.a, raw[i], "replacement")) };
+            rewrite.* = .{ .id = fid, .body = try migration.decodedBody(&d, try at(r, path, "replacement"), try d.property(entry, "replacement"), try recipe.rawProperty(r.a, raw[i], "replacement")) };
         }
         try r.ensureUsable();
         try proposals.publishMigration(r, out, try product(r, wanted, target_id, new_type, rewrites));
@@ -120,7 +114,7 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
             const ps = try parameters(&d, entry, path, f, symbolic, false);
             var result = try d.anyType(try at(r, path, "resultType"), try d.property(entry, "resultType"));
             if (symbolic) result = try recipe.bindType(&d, result);
-            repair.* = .{ .rewrite = .{ .id = fid, .body = try body(&d, try at(r, path, "replacement"), try d.property(entry, "replacement"), try recipe.rawProperty(r.a, raw[i], "replacement")) }, .parameters = ps, .result = result };
+            repair.* = .{ .rewrite = .{ .id = fid, .body = try migration.decodedBody(&d, try at(r, path, "replacement"), try d.property(entry, "replacement"), try recipe.rawProperty(r.a, raw[i], "replacement")) }, .parameters = ps, .result = result };
         }
         try r.ensureUsable();
         try proposals.publishMigration(r, out, try capability(r, wanted, target_id, operation_parameters, new_type, repairs));

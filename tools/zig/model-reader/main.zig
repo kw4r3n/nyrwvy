@@ -287,6 +287,9 @@ fn lessUnits(left: Str, right: Str) bool {
 // ---------------------------------------------------------------- the writer's text
 
 /// Utf8JsonWriter's default encoder, per UTF-16 unit.
+/// The JSON escape table, spelled identically in the snapshot reader (its `escapeUnit` and
+/// `appendJsonString`): the modules keep separate allocator state, so the table is mirrored
+/// by hand — change all three together.
 fn escapeUnit(out: *List(u8), unit: u16) void {
     switch (unit) {
         8 => out.appendSlice(a, "\\b") catch oom(),
@@ -1473,20 +1476,6 @@ fn printFailure(out: *std.Io.Writer, e: Failure) void {
     }
 }
 
-/// A resolved document as the session host reads it (`SnapshotCodec.deserializeResolved`): the
-/// local document with its marker checked against the dependency's ID and digest, then the merged
-/// model, the dependency's declarations first, validated and fingerprinted. `dependency` is the
-/// dependency's current-version canonical text (`DocumentRead.canonical`).
-pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
-    a = allocator;
-    resetState();
-    const dependency_root = parseDocument(dependency) catch unreachable;
-    const strings = a.create(session_model.Interner) catch oom();
-    strings.* = .{ .gpa = a };
-    const generation = session_model.load(a, strings, dependency_root, null) catch oom();
-    return readResolvedTypedDocument(allocator, &generation, strings, dependency_id, dependency_digest, source);
-}
-
 /// The dependency is already decoded; only the new local source crosses the JSON boundary.
 pub fn readResolvedTypedDocument(allocator: std.mem.Allocator, dependency: *const session_model.Generation, dependency_interner: *const session_model.Interner, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
     var scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -1563,7 +1552,7 @@ pub fn typedRoot(allocator: std.mem.Allocator, interner: *const session_model.In
     semantic_model.begin(allocator, interner);
     return semantic_model.borrow(.{ .snapshot = generation });
 }
-pub fn modelFromValue(root: Value) Model {
+fn modelFromValue(root: Value) Model {
     const interner = a.create(session_model.Interner) catch oom();
     interner.* = .{ .gpa = a };
     const generation = a.create(session_model.Generation) catch oom();
@@ -1575,14 +1564,6 @@ pub fn modelFromValue(root: Value) Model {
 pub fn parseValue(allocator: std.mem.Allocator, source: []const u8) Failure!Value {
     a = allocator;
     return parseDocument(source);
-}
-
-/// A model in the writer's canonical order (`SnapshotCodec.serialize`): declarations and their
-/// members sorted by ID, as the host's encoders list them. `allocator` holds the result.
-pub fn canonicalRoot(allocator: std.mem.Allocator, root: Value) Value {
-    a = allocator;
-    emit_text = true;
-    return parseDocument(canonicalOf(root) catch unreachable) catch unreachable;
 }
 
 /// A string property's value (the parse keeps escapes).
@@ -7239,59 +7220,6 @@ fn typedFunctionIn(root: Model, function: Value) Model {
     };
     return found orelse unreachable;
 }
-pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
-    a = allocator;
-    return typedExecutionIrOf(allocator, modelFromValue(root));
-}
-pub fn executionForEntry(allocator: std.mem.Allocator, root: Value, entry: ?[]const u8) ExecutionResult {
-    a = allocator;
-    return typedExecutionForEntry(allocator, modelFromValue(root), entry);
-}
-pub fn executionReadinessOf(allocator: std.mem.Allocator, root: Value) Readiness {
-    a = allocator;
-    return typedExecutionReadinessOf(allocator, modelFromValue(root));
-}
-pub fn declarationKeys(allocator: std.mem.Allocator, root: Value) DeclarationKeys {
-    a = allocator;
-    return typedDeclarationKeys(allocator, modelFromValue(root));
-}
-pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8, id: Str) ?[]const Reference {
-    a = allocator;
-    return typedReferencesTo(allocator, modelFromValue(root), kind, id);
-}
-pub fn oneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Value) []const OneShotRequirement {
-    a = allocator;
-    return typedOneShotPayloadRequirementsOf(allocator, modelFromValue(root));
-}
-pub fn completionOf(allocator: std.mem.Allocator, root: Value, function: Value, id: Str) ?NodeCompletion {
-    a = allocator;
-    const loaded = modelFromValue(root);
-    const completion = typedCompletionOf(allocator, loaded, typedFunctionIn(loaded, function), decoded(.{ .string = id })) orelse return null;
-    return switch (completion) {
-        .normal => |t| .{ .normal = typeValue(t) },
-        .aborts => .aborts,
-    };
-}
-pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus {
-    a = allocator;
-    const loaded = modelFromValue(root);
-    const focus = typedFocusOf(allocator, loaded, typedFunctionIn(loaded, function));
-    const node_types = a.alloc(NodeTypeOf, focus.node_types.len) catch oom();
-    for (focus.node_types, node_types) |node, *slot| slot.* = .{ .id = node.id, .type = if (node.type) |t| typeValue(t) else null };
-    const aborts = a.alloc(Abort, focus.aborts.len) catch oom();
-    for (focus.aborts, aborts) |node, *slot| slot.* = .{ .node = node.node, .error_node = node.error_node, .error_type = if (node.error_type) |t| typeValue(t) else null, .enclosing = node.enclosing, .dependents = node.dependents };
-    return .{ .node_types = node_types, .requirements = focus.requirements, .wait_path = focus.wait_path, .aborts = aborts, .callers = focus.callers, .callees = focus.callees };
-}
-pub fn functionRelationsOf(node: Value) []const FunctionRelation {
-    return typedFunctionRelationsOf(modelFromNode(node));
-}
-pub fn operandIdsOf(node: Value) []const Str {
-    return typedOperandIdsOf(modelFromNode(node));
-}
-pub fn functionIdsOf(node: Value) []const Str {
-    return typedFunctionIdsOf(modelFromNode(node));
-}
-
 pub const TypedValidation = struct { lines: []const u8, validation_issues: []const Issue, valid: bool };
 pub fn validateTyped(allocator: std.mem.Allocator, interner: *const session_model.Interner, generation: *const session_model.Generation) TypedValidation {
     a = allocator;
@@ -7308,7 +7236,7 @@ fn legacyOne(value: Value) []const Value {
     return a.dupe(Value, &.{value}) catch oom();
 }
 
-pub fn scopesOf(node: Value) []const Scope {
+fn scopesOf(node: Value) []const Scope {
     var out: List(Scope) = .empty;
     const kind = str(node, "kind");
     if (isName(kind, "conditional")) {
@@ -7362,14 +7290,6 @@ pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
     var nodes: List(Value) = .empty;
     legacyCollectNodes(get(function, "body"), &nodes);
     return nodes.items;
-}
-
-/// `SemanticFacts.collectPatternBindings`, in lexical scope traversal order.
-pub fn patternBindings(allocator: std.mem.Allocator, graph: Value) []const Value {
-    a = allocator;
-    var bindings: List(Value) = .empty;
-    legacyCollectBindings(graph, &bindings);
-    return bindings.items;
 }
 
 fn resolvedNativeFixture(snapshot: []const u8, dependency_id: []const u8, digest: []const u8, function_id: []const u8) []const u8 {

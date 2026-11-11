@@ -26,7 +26,7 @@ fn owner(d: *recipe.Decoder, f: Model) !void {
     for (ps, names) |p, *n| n.* = query.nameOf(p);
     d.owner = .{ .name = query.nameOf(f), .parameters = names, .existing = f };
 }
-fn decodedBody(d: *recipe.Decoder, path: []const u8, original: std.json.Value, raw: []const u8) !*const Node {
+pub fn decodedBody(d: *recipe.Decoder, path: []const u8, original: std.json.Value, raw: []const u8) !*const Node {
     var v = original;
     try recipe.resolveNames(d, path, &v, raw);
     if (d.owner != null) return recipe.bindExistingTypes(d, try d.recipe(path, v));

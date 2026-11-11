@@ -76,7 +76,9 @@ internal static class Compiler
     private static int Compile(string manifest, string directory)
     {
         var sources = JsonSerializer.Deserialize<Source[]>(File.ReadAllText(manifest)) ?? throw new InvalidDataException("Missing sources.");
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        // No deadline of its own: the host bounds the driver process (30 s in run_csharp_build),
+        // and two clocks on one build only disagreed about which fired first.
+        using var cancellation = new CancellationTokenSource();
         try
         {
             var trees = sources.Select(source => CSharpSyntaxTree.ParseText(source.text, ParseOptions,
@@ -107,8 +109,9 @@ internal static class Compiler
             Directory.CreateDirectory(directory);
             File.WriteAllBytes(Path.Combine(directory, "Generated.dll"), assembly.ToArray());
             File.WriteAllBytes(Path.Combine(directory, "Generated.pdb"), symbols.ToArray());
-            File.WriteAllText(Path.Combine(directory, "Generated.runtimeconfig.json"),
-                "{\"runtimeOptions\":{\"tfm\":\"net" + Major + ".0\",\"framework\":{\"name\":\"Microsoft.NETCore.App\",\"version\":\"" + Major + ".0.0\"}}}");
+            // No Generated.runtimeconfig.json here: the host writes the one runtimeconfig
+            // into this directory itself (run_csharp_build's compile), for the dll it runs
+            // straight from here as much as for an installed cache hit.
             return 0;
         }
         catch (OperationCanceledException) { return 2; }

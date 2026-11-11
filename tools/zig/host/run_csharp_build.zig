@@ -188,12 +188,19 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     stale = false;
     return null;
 }
+/// The one runtimeconfig text, written by the host wherever a Generated.dll will be run:
+/// `install` for a cache hit, `compile` for a fresh build (whose dll is executed straight
+/// from the driver's output directory). The driver used to write its own copy there; two
+/// writers for one file is how they drift.
+fn runtimeConfig(a: A) ![]const u8 {
+    return try std.fmt.allocPrint(a, "{{\"runtimeOptions\":{{\"tfm\":\"net{d}.0\",\"framework\":{{\"name\":\"Microsoft.NETCore.App\",\"version\":\"{d}.0.0\"}}}}}}", .{ major, major });
+}
+
 fn install(a: A, io: std.Io, directory: []const u8, pe: []const u8, pdb: []const u8) ![]const u8 {
     const path = try std.fs.path.join(a, &.{ directory, "Generated.dll" });
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = pe });
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ directory, "Generated.pdb" }), .data = pdb });
-    const config = try std.fmt.allocPrint(a, "{{\"runtimeOptions\":{{\"tfm\":\"net{d}.0\",\"framework\":{{\"name\":\"Microsoft.NETCore.App\",\"version\":\"{d}.0.0\"}}}}}}", .{ major, major });
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ directory, "Generated.runtimeconfig.json" }), .data = config });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ directory, "Generated.runtimeconfig.json" }), .data = try runtimeConfig(a) });
     return path;
 }
 /// The identity hashes the driver, Roslyn, every reference assembly, the runtime and the options;
@@ -318,6 +325,9 @@ fn compile(a: A, io: std.Io, directory: []const u8, sources: []const Source, cac
     const pdb_path = try std.fs.path.join(a, &.{ directory, "Generated.pdb" });
     const pe = try std.Io.Dir.cwd().readFileAlloc(io, pe_path, a, .unlimited);
     const pdb = try std.Io.Dir.cwd().readFileAlloc(io, pdb_path, a, .unlimited);
+    // The fresh dll is executed from this directory, so it needs its runtimeconfig here;
+    // the host writes it (see `runtimeConfig`), not the driver.
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ directory, "Generated.runtimeconfig.json" }), .data = try runtimeConfig(a) });
     if (cached) {
         try remember(key, pe, pdb);
         store(a, io, key, pe, pdb) catch {};
