@@ -1,5 +1,5 @@
 // Library mode's C ABI (docs/decisions/zig-backend-memory-ownership.md, section 3 and the first
-// milestone; docs/decisions/zig-stateful-exports.md, slice 1). Arguments are borrowed for the call
+// milestone; docs/decisions/zig-stateful-exports.md, slices 1 to 3). Arguments are borrowed for the call
 // (copied into counted values the call consumes); a result is copied into caller buffers and then
 // released. Values are counted in `ny_values` (`smp_allocator` unless a harness set a checking one);
 // `ny_arena` keeps only runtime records. One mutex serialises every export, released around an
@@ -75,6 +75,40 @@ fn nyHandleClose(handle: ?*NyHandle) NyError!*anyopaque {
     handle.?.open = false;
     ny_open_count -= 1;
     return state;
+}
+
+// A value handle (docs/decisions/zig-stateful-exports.md, slice 3): an opaque box holding one
+// owned reference to a value the host cannot flatten (a Union, a recursive Product, a Set or Map,
+// an Option of an Option, ...). The box carries its type tag and the release function the emitter
+// generated for that type, so the one `ny_release` serves every boxed type and no per-type symbol
+// is needed. State is explicit: the host holds the box and replaces it with the next call's result,
+// so old versions stay valid and values stay immutable. A released box is undefined, like `free`;
+// the host is trusted.
+const NyValue = struct { tag: u64, release: *const fn (*anyopaque) void, value: *anyopaque };
+
+fn nyValueNew(tag: u64, release: *const fn (*anyopaque) void, value: *anyopaque) *NyValue {
+    const box = std.heap.smp_allocator.create(NyValue) catch nyOom();
+    box.* = .{ .tag = tag, .release = release, .value = value };
+    return box;
+}
+
+/// The tag check runs before the lock, like `nyHandleIs`: a null box or another type's is refused.
+fn nyValueIs(box: ?*const NyValue, tag: u64) bool {
+    return if (box) |item| item.tag == tag else false;
+}
+
+fn nyValueRead(comptime T: type, box: *const NyValue) T {
+    const stored: *const T = @ptrCast(@alignCast(box.value));
+    return stored.*;
+}
+
+/// Releases the value in the box and the box itself. Null does nothing.
+export fn ny_release(value: ?*NyValue) void {
+    const box = value orelse return;
+    nyExportEnter();
+    defer nyExportLeave();
+    box.release(box.value);
+    std.heap.smp_allocator.destroy(box);
 }
 
 /// Handles opened and not yet closed.

@@ -2762,6 +2762,79 @@ fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]cons
     return true;
 }
 
+/// The structural key of a type, for a value handle's tag: two types share a tag exactly when
+/// they are the same type, so a box of one is refused by an export expecting the other.
+fn typeKey(t: *const Type, out: *List(u8)) void {
+    switch (t.*) {
+        .primitive => |kind| lineCat(out, &.{ "p:", kind, ";" }),
+        .type_parameter => |id| lineCat(out, &.{ "t:", id, ";" }),
+        .named => |named| {
+            lineCat(out, &.{ "n:", named.id, "<" });
+            for (named.args) |arg| typeKey(arg, out);
+            lineCat(out, &.{";"});
+        },
+        .capability => |id| lineCat(out, &.{ "c:", id, ";" }),
+        .builtin => |builtin| {
+            lineCat(out, &.{ "b:", builtin.kind, "<" });
+            for (builtin.args) |arg| typeKey(arg, out);
+            lineCat(out, &.{";"});
+        },
+        .function => lineCat(out, &.{"f;"}),
+    }
+}
+
+fn valueTag(t: *const Type) u64 {
+    var key: List(u8) = .empty;
+    typeKey(t, &key);
+    var hash: u64 = 0xcbf29ce484222325;
+    for (key.items) |byte| {
+        hash ^= byte;
+        hash *%= 0x100000001b3;
+    }
+    return hash;
+}
+
+/// Whether a value of this type may cross as an opaque `ny_value` when it cannot be flattened:
+/// any value but tasks, scopes, exceptions and function values (slice 3 of the stateful-exports
+/// decision). A capability is refused here and keeps its own crossings; one inside a named Product
+/// is part of that Product's value, as on the flattened side, and the emitter's counted machinery
+/// already retains and releases such Products.
+fn boxable(t: *const Type) bool {
+    switch (t.*) {
+        .primitive, .named => return true,
+        .builtin => |builtin| {
+            if (eql(builtin.kind, "task") or eql(builtin.kind, "oneShot") or eql(builtin.kind, "taskScope") or eql(builtin.kind, "exception")) return false;
+            for (builtin.args) |arg| if (!boxable(arg)) return false;
+            return true;
+        },
+        else => return false,
+    }
+}
+
+/// One distinct boxed type of a library: its tag and the Zig type of its values.
+const BoxedType = struct { tag: u64, zig: []const u8 };
+
+fn needBox(boxes: *List(BoxedType), t: *const Type) ?BoxedType {
+    const zig_type = zigType(t, false) orelse return null;
+    const tag = valueTag(t);
+    for (boxes.items) |item| if (item.tag == tag) return item;
+    const item = BoxedType{ .tag = tag, .zig = zig_type };
+    push(BoxedType, boxes, item);
+    return item;
+}
+
+/// A parameter that crosses as an opaque value handle: the box is borrowed, its tag is checked
+/// before anything is copied, and the call shares the value, so the host's reference is untouched.
+fn boxedArgument(parameters: *List([]const u8), checks: *List(u8), doc: *List([]const u8), arguments: *List([]const u8), boxes: *List(BoxedType), t: *const Type, name: []const u8) bool {
+    const boxed = needBox(boxes, t) orelse return false;
+    const hex = std.fmt.allocPrint(a, "{x}", .{boxed.tag}) catch oom();
+    push([]const u8, parameters, cat(&.{ name, ": ?*const NyValue" }));
+    lineCat(checks, &.{ "    if (!nyValueIs(", name, ", 0x", hex, ")) return nyExportInvalid(\"", name, " is not a value of its type\");" });
+    push([]const u8, arguments, cat(&.{ "nyShare(nyValueRead(", boxed.zig, ", ", name, ".?))" }));
+    push([]const u8, doc, cat(&.{ name, " crosses as an opaque value (ny_value), borrowed for the call." }));
+    return true;
+}
+
 /// The C spelling of one flattened Zig parameter type, or null when it has none (the header then
 /// omits that export's declaration instead of guessing; the Zig source stays the authority).
 fn abiCType(zig_type: []const u8) ?[]const u8 {
@@ -2770,7 +2843,7 @@ fn abiCType(zig_type: []const u8) ?[]const u8 {
         .{ "?[*]const i64", "const int64_t *" }, .{ "?[*]const u8", "const char *" }, .{ "?[*]const usize", "const size_t *" }, .{ "?[*]const f64", "const double *" },
         .{ "?[*]i64", "int64_t *" }, .{ "?[*]u8", "char *" }, .{ "?[*]usize", "size_t *" }, .{ "?[*]f64", "double *" },
         .{ "*i64", "int64_t *" },  .{ "*f64", "double *" },    .{ "*bool", "bool *" },         .{ "*usize", "size_t *" },
-        .{ "?*NyHandle", "void *" }, .{ "*?*NyHandle", "void **" },
+        .{ "?*NyHandle", "void *" }, .{ "*?*NyHandle", "void **" }, .{ "?*const NyValue", "const ny_value *" }, .{ "*?*NyValue", "ny_value **" },
     };
     inline for (table) |row| if (eql(zig_type, row[0])) return row[1];
     return null;
@@ -2867,6 +2940,7 @@ fn libraryExports(exports: []const Export) []const u8 {
     // Exports take no capability, so functions that do are never analysed; Zig still resolves their names.
     out.appendSlice(a, capabilityTypes(false) orelse return "") catch oom();
     out.appendSlice(a, hostProductBuilder()) catch oom();
+    var box_types: List(BoxedType) = .empty;
     for (capabilities) |capability| {
         if (!capability_instances.contains(capability.id) or !implemented(capability.id)) lineCat(&out, &.{ "const ", identifier("C_", capability.id), " = struct {};" });
     }
@@ -2907,9 +2981,17 @@ fn libraryExports(exports: []const Export) []const u8 {
                 if (isStringList(t)) lineCat(&checks, &.{ "    if (!nyValidRows(", p, ", ", p, "_row_lens, ", p, "_rows)) return nyExportInvalid(\"", p, " is not UTF-8\");" });
                 push([]const u8, &arguments, cat(&.{ "nyRows(", zig_type, ", ", p, ", ", p, "_row_lens, ", p, "_rows)" }));
             } else if (t.* == .named or (t.* == .builtin and eql(t.builtin.kind, "option"))) {
+                const saved_parameters = parameters.items.len;
+                const saved_checks = checks.items.len;
+                const saved_doc = doc.items.len;
                 if (abiArgumentValue(&parameters, &checks, &doc, t, p, &.{})) |argument| {
                     push([]const u8, &arguments, argument);
-                } else problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
+                } else {
+                    parameters.items.len = saved_parameters;
+                    checks.items.len = saved_checks;
+                    doc.items.len = saved_doc;
+                    if (!boxable(t) or !boxedArgument(&parameters, &checks, &doc, &arguments, &box_types, t, p)) problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
+                }
             } else if (t.* == .capability and handleBinding(t.capability) != null) {
                 // The host holds the handle; a null one or another capability's is refused before anything is copied.
                 const capability = identifier("C_", t.capability);
@@ -2919,7 +3001,9 @@ fn libraryExports(exports: []const Export) []const u8 {
             } else if (t.* == .capability and hostSelector(t.capability) != null) {
                 // A table-bound capability has no state, so the export binds it itself.
                 push([]const u8, &arguments, cat(&.{ identifier("C_", t.capability), "{ .fake = 0, .site = 0, .implementation = ", std.fmt.allocPrint(a, "{d}", .{hostSelector(t.capability).?}) catch oom(), " }" }));
-            } else problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
+            } else if (!boxable(t) or !boxedArgument(&parameters, &checks, &doc, &arguments, &box_types, t, p)) {
+                problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
+            }
         }
         const r = fn_.result;
         var copies: List(u8) = .empty;
@@ -2927,8 +3011,27 @@ fn libraryExports(exports: []const Export) []const u8 {
         // `Err` of a `Result<_, String>` is status 4, its text through `ny_last_failure`.
         const status4 = r.* == .builtin and eql(r.builtin.kind, "result") and isString(r.builtin.args[1]);
         const value = if (status4) r.builtin.args[0] else r;
+        var boxed_result = false;
         if (value.* != .primitive or !eql(value.primitive, "primitiveUnit")) {
-            if (!abiResult(&parameters, &copies, &doc, &buffered, value, "out", if (status4) "result.ok" else "result", &.{})) problem(cat(&.{ "export result type ", typeDisplay(r) }));
+            const saved_parameters = parameters.items.len;
+            const saved_copies = copies.items.len;
+            const saved_doc = doc.items.len;
+            const saved_buffered = buffered;
+            if (!abiResult(&parameters, &copies, &doc, &buffered, value, "out", if (status4) "result.ok" else "result", &.{})) {
+                parameters.items.len = saved_parameters;
+                copies.items.len = saved_copies;
+                doc.items.len = saved_doc;
+                buffered = saved_buffered;
+                if (boxable(value)) {
+                    if (needBox(&box_types, value)) |boxed| {
+                        const hex = std.fmt.allocPrint(a, "{x}", .{boxed.tag}) catch oom();
+                        push([]const u8, &parameters, "out: *?*NyValue");
+                        lineCat(&copies, &.{ "    out.* = nyBoxValue_", hex, "(", if (status4) "result.ok" else "result", ");" });
+                        push([]const u8, &doc, "The result crosses as an opaque value (ny_value); release it with ny_release.");
+                        boxed_result = true;
+                    } else problem(cat(&.{ "export result type ", typeDisplay(r) }));
+                } else problem(cat(&.{ "export result type ", typeDisplay(r) }));
+            }
         }
         if (item.may_wait) push([]const u8, &doc, if (buffered) "May wait. Status 3 runs it again on the next call, so pass buffers large enough for one result." else "May wait.");
         // The C header is built from this same parameter list, before anything else can add to it.
@@ -2946,8 +3049,22 @@ fn libraryExports(exports: []const Export) []const u8 {
         if (status4) line(&out, "    if (result == .err) return nyExportErr(result);");
         if (buffered) line(&out, "    var fits = true;");
         out.appendSlice(a, copies.items) catch oom();
-        line(&out, "    nyRelease(result);");
+        if (!boxed_result) line(&out, "    nyRelease(result);");
         line(&out, if (buffered) "    return if (fits) 0 else 3;" else "    return 0;");
+        line(&out, "}");
+        line(&out, "");
+    }
+    for (box_types.items) |boxed| {
+        const hex = std.fmt.allocPrint(a, "{x}", .{boxed.tag}) catch oom();
+        lineCat(&out, &.{ "fn nyReleaseValue_", hex, "(ptr: *anyopaque) void {" });
+        lineCat(&out, &.{ "    const stored: *", boxed.zig, " = @ptrCast(@alignCast(ptr));" });
+        line(&out, "    nyRelease(stored.*);");
+        line(&out, "    std.heap.smp_allocator.destroy(stored);");
+        line(&out, "}");
+        lineCat(&out, &.{ "fn nyBoxValue_", hex, "(value: ", boxed.zig, ") *NyValue {" });
+        lineCat(&out, &.{ "    const stored = std.heap.smp_allocator.create(", boxed.zig, ") catch nyOom();" });
+        line(&out, "    stored.* = value;");
+        lineCat(&out, &.{ "    return nyValueNew(0x", hex, ", &nyReleaseValue_", hex, ", @ptrCast(stored));" });
         line(&out, "}");
         line(&out, "");
     }
@@ -2964,7 +3081,9 @@ fn libraryExports(exports: []const Export) []const u8 {
     line(&header, "#ifdef __cplusplus");
     line(&header, "extern \"C\" {");
     line(&header, "#endif");
+    line(&header, "typedef struct ny_value ny_value;");
     line(&header, "const char *ny_last_failure(size_t *len);");
+    line(&header, "void ny_release(ny_value *value);");
     line(&header, "size_t ny_open_handles(void);");
     line(&header, "size_t ny_arena_capacity(void);");
     header.appendSlice(a, header_decls.items) catch oom();
@@ -3421,12 +3540,55 @@ test "a library export takes a string list and a record with string, list and ne
     try std.testing.expect(std.mem.indexOf(u8, header, "static inline int ny_echoRec_into(") != null);
     try std.testing.expect(std.mem.indexOf(u8, header, "&result->f_count") != null);
     try std.testing.expect(std.mem.indexOf(u8, header, "result->f_name") != null);
-    // A recursive record still cannot cross: it is reported, not flattened forever.
+    // A recursive record cannot be flattened, so it crosses as an opaque value (slice 3).
     const loop_ir =
         \\{"types":[{"id":"Loop","kind":"product","fields":[{"id":"next","type":{"kind":"named","typeId":"Loop","arguments":[]}}]}],"capabilities":[],"functions":[{"semanticFunctionId":"echoLoop","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"named","typeId":"Loop","arguments":[]}}}],"resultType":{"kind":"named","typeId":"Loop","arguments":[]},"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
     ;
-    const refused = try library(allocator, loop_ir, &.{.{ .id = "echoLoop", .symbol = "ny_echoLoop" }}, .{});
-    try std.testing.expect(refused == .unsupported);
+    const boxed = try library(allocator, loop_ir, &.{.{ .id = "echoLoop", .symbol = "ny_echoLoop" }}, .{});
+    try std.testing.expect(boxed == .source);
+    try std.testing.expect(std.mem.indexOf(u8, boxed.source, "export fn ny_echoLoop(a0: ?*const NyValue, out: *?*NyValue) c_int {") != null);
+}
+
+test "a library crosses a recursive union, a set and a nested option as opaque values" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const tree =
+        \\{"kind":"named","typeId":"Tree","arguments":[]}
+    ;
+    const ir = try std.mem.concat(allocator, u8, &.{
+        \\{"types":[{"id":"Tree","kind":"union","variants":[{"id":"leaf","fields":[{"id":"value","type":{"kind":"primitiveInt64"}}]},{"id":"node","fields":[{"id":"left","type":
+        , tree,
+        \\},{"id":"right","type":
+        , tree,
+        \\}]}]}],"capabilities":[],"functions":[{"semanticFunctionId":"leaf","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"primitiveInt64"}}}],"resultType":
+        , tree,
+        \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[{"result":{"id":"x","type":
+        , tree,
+        \\},"kind":"unionConstruct","variantId":"leaf","fields":[{"targetFieldId":"value","valueId":"v"}]}],"terminator":{"kind":"return","valueId":"x"}}]},{"semanticFunctionId":"echoTree","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":
+        , tree,
+        \\}}],"resultType":
+        , tree,
+        \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]},{"semanticFunctionId":"echoSet","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"set","itemType":{"kind":"primitiveInt64"}}}}],"resultType":{"kind":"set","itemType":{"kind":"primitiveInt64"}},"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]},{"semanticFunctionId":"echoNested","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"option","itemType":{"kind":"option","itemType":{"kind":"primitiveInt64"}}}}}],"resultType":{"kind":"option","itemType":{"kind":"option","itemType":{"kind":"primitiveInt64"}}},"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    });
+    const result = try library(allocator, ir, &.{ .{ .id = "leaf", .symbol = "ny_leaf" }, .{ .id = "echoTree", .symbol = "ny_echoTree" }, .{ .id = "echoSet", .symbol = "ny_echoSet" }, .{ .id = "echoNested", .symbol = "ny_echoNested" } }, .{});
+    try std.testing.expect(result == .source);
+    // The constructor's result and every echo cross as boxes; the argument's tag is checked first.
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "export fn ny_leaf(a0: i64, out: *?*NyValue) c_int {") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "export fn ny_echoTree(a0: ?*const NyValue, out: *?*NyValue) c_int {") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "export fn ny_echoSet(a0: ?*const NyValue, out: *?*NyValue) c_int {") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "export fn ny_echoNested(a0: ?*const NyValue, out: *?*NyValue) c_int {") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "if (!nyValueIs(a0, 0x") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "nyShare(nyValueRead(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "out.* = nyBoxValue_") != null);
+    // One release function per boxed type, and the library's own `ny_release` from the support text.
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "fn nyReleaseValue_") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "export fn ny_release(value: ?*NyValue) void {") != null);
+    const header = takeLibraryHeader() orelse return error.MissingHeader;
+    try std.testing.expect(std.mem.indexOf(u8, header, "typedef struct ny_value ny_value;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "void ny_release(ny_value *value);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "int ny_echoTree(const ny_value *a0, ny_value **out);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "int ny_leaf(int64_t a0, ny_value **out);") != null);
 }
 
 test "constructor reuse keeps owned sources live and excludes consumed or later-used sources" {
