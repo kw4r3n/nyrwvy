@@ -63,7 +63,7 @@ module ZigHostStructuralMigrationsParityTests =
                 { VariantIds = [sid<VariantTag> variantName]
                   FieldBindings = [{ SourceFieldId = sid<FieldTag> (variantName + "-value"); Binding = { Id = bindingId; DisplayName = None; Type = intT } }]
                   Body = { Nodes = [refNode]; ResultNodeId = refNode.Id } }
-            let p = node "match-choice" (paramRef "match" "choice")
+            let p = node "match-input-node" (paramRef "match" "choice")
             let m = node "match-body" (SemanticNodeKind.MatchUnion(p.Id, [arm "A"; arm "B"]))
             makeFn "match" ["choice", TypeRef.Named(choice.Id, [])] intT [] [p; m] m.Id
         let shared =
