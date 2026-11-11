@@ -200,3 +200,25 @@ module ListFoldTests =
         let issues = SnapshotValidator.validate corrupted
         Assert.Contains(issues, fun issue -> issue.Code = "CallbackParameterTypeMismatch")
         Assert.Contains(issues, fun issue -> issue.Code = "CallbackResultTypeMismatch")
+
+    [<Fact>]
+    let ``fold checks the folder even when the source is not a list`` () =
+        let snapshot, folder, _, _ = fixture ()
+        // The folder checks used to be skipped entirely when the source had the wrong shape,
+        // so an unknown or mistyped folder beside a non-list source reported only the source.
+        let badWith folderId =
+            let fn =
+                makeFn "bad"
+                    [ paramId "bad-items", "items", intType; paramId "bad-seed", "seed", intType ]
+                    intType
+                    (buildFor "bad"
+                        (GraphBuilder.node (fun ids -> SemanticNodeKind.ListFold(ids[0], ids[1], folderId, []))
+                            [ GraphBuilder.param (paramId "bad-items"); GraphBuilder.param (paramId "bad-seed") ]))
+            SnapshotValidator.validate { snapshot with Functions = snapshot.Functions @ [ fn ] }
+        let unknown = badWith (fnId "missing")
+        Assert.Contains(unknown, fun issue -> issue.Code = "HigherOrderSourceTypeMismatch")
+        Assert.Contains(unknown, fun issue -> issue.Code = "UnknownCallbackFunction")
+        // lookup_step returns the state type, not the Int64 seed type used here.
+        let mistyped = badWith folder.Id
+        Assert.Contains(mistyped, fun issue -> issue.Code = "HigherOrderSourceTypeMismatch")
+        Assert.Contains(mistyped, fun issue -> issue.Code = "CallbackResultTypeMismatch")

@@ -874,6 +874,80 @@ module SnapshotValidator =
                 | Some sourceError, Some resultError -> sourceError = resultError
                 | _ -> false
 
+            /// ListFold, ListScan, SetFold, MapFold and ListEffectFold: a folder whose parameters not
+            /// bound by context receive the seed, then the source payload (the item, or the key and the
+            /// value), and whose result is the seed type. The checks follow the same rules as the other
+            /// callback validators: a source of the wrong shape is reported, and the folder itself is
+            /// still checked. ListEffectFold folders may require effects (which the enclosing function
+            /// must declare) and may return Result<S, E> instead of S; the other folders must be pure.
+            let validateFolder
+                (name: string)
+                (nodeId: GraphNodeId)
+                (sourceNodeId: GraphNodeId)
+                (seedNodeId: GraphNodeId)
+                (folderFunctionId: FunctionId)
+                (context: ArgumentBinding list)
+                (payloadOf: TypeRef -> TypeRef list option)
+                (sourceMismatchCode: string)
+                (sourceRequirement: string)
+                (arityDescription: string)
+                (unboundCount: int)
+                (payloadDescription: string)
+                (effectful: bool)
+                =
+                let payloadTypes =
+                    match nodeType sourceNodeId with
+                    | Some sourceType ->
+                        match payloadOf sourceType with
+                        | Some payload -> Some payload
+                        | None ->
+                            add sourceMismatchCode $"{name} node '{StableId.value nodeId}' requires {sourceRequirement}."
+                            None
+                    | None -> None
+
+                let seedType = nodeType seedNodeId
+
+                match Map.tryFind folderFunctionId functionsById with
+                | None -> add "UnknownCallbackFunction" $"{name} node '{StableId.value nodeId}' references an unknown folder."
+                | Some folder ->
+                    let unbound, contextSubstitution = validateCallbackContext nodeId folder context
+                    let mutable substitution = contextSubstitution
+                    if unbound.Length <> unboundCount then
+                        add "CallbackArityMismatch" $"{name} node '{StableId.value nodeId}' folder must have {arityDescription}."
+                    else
+                        match payloadTypes, seedType with
+                        | Some payload, Some seed ->
+                            let pairs =
+                                (unbound.Head.Type, seed)
+                                :: List.zip (unbound.Tail |> List.map (fun parameter -> parameter.Type)) payload
+                            match TypeParameters.matchFrom substitution pairs with
+                            | Some extended -> substitution <- extended
+                            | None -> add "CallbackParameterTypeMismatch" $"{name} node '{StableId.value nodeId}' folder input types must match {payloadDescription}."
+                        | _ -> ()
+                    match seedType with
+                    | Some seed ->
+                        let result = TypeParameters.substitute substitution folder.ResultType
+                        let accepted =
+                            result = seed
+                            || (effectful
+                                && match result with
+                                   | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) -> okType = seed
+                                   | _ -> false)
+                        if not accepted then
+                            let resultDescription = if effectful then "the seed type S or Result<S, E>" else "the seed type"
+                            add
+                                "CallbackResultTypeMismatch"
+                                $"{name} node '{StableId.value nodeId}' folder must return {resultDescription}."
+                    | None -> ()
+                    if effectful then
+                        for effectId in folder.RequiredEffects do
+                            if not (Set.contains effectId requiredEffects) then
+                                add
+                                    "MissingEffectRequirement"
+                                    $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} folds with {StableId.describe folder.DisplayName folder.Id} but does not declare required effect {effectLabel effectId}."
+                    elif not (PureFunctions.isPure snapshot folder.Id) then
+                        add "CallbackEffectsNotAllowed" $"{name} node '{StableId.value nodeId}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
+
             let instantiateFields (owner: SemanticType) (arguments: TypeRef list) (fields: SemanticField list) =
                 fields |> List.map (fun field -> { field with Type = TypeParameters.instantiate owner arguments field.Type })
 
@@ -1751,98 +1825,41 @@ module SnapshotValidator =
                         | None, _
                         | _, None -> ()
                     | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
-                        match nodeType sourceListNodeId, nodeType seedNodeId with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
-                            match Map.tryFind folderFunctionId functionsById with
-                            | None -> add "UnknownCallbackFunction" $"ListFold node '{StableId.value node.Id}' references an unknown folder."
-                            | Some folder ->
-                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
-                                let mutable substitution = contextSubstitution
-                                if unbound.Length <> 2 then
-                                    add "CallbackArityMismatch" $"ListFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
-                                else
-                                    match
-                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
-                                    with
-                                    | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" $"ListFold node '{StableId.value node.Id}' folder input types must match seed and list item types."
-                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
-                                    add "CallbackResultTypeMismatch" $"ListFold node '{StableId.value node.Id}' folder must return the seed type."
-                                if not (PureFunctions.isPure snapshot folder.Id) then
-                                    add "CallbackEffectsNotAllowed" $"ListFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
-                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListFold node '{StableId.value node.Id}' requires List<T> input."
-                        | _ -> ()
+                        validateFolder "ListFold" node.Id sourceListNodeId seedNodeId folderFunctionId context
+                            (fun sourceType ->
+                                match sourceType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some [ itemType ]
+                                | _ -> None)
+                            "HigherOrderSourceTypeMismatch" "List<T> input"
+                            "exactly two parameters not bound by context (accumulator, item)" 2 "seed and list item types" false
                     | SemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
-                        match nodeType sourceListNodeId, nodeType seedNodeId with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
-                            match Map.tryFind folderFunctionId functionsById with
-                            | None -> add "UnknownCallbackFunction" $"ListScan node '{StableId.value node.Id}' references an unknown folder."
-                            | Some folder ->
-                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
-                                let mutable substitution = contextSubstitution
-                                if unbound.Length <> 2 then
-                                    add "CallbackArityMismatch" $"ListScan node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
-                                else
-                                    match
-                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
-                                    with
-                                    | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" $"ListScan node '{StableId.value node.Id}' folder input types must match seed and list item types."
-                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
-                                    add "CallbackResultTypeMismatch" $"ListScan node '{StableId.value node.Id}' folder must return the seed type."
-                                if not (PureFunctions.isPure snapshot folder.Id) then
-                                    add "CallbackEffectsNotAllowed" $"ListScan node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
-                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListScan node '{StableId.value node.Id}' requires List<T> input."
-                        | _ -> ()
+                        validateFolder "ListScan" node.Id sourceListNodeId seedNodeId folderFunctionId context
+                            (fun sourceType ->
+                                match sourceType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some [ itemType ]
+                                | _ -> None)
+                            "HigherOrderSourceTypeMismatch" "List<T> input"
+                            "exactly two parameters not bound by context (accumulator, item)" 2 "seed and list item types" false
                     | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
-                        match nodeType sourceMapNodeId, nodeType seedNodeId with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])), Some seedType ->
-                            match Map.tryFind folderFunctionId functionsById with
-                            | None -> add "UnknownCallbackFunction" $"MapFold node '{StableId.value node.Id}' references an unknown folder."
-                            | Some folder ->
-                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
-                                let mutable substitution = contextSubstitution
-                                match unbound with
-                                | [ accumulator; key; value ] ->
-                                    match
-                                        TypeParameters.matchFrom substitution [ accumulator.Type, seedType; key.Type, keyType; value.Type, valueType ]
-                                    with
-                                    | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" $"MapFold node '{StableId.value node.Id}' folder input types must match the seed, key and value types."
-                                | _ ->
-                                    add "CallbackArityMismatch" $"MapFold node '{StableId.value node.Id}' folder must have exactly three parameters not bound by context (accumulator, key, value)."
-                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
-                                    add "CallbackResultTypeMismatch" $"MapFold node '{StableId.value node.Id}' folder must return the seed type."
-                                if not (PureFunctions.isPure snapshot folder.Id) then
-                                    add "CallbackEffectsNotAllowed" $"MapFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
-                        | Some _, Some _ -> add "MapInputTypeMismatch" $"MapFold node '{StableId.value node.Id}' requires a Map<K, V> input."
-                        | _ -> ()
+                        validateFolder "MapFold" node.Id sourceMapNodeId seedNodeId folderFunctionId context
+                            (fun sourceType ->
+                                match sourceType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) -> Some [ keyType; valueType ]
+                                | _ -> None)
+                            "MapInputTypeMismatch" "a Map<K, V> input"
+                            "exactly three parameters not bound by context (accumulator, key, value)" 3 "the seed, key and value types" false
                     | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
                         validateMapEntryCallback "MapFilter" true node.Id sourceMapNodeId keepFunctionId context
                     | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                         validateMapEntryCallback "MapMapValues" false node.Id sourceMapNodeId mapperFunctionId context
                     | SemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->
-                        match nodeType sourceSetNodeId, nodeType seedNodeId with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])), Some seedType ->
-                            match Map.tryFind folderFunctionId functionsById with
-                            | None -> add "UnknownCallbackFunction" $"SetFold node '{StableId.value node.Id}' references an unknown folder."
-                            | Some folder ->
-                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
-                                let mutable substitution = contextSubstitution
-                                if unbound.Length <> 2 then
-                                    add "CallbackArityMismatch" $"SetFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
-                                else
-                                    match
-                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
-                                    with
-                                    | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" $"SetFold node '{StableId.value node.Id}' folder input types must match seed and set item types."
-                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
-                                    add "CallbackResultTypeMismatch" $"SetFold node '{StableId.value node.Id}' folder must return the seed type."
-                                if not (PureFunctions.isPure snapshot folder.Id) then
-                                    add "CallbackEffectsNotAllowed" $"SetFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
-                        | Some _, Some _ -> add "SetInputTypeMismatch" $"SetFold node '{StableId.value node.Id}' requires a Set<T> input."
-                        | _ -> ()
+                        validateFolder "SetFold" node.Id sourceSetNodeId seedNodeId folderFunctionId context
+                            (fun sourceType ->
+                                match sourceType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) -> Some [ itemType ]
+                                | _ -> None)
+                            "SetInputTypeMismatch" "a Set<T> input"
+                            "exactly two parameters not bound by context (accumulator, item)" 2 "seed and set item types" false
                     | SemanticNodeKind.SetFilter(sourceSetNodeId, predicateFunctionId, context) ->
                         validateCallbackOver BuiltinGenericType.Set "Set" node.Id sourceSetNodeId predicateFunctionId context true
                     | SemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
@@ -1872,33 +1889,13 @@ module SnapshotValidator =
                             resultOk
                             (Some(returnsResultWithSourceError, "Result<R, E> with the source's error type E"))
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
-                        match nodeType sourceListNodeId, nodeType seedNodeId with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
-                            match Map.tryFind folderFunctionId functionsById with
-                            | None -> add "UnknownCallbackFunction" $"ListEffectFold node '{StableId.value node.Id}' references an unknown folder."
-                            | Some folder ->
-                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
-                                let mutable substitution = contextSubstitution
-                                if unbound.Length <> 2 then
-                                    add "CallbackArityMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
-                                else
-                                    match
-                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
-                                    with
-                                    | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder input types must match seed and list item types."
-                                match TypeParameters.substitute substitution folder.ResultType with
-                                | resultType when resultType = seedType -> ()
-                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> ()
-                                | _ ->
-                                    add "CallbackResultTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder must return the seed type S or Result<S, E>."
-                                for effectId in folder.RequiredEffects do
-                                    if not (Set.contains effectId requiredEffects) then
-                                        add
-                                            "MissingEffectRequirement"
-                                            $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} folds with {StableId.describe folder.DisplayName folder.Id} but does not declare required effect {effectLabel effectId}."
-                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' requires List<T> input."
-                        | _ -> ()
+                        validateFolder "ListEffectFold" node.Id sourceListNodeId seedNodeId folderFunctionId context
+                            (fun sourceType ->
+                                match sourceType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some [ itemType ]
+                                | _ -> None)
+                            "HigherOrderSourceTypeMismatch" "List<T> input"
+                            "exactly two parameters not bound by context (accumulator, item)" 2 "seed and list item types" true
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
                         // Release is guaranteed only for a resource this node alone acquires: the
                         // acquisition must be evaluated exactly when this node is, in the same graph,

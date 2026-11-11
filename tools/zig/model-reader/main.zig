@@ -4598,7 +4598,10 @@ fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Mode
         addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
 }
 
-/// ListFold, ListScan, SetFold, MapFold and ListEffectFold.
+/// ListFold, ListScan, SetFold, MapFold and ListEffectFold. Mirrors Validation.fs
+/// `validateFolder`: a source of the wrong shape is reported, and the folder itself is
+/// still checked (as the other callback validators do); the parameter match and the
+/// result check run only when both the payload and the seed type are known.
 fn validateFold(name: Str, kind: []const u8, node: Model, ops: []const Str, context: []const Model) void {
     const head = cat(&.{ name, L(" node '"), node.id(), L("'") });
     const is_map = std.mem.eql(u8, kind, "mapFold");
@@ -4606,17 +4609,19 @@ fn validateFold(name: Str, kind: []const u8, node: Model, ops: []const Str, cont
     const effect = std.mem.eql(u8, kind, "listEffectFold");
     const source_shape = if (is_map) shapeOf(ops[0], "map", 2) else if (is_set) shapeOf(ops[0], "set", 1) else shapeOf(ops[0], "list", 1);
     const seed_type = nodeType(ops[1]);
-    if (source_shape == .unknown or seed_type == null) return;
-    const args = switch (source_shape) {
-        .args => |args| args,
-        else => return if (is_map)
-            addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") }))
-        else if (is_set)
-            addIn("SetInputTypeMismatch", cat(&.{ head, L(" requires a Set<T> input.") }))
-        else
-            addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") })),
+    const args: ?[]const TypeRef = switch (source_shape) {
+        .args => |payload| payload,
+        .other => blk: {
+            if (is_map)
+                addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") }))
+            else if (is_set)
+                addIn("SetInputTypeMismatch", cat(&.{ head, L(" requires a Set<T> input.") }))
+            else
+                addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
     };
-    const seed = seed_type.?;
     const folder = functions_by_id.get(idKey(node.reference("folderFunctionId"))) orelse
         return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown folder.") }));
     var checked = validateCallbackContext(node, folder, context);
@@ -4626,22 +4631,25 @@ fn validateFold(name: Str, kind: []const u8, node: Model, ops: []const Str, cont
             cat(&.{ head, L(" folder must have exactly three parameters not bound by context (accumulator, key, value).") })
         else
             cat(&.{ head, L(" folder must have exactly two parameters not bound by context (accumulator, item).") }));
-    } else {
+    } else if (args != null and seed_type != null) {
         var pairs: List(Pair) = .empty;
-        pairs.append(a, .{ .declared = parameterType(checked.unbound[0]), .actual = seed }) catch oom();
-        for (checked.unbound[1..], args) |parameter, t| pairs.append(a, .{ .declared = parameterType(parameter), .actual = t }) catch oom();
+        pairs.append(a, .{ .declared = parameterType(checked.unbound[0]), .actual = seed_type.? }) catch oom();
+        for (checked.unbound[1..], args.?) |parameter, t| pairs.append(a, .{ .declared = parameterType(parameter), .actual = t }) catch oom();
         if (matchFrom(&checked.substitution, pairs.items)) |extended| {
             checked.substitution = extended;
         } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, if (is_map) L(" folder input types must match the seed, key and value types.") else if (is_set) L(" folder input types must match seed and set item types.") else L(" folder input types must match seed and list item types.") }));
     }
-    const result = resultOf(folder, &checked.substitution);
+    if (seed_type) |seed| {
+        const result = resultOf(folder, &checked.substitution);
+        if (effect) {
+            const accepted = typeEql(result, seed) or (result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[0], seed));
+            if (!accepted) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type S or Result<S, E>.") }));
+        } else if (!typeEql(result, seed)) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type.") }));
+    }
     if (effect) {
-        const accepted = typeEql(result, seed) or (result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[0], seed));
-        if (!accepted) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type S or Result<S, E>.") }));
         missingEffects(folder, cat(&.{ L("Function "), functionLabel(in_function.function), L(" folds with "), functionLabel(folder), L(" but does not declare required effect ") }), L("."));
         return;
     }
-    if (!typeEql(result, seed)) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type.") }));
     if (!isPure(folder.id()))
         addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" folder must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
 }
