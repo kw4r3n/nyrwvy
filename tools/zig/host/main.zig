@@ -653,7 +653,13 @@ pub fn acquireLock(io: std.Io, a: std.mem.Allocator, path: []const u8) !void {
     if (std.Io.Dir.cwd().readLink(io, path, &link)) |_| {
         startupFailure("IoFailure: The snapshot path {s} is a symbolic link; open the file it points to instead.", .{path});
     } else |_| {}
-    _ = std.Io.Dir.cwd().createFile(io, try std.mem.concat(a, u8, &.{ path, ".lock" }), .{ .read = true, .truncate = false, .lock = .exclusive, .lock_nonblocking = true }) catch |e| switch (e) {
+    // The lock file gets the same check: creating it through a link would lock (and on some
+    // paths write through to) a file somewhere else entirely.
+    const lock_path = try std.mem.concat(a, u8, &.{ path, ".lock" });
+    if (std.Io.Dir.cwd().readLink(io, lock_path, &link)) |_| {
+        startupFailure("IoFailure: The session lock path {s} is a symbolic link; remove the link before opening the session.", .{lock_path});
+    } else |_| {}
+    _ = std.Io.Dir.cwd().createFile(io, lock_path, .{ .read = true, .truncate = false, .lock = .exclusive, .lock_nonblocking = true }) catch |e| switch (e) {
         error.WouldBlock => startupFailure("LockUnavailable: {s} is open in another authoring session. Close that session first.", .{path}),
         else => startupFailure("IoFailure: {s}", .{@errorName(e)}),
     };

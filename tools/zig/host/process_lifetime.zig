@@ -96,6 +96,32 @@ fn waitForTermination(io: std.Io) std.Io.Cancelable!void {
     while (!isStopping()) try std.Io.sleep(io, .fromMilliseconds(50), .awake);
     killGroups(io);
 }
+
+/// The adapters spawn this host detached, in its own process group, so no signal reaches it
+/// when the adapter is killed outright (SIGKILL, a crashed client). The host would serve out
+/// the current request — a pure run can take 900 s — holding the session lock the whole time,
+/// and the next session would only see LockUnavailable. Poll the parent pid instead: a change
+/// means the adapter is gone and this process was reparented. `PR_SET_PDEATHSIG` is not the
+/// tool here: it also fires when the spawning *thread* exits, which a Node or Bun adapter does
+/// routinely, and it is Linux-only; the poll works on macOS too. A host started already
+/// orphaned (parent pid 1) has no adapter to watch for.
+/// `std.posix.getppid` resolves to the libc symbol even on Linux in this toolchain, and the
+/// host builds without libc; the syscall form does not (the split `currentPid` already uses).
+fn parentPid() std.posix.pid_t {
+    return if (@import("builtin").os.tag == .linux) std.os.linux.getppid() else std.c.getppid();
+}
+
+fn watchParent(io: std.Io) std.Io.Cancelable!void {
+    const parent = parentPid();
+    if (parent <= 1) return;
+    while (!isStopping()) {
+        try std.Io.sleep(io, .fromSeconds(1), .awake);
+        if (parentPid() != parent) {
+            stopping.store(true, .release);
+            return;
+        }
+    }
+}
 pub fn run(io: std.Io, comptime serve: fn (std.Io) anyerror!void) !void {
     stopping.store(false, .release);
     const Handlers = struct {
@@ -121,8 +147,8 @@ pub fn run(io: std.Io, comptime serve: fn (std.Io) anyerror!void) !void {
         std.posix.sigaction(.INT, &Handlers.interrupt, null);
         std.posix.sigaction(.HUP, &Handlers.hangup, null);
     };
-    const Result = union(enum) { serving: anyerror!void, termination: std.Io.Cancelable!void };
-    var buffer: [2]Result = undefined;
+    const Result = union(enum) { serving: anyerror!void, termination: std.Io.Cancelable!void, parent: std.Io.Cancelable!void };
+    var buffer: [3]Result = undefined;
     var tasks = std.Io.Select(Result).init(io, &buffer);
     defer {
         stopping.store(true, .release);
@@ -131,9 +157,12 @@ pub fn run(io: std.Io, comptime serve: fn (std.Io) anyerror!void) !void {
     }
     try tasks.concurrent(.serving, serve, .{io});
     try tasks.concurrent(.termination, waitForTermination, .{io});
+    // Windows needs no parent watch: the job object ends the host with its owner.
+    if (!windows) try tasks.concurrent(.parent, watchParent, .{io});
     switch (try tasks.await()) {
         .serving => |result| try result,
         .termination => |result| try result,
+        .parent => |result| try result,
     }
 }
 

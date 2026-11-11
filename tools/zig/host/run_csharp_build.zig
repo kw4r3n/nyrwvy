@@ -12,6 +12,7 @@ var serial: u64 = 0;
 var lifetime: A = undefined;
 var source_root: []const u8 = "";
 var session_root: []const u8 = "";
+var session_lock: ?std.Io.File = null;
 var temp_root: []const u8 = "";
 var driver: ?[]const u8 = null;
 var identity: []const u8 = "";
@@ -38,6 +39,12 @@ pub fn init(a: A, io: std.Io, env: *const std.process.Environ.Map) !void {
     }
     if (!windows) sweep(io, temp_root);
     session_root = try temporary(a, io, try std.fmt.allocPrint(a, "{s}{d}", .{ session_prefix, currentPid() }));
+    if (!windows) {
+        // Held for the process's whole life. A later host's sweep takes this lock to tell a
+        // live session from a dead one, where a pid probe cannot (see `sweep`).
+        const lock_path = try std.fs.path.join(a, &.{ session_root, ".lock" });
+        session_lock = std.Io.Dir.cwd().createFile(io, lock_path, .{ .lock = .exclusive, .lock_nonblocking = true }) catch null;
+    }
     source_root = try std.fs.path.join(a, &.{ session_root, "compiler-source" });
     _ = try std.Io.Dir.cwd().createDirPathStatus(io, source_root, if (windows) .default_dir else .fromMode(0o700));
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ source_root, "Compiler.csproj" }), .data = driver_project });
@@ -73,6 +80,11 @@ pub fn temporary(a: A, io: std.Io, prefix: []const u8) ![]const u8 {
     return error.TempDirectoryUnavailable;
 }
 /// Deletes session directories (`nyrwvy-csharp-session-<pid>-…`) whose host no longer runs.
+/// Liveness is the session's `.lock`, which its host holds for its whole life: a pid probe
+/// cannot see across PID namespaces, so a host inside a container judged a live outside host
+/// dead by `kill(pid, 0)` and deleted its cache and run directories under it, breaking every
+/// later C# run of that host. Directories from before the lock existed fall back to the pid
+/// probe (where EPERM is a live process of another user).
 fn sweep(io: std.Io, parent: []const u8) void {
     var dir = std.Io.Dir.cwd().openDir(io, parent, .{ .iterate = true }) catch return;
     defer dir.close(io);
@@ -81,8 +93,17 @@ fn sweep(io: std.Io, parent: []const u8) void {
         if (entry.kind != .directory or !std.mem.startsWith(u8, entry.name, session_prefix)) continue;
         const rest = entry.name[session_prefix.len..];
         const pid = std.fmt.parseInt(std.posix.pid_t, rest[0 .. std.mem.indexOfScalar(u8, rest, '-') orelse continue], 10) catch continue;
-        // EPERM is a live process of another user.
-        if (pid > 0) std.posix.kill(pid, @fromBackingInt(@intCast(0))) catch |e| if (e == error.ProcessNotFound) dir.deleteTree(io, entry.name) catch {};
+        if (pid <= 0) continue;
+        var lock_name: [std.fs.max_name_bytes + 8]u8 = undefined;
+        const relative = std.fmt.bufPrint(&lock_name, "{s}/.lock", .{entry.name}) catch continue;
+        if (dir.openFile(io, relative, .{ .lock = .exclusive, .lock_nonblocking = true })) |file| {
+            file.close(io);
+            dir.deleteTree(io, entry.name) catch {};
+        } else |err| switch (err) {
+            error.WouldBlock => {},
+            error.FileNotFound => std.posix.kill(pid, @fromBackingInt(@intCast(0))) catch |e| if (e == error.ProcessNotFound) dir.deleteTree(io, entry.name) catch {},
+            else => {},
+        }
     }
 }
 fn evict(index: usize) void {
@@ -94,6 +115,10 @@ fn evict(index: usize) void {
 pub fn deinit(io: std.Io) void {
     while (entries.items.len > 0) evict(entries.items.len - 1);
     entries.deinit(std.heap.page_allocator);
+    if (session_lock) |file| {
+        file.close(io);
+        session_lock = null;
+    }
     if (session_root.len > 0) std.Io.Dir.cwd().deleteTree(io, session_root) catch {};
 }
 pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
@@ -339,8 +364,15 @@ test "sweep removes session directories whose host is gone" {
     const live = try std.fmt.bufPrint(&buffer, session_prefix ++ "{d}-a", .{currentPid()});
     const gone = session_prefix ++ "2147483646-b";
     for ([_][]const u8{ live, gone, "nyrwvy-other-1-c" }) |name| try parent.dir.createDir(io, name, .default_dir);
+    // A dead pid whose `.lock` is still held (the namespace case: the pid looks dead from
+    // here, the owner is alive elsewhere) keeps its directory.
+    const locked = session_prefix ++ "2147483645-c";
+    try parent.dir.createDir(io, locked, .default_dir);
+    const held = try parent.dir.createFile(io, locked ++ "/.lock", .{ .lock = .exclusive, .lock_nonblocking = true });
+    defer held.close(io);
     sweep(io, path);
     try parent.dir.access(io, live, .{});
+    try parent.dir.access(io, locked, .{});
     try parent.dir.access(io, "nyrwvy-other-1-c", .{});
     try std.testing.expectError(error.FileNotFound, parent.dir.access(io, gone, .{}));
 }
