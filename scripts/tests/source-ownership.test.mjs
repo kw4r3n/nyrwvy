@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
 test("production F# sources are owned and compiled by their physical assembly directory", () => {
-  for (const name of ["Nyrwvy.Semantics", "Nyrwvy.Execution", "Nyrwvy.Backend.CSharp"]) {
+  for (const name of ["Nyrwvy.Semantics", "Nyrwvy.Execution"]) {
     const directory = resolve(root, "src", name)
     const project = readFileSync(join(directory, `${name}.fsproj`), "utf8")
     const items = [...project.matchAll(/<Compile\s+Include="([^"]+)"[^>]*\/>/g)]

@@ -38,26 +38,9 @@ zig build-exe tools/zig/csharp-emitter/main.zig -O Debug -femit-bin=/tmp/nyrwvy-
 
 The CLI takes `IR.json [profile.json]` and writes the artifact/failure as JSON.
 
-Run the source/manifest/error oracle with a built F# backend directory. For an
-independent pre-port comparison, point `oracle` at that checkout's backend output:
-
-```sh
-oracle=src/Nyrwvy.Backend.CSharp/bin/Debug/net10.0
-dotnet fsi --reference:"$oracle/Nyrwvy.Semantics.dll" \
-  --reference:"$oracle/Nyrwvy.Execution.dll" \
-  --reference:"$oracle/Nyrwvy.Backend.CSharp.dll" \
-  tools/zig/csharp-emitter/parity.fsx /tmp/nyrwvy-csharp-emitter \
-  examples/mini-work-planner/planner.snapshot.nyrec \
-  examples/verification-planner/planner.snapshot.nyrec \
-  examples/task-cancellation-outcome/fixtures/task-outcomes.nyrec
-```
-
-The probes cover every `ExecutionInstructionKind` case, Bytes operand escapes,
-declaration/runtime selection, UTF-16 ordering, generics and callbacks, jumps and
-tail calls, ownership, validation precedence, and supplied real snapshots.
-Direct IR probes check emission contracts; execution is covered by host tests.
-The oracle takes canonical collection order: serialization normalizes jump,
-context, declaration and named-argument ordering before the Zig emitter sees it.
+The F# C# emitter that `parity.fsx` used as its oracle was removed with the
+F# authoring layer (audit #7, 2026-11-11), and `parity.fsx` with it. The Zig
+emitter is now verified by the host's own tests and the ZigHost parity corpus.
 
 The shared-resource extraction proof (`resource-parity.fsx`, which compared the backend and F# host
 DLLs) is at tag `fsharp-host-final`; the F# host was removed.

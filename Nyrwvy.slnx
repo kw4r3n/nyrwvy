@@ -2,7 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
     <Project Path="src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
-    <Project Path="src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Nyrwvy.ViewerExport/Nyrwvy.ViewerExport.fsproj" />

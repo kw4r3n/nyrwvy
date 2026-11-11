@@ -41,25 +41,4 @@ node "$script_dir/check-test-suite-partition.mjs"
 or exit $status
 node "$script_dir/test-examples-zig.mjs"
 or exit $status
-# Compares the F# C# emitter (the dotnet stage built it) with the standalone Zig one.
-set -l oracle src/Nyrwvy.Backend.CSharp/bin/Release/net10.0
-set -l emitter_dir (mktemp -d)
-set -l emitter $emitter_dir/nyrwvy-csharp-emitter
-zig build-exe tools/zig/csharp-emitter/main.zig -O Debug -femit-bin=$emitter
-or begin
-    set -l code $status
-    rm -r $emitter_dir
-    exit $code
-end
-dotnet fsi --reference:"$oracle/Nyrwvy.Semantics.dll" \
-    --reference:"$oracle/Nyrwvy.Execution.dll" \
-    --reference:"$oracle/Nyrwvy.Backend.CSharp.dll" \
-    tools/zig/csharp-emitter/parity.fsx $emitter \
-    examples/mini-work-planner/planner.snapshot.nyrec \
-    examples/verification-planner/planner.snapshot.nyrec \
-    examples/task-cancellation-outcome/fixtures/task-outcomes.nyrec
-set -l fsi_status $status
-rm -r $emitter_dir
-test $fsi_status -eq 0
-or exit $fsi_status
 exec node "$script_dir/run-node-tests.mjs" extended
