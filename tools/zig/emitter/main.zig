@@ -2762,8 +2762,9 @@ fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]cons
     return true;
 }
 
-/// The structural key of a type, for a value handle's tag: two types share a tag exactly when
-/// they are the same type, so a box of one is refused by an export expecting the other.
+/// The structural key of a type, hashed (FNV-1a, 64 bit) into a value handle's tag. The key is
+/// exact; the hash is not, so two different types could in theory collide. The tag is a guard
+/// against handing a box to the wrong export by mistake, not a proof of the type.
 fn typeKey(t: *const Type, out: *List(u8)) void {
     switch (t.*) {
         .primitive => |kind| lineCat(out, &.{ "p:", kind, ";" }),

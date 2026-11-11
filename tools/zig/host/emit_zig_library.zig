@@ -88,9 +88,17 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
         .source => |source| source,
         .unsupported => |problems| return unsupported(r, problems),
     };
-    try out.writeByte('{');
-    if (output) |path| {
-        const written = switch (try files.write(r.a, r.snapshot_path, path, ".zig", "", marker, source)) {
+    // The header text is taken before anything is written, and the header is written before the
+    // source: a refused header then leaves nothing behind, and a refused source leaves only the
+    // header, which is inert without the library it declares. (Before, the source was written
+    // first, so a refused header stranded a library whose declarations were never generated.)
+    const header_text = if (header != null) (emitter.takeLibraryHeader() orelse {
+        r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
+        return error.Rejected;
+    }) else null;
+    var header_path: ?[]const u8 = null;
+    if (header) |path| {
+        header_path = switch (try files.write(r.a, r.snapshot_path, path, ".h", "", marker, header_text.?)) {
             .written => |written| written,
             .refused => |message| {
                 r.rejection = .{ .code = "EmitWriteFailed", .message = message };
@@ -101,30 +109,30 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
                 return error.Rejected;
             },
         };
+    }
+    var source_path: ?[]const u8 = null;
+    if (output) |path| {
+        source_path = switch (try files.write(r.a, r.snapshot_path, path, ".zig", "", marker, source)) {
+            .written => |written| written,
+            .refused => |message| {
+                r.rejection = .{ .code = "EmitWriteFailed", .message = message };
+                return error.Rejected;
+            },
+            .internal => {
+                r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
+                return error.Rejected;
+            },
+        };
+    }
+    try out.writeByte('{');
+    if (source_path) |written| {
         try out.writeAll("\"path\":");
         try host.writeString(out, written);
     } else {
         try out.writeAll("\"source\":");
         try host.writeString(out, source);
     }
-    if (header) |path| {
-        // The emitter built the header in the same walk as the source; a missing one means the
-        // emit took a path that produced no library, which the source above already ruled out.
-        const text = emitter.takeLibraryHeader() orelse {
-            r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
-            return error.Rejected;
-        };
-        const written = switch (try files.write(r.a, r.snapshot_path, path, ".h", "", marker, text)) {
-            .written => |written| written,
-            .refused => |message| {
-                r.rejection = .{ .code = "EmitWriteFailed", .message = message };
-                return error.Rejected;
-            },
-            .internal => {
-                r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
-                return error.Rejected;
-            },
-        };
+    if (header_path) |written| {
         try out.writeAll(",\"headerPath\":");
         try host.writeString(out, written);
     }

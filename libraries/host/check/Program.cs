@@ -97,7 +97,9 @@ while (!pwdOutput.ToString().Contains(dir.FullName) && pwdPty.read() is { HasVal
 Check("Ptys.openAt starts in the directory", pwdOutput.ToString().Contains(dir.FullName));
 ptys.close(pwdPty);
 Check("Ptys.openAt missing directory", !ptys.openAt(Strings("pwd"), xterm, 80, 24, NyOption<NyStr>.Some("/nyr-host-no-such-dir")).IsOk);
-Check("Ptys.openAt with no directory", ptys.openAt(Strings("true"), xterm, 80, 24, NyOption<NyStr>.None()).IsOk);
+var noDir = ptys.openAt(Strings("true"), xterm, 80, 24, NyOption<NyStr>.None());
+Check("Ptys.openAt with no directory", noDir.IsOk);
+if (noDir.IsOk) ptys.close(noDir.OkValue);
 var stubborn = ptys.open(Strings("sh", "-c", "trap '' HUP; while :; do sleep 1; done"), xterm, 80, 24).OkValue;
 System.Threading.Thread.Sleep(200);
 var watch = System.Diagnostics.Stopwatch.StartNew();
