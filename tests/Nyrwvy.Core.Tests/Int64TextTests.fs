@@ -17,38 +17,41 @@ module Int64TextTests =
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
 
-    [<Fact>]
-    let ``conversions reject mistyped operands in recipes and persisted graphs`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
+    let private buildSnapshot name parameterType resultType kindOf =
+        let functionId = id<FunctionTag> name
+        let parameterId = id<ParameterTag> (name + "-input")
+        let body =
+            GraphBuilder.build (id<GraphNodeTag>)
+                (GraphBuilder.node (fun ids -> kindOf ids[0]) [ GraphBuilder.param parameterId ])
+        let fn: SemanticFunction =
+            { Id = functionId
               DisplayName = "convert"
-              Parameters = [ { DisplayName = "input"; Type = parameterType } ]
+              Exported = true
+              MustNotWait = false
+              TypeParameters = []
+              Parameters = [ { Id = parameterId; DisplayName = "input"; Type = parameterType } ]
               ResultType = resultType
               RequiredEffects = []
               Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped conversion was accepted: %A" other
-        Assert.Equal("PureExpressionOperandTypeMismatch",
-            rejects (request stringType stringType (ExpressionRecipe.Int64ToString(ExpressionRecipe.ParameterSlot 0))))
-        Assert.Equal("PureExpressionOperandTypeMismatch",
-            rejects (request intType optionInt (ExpressionRecipe.StringParseInt64(ExpressionRecipe.ParameterSlot 0))))
+        { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+    [<Fact>]
+    let ``conversions reject mistyped operands in recipes and persisted graphs`` () =
+        Assert.Contains(
+            SnapshotValidator.validate (buildSnapshot "to-string-wrong" stringType stringType SemanticNodeKind.Int64ToString),
+            fun issue -> issue.Code = "Int64IntrinsicTypeMismatch")
+        Assert.Contains(
+            SnapshotValidator.validate (buildSnapshot "parse-wrong" intType optionInt SemanticNodeKind.StringParseInt64),
+            fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
         // The parse result is Option<Int64>, not Int64.
-        Assert.NotEqual<string>("", rejects (request stringType intType (ExpressionRecipe.StringParseInt64(ExpressionRecipe.ParameterSlot 0))))
-        let proposal =
-            AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws
-                (request intType stringType (ExpressionRecipe.Int64ToString(ExpressionRecipe.ParameterSlot 0))) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
+        Assert.Contains(
+            SnapshotValidator.validate (buildSnapshot "parse-result" stringType intType SemanticNodeKind.StringParseInt64),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch")
+        let snapshot = buildSnapshot "to-string" intType stringType SemanticNodeKind.Int64ToString
+        Assert.Empty(SnapshotValidator.validate snapshot)
         let broken =
-            { committed with
-                Functions = committed.Functions |> List.map (fun fn ->
+            { snapshot with
+                Functions = snapshot.Functions |> List.map (fun fn ->
                     { fn with
                         Body =
                             { fn.Body with

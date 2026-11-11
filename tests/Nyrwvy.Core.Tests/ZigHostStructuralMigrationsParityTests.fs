@@ -27,27 +27,52 @@ module ZigHostStructuralMigrationsParityTests =
               ResultType = intT; FailureType = None; EffectId = effect.Id; MayWait = false }
         let capability: SemanticCapability =
             { Id = sid<CapabilityTag> "cap"; DisplayName = "Values"; Exported = true; TaskBound = false; Operations = [operation] }
-        let mutable ws = AgentWorkspace.create { Snapshot.empty (sid<SnapshotTag> "base") with Types = [point; choice]; Effects = [effect]; Capabilities = [capability] } |> unwrap
-        let create name parameters result effects body =
-            let p = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws
-                        { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws; DisplayName = name; Exported = true; MustNotWait = false; TypeParameters = None
-                          Parameters = parameters |> List.map (fun (name, typ) -> { DisplayName = name; Type = typ }); ResultType = result; RequiredEffects = effects; Body = body } |> unwrap
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws p with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> ws <- next
-            | result -> failwithf "%A" result
-        let find name = (AgentWorkspace.snapshotForStructuralEditing ws).Functions |> List.find (fun f -> f.DisplayName = name)
-        create "make" ["input", intT] (TypeRef.Named(point.Id, [])) [] (ExpressionRecipe.ProductConstruct(point.Id, [], [sid<FieldTag> "x", ExpressionRecipe.ParameterSlot 0]))
-        create "readPoint" ["point", TypeRef.Named(point.Id, [])] intT [] (ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, sid<FieldTag> "x"))
-        create "implementation" ["input", intT] intT [] (ExpressionRecipe.ParameterSlot 0)
-        let impl = find "implementation"
-        create "construct" [] (TypeRef.Capability capability.Id) [] (ExpressionRecipe.CapabilityConstruct(capability.Id, [operation.Id, impl.Id]))
-        create "invoke" ["values", TypeRef.Capability capability.Id; "input", intT] intT [effect.Id]
-            (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, operation.Id, [operation.Parameters.Head.Id, ExpressionRecipe.ParameterSlot 1]))
-        create "reference" [] (TypeRef.Function([intT], intT)) [] (ExpressionRecipe.FunctionReference impl.Id)
-        let arm name = [sid<VariantTag> name], ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Field(sid<FieldTag> (name + "-value")) }
-        create "match" ["choice", TypeRef.Named(choice.Id, [])] intT [] (ExpressionRecipe.MatchUnion(ExpressionRecipe.ParameterSlot 0, [arm "A"; arm "B"]))
-        create "shared" ["choice", TypeRef.Named(choice.Id, [])] intT [] (ExpressionRecipe.MatchUnion(ExpressionRecipe.ParameterSlot 0, [([sid<VariantTag> "A"; sid<VariantTag> "B"], ExpressionRecipe.Int64Literal 1L)]))
-        AgentWorkspace.snapshotForStructuralEditing ws
+        let node name kind : SemanticNode = { Id = sid<GraphNodeTag> name; Kind = kind }
+        let paramRef fnName pname = SemanticNodeKind.ParameterReference(sid<ParameterTag> (fnName + "-" + pname))
+        let makeFn name parameters result effects nodes resultNode : SemanticFunction =
+            { Id = sid<FunctionTag> name; DisplayName = name; Exported = true; MustNotWait = false; TypeParameters = []
+              Parameters = parameters |> List.map (fun (pname, ptype) -> { Id = sid<ParameterTag> (name + "-" + pname); DisplayName = pname; Type = ptype })
+              ResultType = result; RequiredEffects = effects; Body = { Nodes = nodes; ResultNodeId = resultNode } }
+        let make =
+            let p = node "make-input" (paramRef "make" "input")
+            let c = node "make-body" (SemanticNodeKind.ProductConstruct(point.Id, [], [{ TargetFieldId = sid<FieldTag> "x"; ValueNodeId = p.Id }]))
+            makeFn "make" ["input", intT] (TypeRef.Named(point.Id, [])) [] [p; c] c.Id
+        let readPoint =
+            let p = node "readPoint-point" (paramRef "readPoint" "point")
+            let a = node "readPoint-body" (SemanticNodeKind.FieldAccess(p.Id, sid<FieldTag> "x"))
+            makeFn "readPoint" ["point", TypeRef.Named(point.Id, [])] intT [] [p; a] a.Id
+        let implementation =
+            let p = node "implementation-input" (paramRef "implementation" "input")
+            makeFn "implementation" ["input", intT] intT [] [p] p.Id
+        let impl = implementation
+        let construct =
+            let c = node "construct-body" (SemanticNodeKind.CapabilityConstruct(capability.Id, [operation.Id, impl.Id]))
+            makeFn "construct" [] (TypeRef.Capability capability.Id) [] [c] c.Id
+        let invoke =
+            let p0 = node "invoke-values" (paramRef "invoke" "values")
+            let p1 = node "invoke-input" (paramRef "invoke" "input")
+            let v = node "invoke-body" (SemanticNodeKind.CapabilityInvoke(p0.Id, operation.Id, [{ TargetCapabilityParameterId = operation.Parameters.Head.Id; ValueNodeId = p1.Id }]))
+            makeFn "invoke" ["values", TypeRef.Capability capability.Id; "input", intT] intT [effect.Id] [p0; p1; v] v.Id
+        let reference =
+            let r = node "reference-body" (SemanticNodeKind.FunctionReference impl.Id)
+            makeFn "reference" [] (TypeRef.Function([intT], intT)) [] [r] r.Id
+        let matchFn =
+            let arm variantName =
+                let bindingId = sid<PatternBindingTag> ("match-" + variantName)
+                let refNode = node ("match-" + variantName + "-ref") (SemanticNodeKind.PatternReference bindingId)
+                { VariantIds = [sid<VariantTag> variantName]
+                  FieldBindings = [{ SourceFieldId = sid<FieldTag> (variantName + "-value"); Binding = { Id = bindingId; DisplayName = None; Type = intT } }]
+                  Body = { Nodes = [refNode]; ResultNodeId = refNode.Id } }
+            let p = node "match-choice" (paramRef "match" "choice")
+            let m = node "match-body" (SemanticNodeKind.MatchUnion(p.Id, [arm "A"; arm "B"]))
+            makeFn "match" ["choice", TypeRef.Named(choice.Id, [])] intT [] [p; m] m.Id
+        let shared =
+            let p = node "shared-choice" (paramRef "shared" "choice")
+            let lit = node "shared-lit" (SemanticNodeKind.Int64Literal 1L)
+            let arm = { VariantIds = [sid<VariantTag> "A"; sid<VariantTag> "B"]; FieldBindings = []; Body = { Nodes = [lit]; ResultNodeId = lit.Id } }
+            let m = node "shared-body" (SemanticNodeKind.MatchUnion(p.Id, [arm]))
+            makeFn "shared" ["choice", TypeRef.Named(choice.Id, [])] intT [] [p; m] m.Id
+        { Snapshot.empty (sid<SnapshotTag> "base") with Types = [point; choice]; Effects = [effect]; Capabilities = [capability]; Functions = [make; readPoint; implementation; construct; invoke; reference; matchFn; shared] }
 
     let private q (s: string) = System.Text.Json.JsonSerializer.Serialize s
     let private typeJson byName typ =

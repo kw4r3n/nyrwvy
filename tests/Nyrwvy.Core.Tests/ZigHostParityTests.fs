@@ -241,8 +241,7 @@ module ZigHostParityTests =
             match mode, fixtureCounts.TryGetValue name with
             | "create", (true, count) ->
                 let id = StableId.tryCreate<SnapshotTag> (StableIdAllocator.seededPayload seed (count + 1L)) |> unwrap
-                let workspace = AgentWorkspace.create (Snapshot.empty id) |> unwrap
-                File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot workspace |> unwrap)
+                File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty id) |> unwrap)
                 File.WriteAllText(path + ".backends.json", "{\"targets\": [\"csharp\"]}\n")
                 "open"
             | _ -> mode
@@ -287,12 +286,12 @@ module ZigHostParityTests =
           Capabilities: SemanticCapability list }
 
     let internal declarationsOf (path: string) =
-        let workspace = AgentWorkspace.create (readSnapshot path) |> unwrap
-        { Functions = AgentWorkspace.listFunctions workspace
-          Types = AgentWorkspace.listTypes workspace
-          Effects = AgentWorkspace.listEffects workspace
-          Capabilities = AgentWorkspace.listCapabilities workspace },
-        StableId.value (AgentWorkspace.currentSnapshotId workspace)
+        let snapshot = readSnapshot path
+        { Functions = snapshot.Functions |> List.sortBy (fun item -> StableId.value item.Id)
+          Types = snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id)
+          Effects = snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id)
+          Capabilities = snapshot.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) },
+        StableId.value snapshot.Id
 
     /// `references`, `search` and `unreferenced` requests built from the declarations the Zig host
     /// lists for `snapshot` (its `declarations` reply): every declaration and member by exact ID and
@@ -542,99 +541,260 @@ module ZigHostParityTests =
         let bytesType = TypeRef.Primitive PrimitiveType.Bytes
         let intType = TypeRef.Primitive PrimitiveType.Int64
         let listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
-        let slot = ExpressionRecipe.ParameterSlot
-        let mutable workspace = AgentWorkspace.create (Snapshot.empty (StableIdAllocator.newSnapshotId ())) |> unwrap
-        let create name parameters resultType body =
-            let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId workspace; DisplayName = name
-                  TypeParameters = None
-                  Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
-                  ResultType = resultType; RequiredEffects = []; Body = body }
-            let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate workspace request |> unwrap
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit workspace proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(candidate, _) -> workspace <- candidate
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Rejected diagnostics -> failwithf "%A" diagnostics
-            AgentWorkspace.listFunctions workspace |> List.find (fun fn -> fn.DisplayName = name)
-        let value = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
-        let plus1 recipe = ExpressionRecipe.Int64WrappingAdd(recipe, ExpressionRecipe.Int64Literal 1L)
+        let fnId name = StableId.createForTesting<FunctionTag> ("own-" + name)
+        let paramId fnName pname = StableId.createForTesting<ParameterTag> ("own-" + fnName + "-" + pname)
+        let nd name kind : SemanticNode = { Id = StableId.createForTesting<GraphNodeTag> ("own-" + name); Kind = kind }
+        let pref name pid = nd name (SemanticNodeKind.ParameterReference pid)
+        let graph resultId nodes : ValueGraph = { Nodes = nodes; ResultNodeId = resultId }
+        let makeFn name parameters resultType body : SemanticFunction =
+            { Id = fnId name; DisplayName = name; Exported = true; MustNotWait = false; TypeParameters = []
+              Parameters = parameters |> List.map (fun (pname, t) -> { Id = paramId name pname; DisplayName = pname; Type = t })
+              ResultType = resultType; RequiredEffects = []; Body = body }
+        // The nodes of `plus1 x` under a prefix: a reference to parameter `pid`, a literal and the add.
+        let plus1 prefix pid =
+            let r = pref (prefix + "-x") pid
+            let one = nd (prefix + "-one") (SemanticNodeKind.Int64Literal 1L)
+            let add = nd (prefix + "-add") (SemanticNodeKind.Int64WrappingAdd(r.Id, one.Id))
+            [ r; one; add ], add
+        let conditional prefix condNodes condId thenGraph elseGraph resultType =
+            let root = nd (prefix + "-root") (SemanticNodeKind.Conditional(condId, thenGraph, elseGraph))
+            graph root.Id (condNodes @ [ root ])
+        let lessThan prefix leftPid rightPid =
+            let l = pref (prefix + "-l") leftPid
+            let r = pref (prefix + "-r") rightPid
+            let c = nd (prefix + "-c") (SemanticNodeKind.Int64LessThan(l.Id, r.Id))
+            [ l; r; c ], c
+        let lessThanLiteral prefix pid value =
+            let l = pref (prefix + "-l") pid
+            let r = nd (prefix + "-r") (SemanticNodeKind.Int64Literal value)
+            let c = nd (prefix + "-c") (SemanticNodeKind.Int64LessThan(l.Id, r.Id))
+            [ l; r; c ], c
+        let selfCall prefix fnName bindings =
+            nd (prefix + "-call") (SemanticNodeKind.DirectCall(fnId fnName, bindings))
+        let bind prefix inputNodes inputId bodyGraph =
+            let bindingId = StableId.createForTesting<PatternBindingTag> ("own-" + prefix)
+            let root =
+                nd (prefix + "-bind")
+                    (SemanticNodeKind.Bind(inputId, { ValueBinding = { Id = bindingId; DisplayName = None; Type = bytesType }; Body = bodyGraph }))
+            graph root.Id (inputNodes @ [ root ]), bindingId
         // A tail-recursive fill: after the first copy, every turn writes into the same buffer.
         let fillLoop =
-            create "fillLoop" [ "b", bytesType; "i", intType; "n", intType ] bytesType
-                (ExpressionRecipe.Conditional(
-                    ExpressionRecipe.Int64LessThan(slot 1, slot 2),
-                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, plus1 (slot 1)); 1, plus1 (slot 1); 2, slot 2 ],
-                    slot 0))
+            let b, i, n = paramId "fillLoop" "b", paramId "fillLoop" "i", paramId "fillLoop" "n"
+            let condNodes, cond = lessThan "fillLoop-cond" i n
+            let tb = pref "fillLoop-t-b" b
+            let ti = pref "fillLoop-t-i" i
+            let plusNodes, plus = plus1 "fillLoop-t-plus" i
+            let set = nd "fillLoop-t-set" (SemanticNodeKind.BytesSet(tb.Id, ti.Id, plus.Id))
+            let plus2Nodes, plus2 = plus1 "fillLoop-t-plus2" i
+            let tn = pref "fillLoop-t-n" n
+            let call = selfCall "fillLoop-t" "fillLoop" [ { TargetParameterId = b; ValueNodeId = set.Id }; { TargetParameterId = i; ValueNodeId = plus2.Id }; { TargetParameterId = n; ValueNodeId = tn.Id } ]
+            let thenGraph = graph call.Id ([ tb; ti; set ] @ plusNodes @ plus2Nodes @ [ tn; call ])
+            let eb = pref "fillLoop-e-b" b
+            let elseGraph = graph eb.Id [ eb ]
+            makeFn "fillLoop" [ "b", bytesType; "i", intType; "n", intType ] bytesType
+                (conditional "fillLoop" condNodes cond.Id thenGraph elseGraph bytesType)
         // The caller's buffer is unchanged by the loop it was passed to.
         let keepsArgument =
-            create "keepsArgument" [ "b", bytesType ] (listOf bytesType)
-                (ExpressionRecipe.ListConstruct(bytesType,
-                    [ slot 0; ExpressionRecipe.DirectCall(fillLoop.Id, [ fillLoop.Parameters[0].Id, slot 0; fillLoop.Parameters[1].Id, ExpressionRecipe.Int64Literal 0L; fillLoop.Parameters[2].Id, ExpressionRecipe.Int64Literal 3L ]) ]))
+            let b = paramId "keepsArgument" "b"
+            let a1 = pref "keeps-a1" b
+            let a2 = pref "keeps-a2" b
+            let zero = nd "keeps-zero" (SemanticNodeKind.Int64Literal 0L)
+            let three = nd "keeps-three" (SemanticNodeKind.Int64Literal 3L)
+            let call =
+                nd "keeps-call"
+                    (SemanticNodeKind.DirectCall(fillLoop.Id,
+                        [ { TargetParameterId = paramId "fillLoop" "b"; ValueNodeId = a2.Id }
+                          { TargetParameterId = paramId "fillLoop" "i"; ValueNodeId = zero.Id }
+                          { TargetParameterId = paramId "fillLoop" "n"; ValueNodeId = three.Id } ]))
+            let construct = nd "keeps-root" (SemanticNodeKind.ListConstruct(bytesType, [ a1.Id; call.Id ]))
+            makeFn "keepsArgument" [ "b", bytesType ] (listOf bytesType) (graph construct.Id [ a1; a2; zero; three; call; construct ])
         // A buffer stored into a list must not change when the loop updates it on a later turn.
         let snapshots =
-            create "snapshots" [ "buf", bytesType; "acc", listOf bytesType; "i", intType ] (listOf bytesType)
-                (ExpressionRecipe.Conditional(
-                    ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 3L),
-                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, slot 2); 1, ExpressionRecipe.ListAppendItem(slot 1, slot 0); 2, plus1 (slot 2) ],
-                    slot 1))
+            let buf, acc, i = paramId "snapshots" "buf", paramId "snapshots" "acc", paramId "snapshots" "i"
+            let condNodes, cond = lessThanLiteral "snapshots-cond" i 3L
+            let sb = pref "snapshots-t-buf" buf
+            let zero = nd "snapshots-t-zero" (SemanticNodeKind.Int64Literal 0L)
+            let si = pref "snapshots-t-i" i
+            let set = nd "snapshots-t-set" (SemanticNodeKind.BytesSet(sb.Id, zero.Id, si.Id))
+            let sa = pref "snapshots-t-acc" acc
+            let sb2 = pref "snapshots-t-buf2" buf
+            let append = nd "snapshots-t-append" (SemanticNodeKind.ListAppendItem(sa.Id, sb2.Id))
+            let plusNodes, plus = plus1 "snapshots-t-plus" i
+            let call = selfCall "snapshots-t" "snapshots" [ { TargetParameterId = buf; ValueNodeId = set.Id }; { TargetParameterId = acc; ValueNodeId = append.Id }; { TargetParameterId = i; ValueNodeId = plus.Id } ]
+            let thenGraph = graph call.Id ([ sb; zero; si; set; sa; sb2; append ] @ plusNodes @ [ call ])
+            let ea = pref "snapshots-e-acc" acc
+            let elseGraph = graph ea.Id [ ea ]
+            makeFn "snapshots" [ "buf", bytesType; "acc", listOf bytesType; "i", intType ] (listOf bytesType)
+                (conditional "snapshots" condNodes cond.Id thenGraph elseGraph (listOf bytesType))
         // One buffer passed as two arguments of a tail self-call: updating one must not change the other.
         let twins =
-            create "twins" [ "a", bytesType; "c", bytesType; "i", intType ] (listOf bytesType)
-                (ExpressionRecipe.Conditional(
-                    ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 1L),
-                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 1L),
-                        ExpressionRecipe.SelfCall [ 0, value; 1, value; 2, ExpressionRecipe.Int64Literal 1L ]),
-                    ExpressionRecipe.ListConstruct(bytesType, [ ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 5L); slot 1 ])))
+            let a, c, i = paramId "twins" "a", paramId "twins" "c", paramId "twins" "i"
+            let condNodes, cond = lessThanLiteral "twins-cond" i 1L
+            let ib = pref "twins-in-a" a
+            let iz = nd "twins-in-zero" (SemanticNodeKind.Int64Literal 0L)
+            let io = nd "twins-in-one" (SemanticNodeKind.Int64Literal 1L)
+            let iset = nd "twins-in-set" (SemanticNodeKind.BytesSet(ib.Id, iz.Id, io.Id))
+            let bindingId = StableId.createForTesting<PatternBindingTag> "own-twins-bind"
+            let r1 = nd "twins-b-r1" (SemanticNodeKind.PatternReference bindingId)
+            let r2 = nd "twins-b-r2" (SemanticNodeKind.PatternReference bindingId)
+            let one = nd "twins-b-one" (SemanticNodeKind.Int64Literal 1L)
+            let call = selfCall "twins-b" "twins" [ { TargetParameterId = a; ValueNodeId = r1.Id }; { TargetParameterId = c; ValueNodeId = r2.Id }; { TargetParameterId = i; ValueNodeId = one.Id } ]
+            let bodyGraph = graph call.Id [ r1; r2; one; call ]
+            let bindNode =
+                nd "twins-t-bind"
+                    (SemanticNodeKind.Bind(iset.Id, { ValueBinding = { Id = bindingId; DisplayName = None; Type = bytesType }; Body = bodyGraph }))
+            let thenGraph = graph bindNode.Id [ ib; iz; io; iset; bindNode ]
+            let eb = pref "twins-e-a" a
+            let ez = nd "twins-e-zero" (SemanticNodeKind.Int64Literal 0L)
+            let ef = nd "twins-e-five" (SemanticNodeKind.Int64Literal 5L)
+            let eset = nd "twins-e-set" (SemanticNodeKind.BytesSet(eb.Id, ez.Id, ef.Id))
+            let ec = pref "twins-e-c" c
+            let econstruct = nd "twins-e-root" (SemanticNodeKind.ListConstruct(bytesType, [ eset.Id; ec.Id ]))
+            let elseGraph = graph econstruct.Id [ eb; ez; ef; eset; ec; econstruct ]
+            makeFn "twins" [ "a", bytesType; "c", bytesType; "i", intType ] (listOf bytesType)
+                (conditional "twins" condNodes cond.Id thenGraph elseGraph (listOf bytesType))
         // The old value is read after the update: the update copies.
         let oldAndNew =
-            create "oldAndNew" [ "b", bytesType ] (listOf bytesType)
-                (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                    ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ])))
+            let b = paramId "oldAndNew" "b"
+            let ib = pref "old-in-b" b
+            let iz = nd "old-in-zero" (SemanticNodeKind.Int64Literal 0L)
+            let isv = nd "old-in-seven" (SemanticNodeKind.Int64Literal 7L)
+            let iset = nd "old-in-set" (SemanticNodeKind.BytesSet(ib.Id, iz.Id, isv.Id))
+            let bindingId = StableId.createForTesting<PatternBindingTag> "own-old-bind"
+            let r = nd "old-b-r" (SemanticNodeKind.PatternReference bindingId)
+            let q = pref "old-b-b" b
+            let construct = nd "old-b-root" (SemanticNodeKind.ListConstruct(bytesType, [ r.Id; q.Id ]))
+            let bodyGraph = graph construct.Id [ r; q; construct ]
+            let bindNode =
+                nd "old-bind"
+                    (SemanticNodeKind.Bind(iset.Id, { ValueBinding = { Id = bindingId; DisplayName = None; Type = bytesType }; Body = bodyGraph }))
+            makeFn "oldAndNew" [ "b", bytesType ] (listOf bytesType) (graph bindNode.Id [ ib; iz; isv; iset; bindNode ])
         // The same read-after-update on a buffer the invocation already owns (second loop turn): a wrong
         // in-place decision would show up in the result here, not only in the plan.
         let ownedOldAndNew =
-            create "ownedOldAndNew" [ "b", bytesType; "i", intType ] (listOf bytesType)
-                (ExpressionRecipe.Conditional(
-                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
-                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
-                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                        ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ]))))
+            let b, i = paramId "ownedOldAndNew" "b", paramId "ownedOldAndNew" "i"
+            let condNodes, cond = lessThanLiteral "owned-cond" i 1L
+            let tb = pref "owned-t-b" b
+            let t1 = nd "owned-t-one" (SemanticNodeKind.Int64Literal 1L)
+            let t2 = nd "owned-t-one2" (SemanticNodeKind.Int64Literal 1L)
+            let tset = nd "owned-t-set" (SemanticNodeKind.BytesSet(tb.Id, t1.Id, t2.Id))
+            let plusNodes, plus = plus1 "owned-t-plus" i
+            let call = selfCall "owned-t" "ownedOldAndNew" [ { TargetParameterId = b; ValueNodeId = tset.Id }; { TargetParameterId = i; ValueNodeId = plus.Id } ]
+            let thenGraph = graph call.Id ([ tb; t1; t2; tset ] @ plusNodes @ [ call ])
+            let ib = pref "owned-in-b" b
+            let iz = nd "owned-in-zero" (SemanticNodeKind.Int64Literal 0L)
+            let isv = nd "owned-in-seven" (SemanticNodeKind.Int64Literal 7L)
+            let iset = nd "owned-in-set" (SemanticNodeKind.BytesSet(ib.Id, iz.Id, isv.Id))
+            let bindingId = StableId.createForTesting<PatternBindingTag> "own-owned-bind"
+            let r = nd "owned-b-r" (SemanticNodeKind.PatternReference bindingId)
+            let q = pref "owned-b-b" b
+            let construct = nd "owned-b-root" (SemanticNodeKind.ListConstruct(bytesType, [ r.Id; q.Id ]))
+            let bodyGraph = graph construct.Id [ r; q; construct ]
+            let bindNode =
+                nd "owned-e-bind"
+                    (SemanticNodeKind.Bind(iset.Id, { ValueBinding = { Id = bindingId; DisplayName = None; Type = bytesType }; Body = bodyGraph }))
+            let elseGraph = graph bindNode.Id [ ib; iz; isv; iset; bindNode ]
+            makeFn "ownedOldAndNew" [ "b", bytesType; "i", intType ] (listOf bytesType)
+                (conditional "owned" condNodes cond.Id thenGraph elseGraph (listOf bytesType))
         // The old value returned through a conditional's merge block, which has no instruction of its
         // own: on an owned buffer (second turn) the update must still copy.
         let ownedMergeReturn =
-            create "ownedMergeReturn" [ "b", bytesType; "i", intType ] bytesType
-                (ExpressionRecipe.Conditional(
-                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
-                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
-                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                        ExpressionRecipe.Conditional(ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 5L), slot 0, slot 0))))
+            let b, i = paramId "ownedMergeReturn" "b", paramId "ownedMergeReturn" "i"
+            let condNodes, cond = lessThanLiteral "merge-cond" i 1L
+            let tb = pref "merge-t-b" b
+            let t1 = nd "merge-t-one" (SemanticNodeKind.Int64Literal 1L)
+            let t2 = nd "merge-t-one2" (SemanticNodeKind.Int64Literal 1L)
+            let tset = nd "merge-t-set" (SemanticNodeKind.BytesSet(tb.Id, t1.Id, t2.Id))
+            let plusNodes, plus = plus1 "merge-t-plus" i
+            let call = selfCall "merge-t" "ownedMergeReturn" [ { TargetParameterId = b; ValueNodeId = tset.Id }; { TargetParameterId = i; ValueNodeId = plus.Id } ]
+            let thenGraph = graph call.Id ([ tb; t1; t2; tset ] @ plusNodes @ [ call ])
+            let ib = pref "merge-in-b" b
+            let iz = nd "merge-in-zero" (SemanticNodeKind.Int64Literal 0L)
+            let isv = nd "merge-in-seven" (SemanticNodeKind.Int64Literal 7L)
+            let iset = nd "merge-in-set" (SemanticNodeKind.BytesSet(ib.Id, iz.Id, isv.Id))
+            let bindingId = StableId.createForTesting<PatternBindingTag> "own-merge-bind"
+            let ci = pref "merge-b-i" i
+            let cf = nd "merge-b-five" (SemanticNodeKind.Int64Literal 5L)
+            let cc = nd "merge-b-cond" (SemanticNodeKind.Int64LessThan(ci.Id, cf.Id))
+            let gb = pref "merge-b-then-b" b
+            let g1 = graph gb.Id [ gb ]
+            let hb = pref "merge-b-else-b" b
+            let g2 = graph hb.Id [ hb ]
+            let croot = nd "merge-b-root" (SemanticNodeKind.Conditional(cc.Id, g1, g2))
+            let bodyGraph = graph croot.Id [ ci; cf; cc; croot ]
+            let bindNode =
+                nd "merge-e-bind"
+                    (SemanticNodeKind.Bind(iset.Id, { ValueBinding = { Id = bindingId; DisplayName = None; Type = bytesType }; Body = bodyGraph }))
+            let elseGraph = graph bindNode.Id [ ib; iz; isv; iset; bindNode ]
+            makeFn "ownedMergeReturn" [ "b", bytesType; "i", intType ] bytesType
+                (conditional "merge" condNodes cond.Id thenGraph elseGraph bytesType)
         // Appending in a loop grows one buffer.
         let appendLoop =
-            create "appendLoop" [ "b", bytesType; "i", intType ] bytesType
-                (ExpressionRecipe.Conditional(
-                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 300L),
-                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesAppend(slot 0, slot 1); 1, plus1 (slot 1) ],
-                    slot 0))
+            let b, i = paramId "appendLoop" "b", paramId "appendLoop" "i"
+            let condNodes, cond = lessThanLiteral "append-cond" i 300L
+            let tb = pref "append-t-b" b
+            let ti = pref "append-t-i" i
+            let append = nd "append-t-append" (SemanticNodeKind.BytesAppend(tb.Id, ti.Id))
+            let plusNodes, plus = plus1 "append-t-plus" i
+            let call = selfCall "append-t" "appendLoop" [ { TargetParameterId = b; ValueNodeId = append.Id }; { TargetParameterId = i; ValueNodeId = plus.Id } ]
+            let thenGraph = graph call.Id ([ tb; ti; append ] @ plusNodes @ [ call ])
+            let eb = pref "append-e-b" b
+            let elseGraph = graph eb.Id [ eb ]
+            makeFn "appendLoop" [ "b", bytesType; "i", intType ] bytesType
+                (conditional "append" condNodes cond.Id thenGraph elseGraph bytesType)
         // A loop that reads its buffer beside the update: lowering must emit the read first, whatever
         // order the node IDs happen to have, so the update can still write in place. Several copies,
         // because IDs created within one millisecond are ordered by their random bits.
-        let readerLoops =
-            [ for k in 1..8 ->
-                create $"readerLoop{k}" [ "b", bytesType; "i", intType; "n", intType; "acc", intType ] intType
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 1, slot 2),
-                        ExpressionRecipe.SelfCall
-                            [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, ExpressionRecipe.Int64Literal 1L)
-                              1, plus1 (slot 1)
-                              2, slot 2
-                              3, ExpressionRecipe.Int64WrappingAdd(slot 3, ExpressionRecipe.BytesLength(slot 0)) ],
-                        slot 3)) ]
+        let readerLoop k =
+            let name = $"readerLoop{k}"
+            let b, i, n, acc = paramId name "b", paramId name "i", paramId name "n", paramId name "acc"
+            let condNodes, cond = lessThan (name + "-cond") i n
+            let sb = pref (name + "-t-b") b
+            let si = pref (name + "-t-i") i
+            let one = nd (name + "-t-one") (SemanticNodeKind.Int64Literal 1L)
+            let set = nd (name + "-t-set") (SemanticNodeKind.BytesSet(sb.Id, si.Id, one.Id))
+            let plusNodes, plus = plus1 (name + "-t-plus") i
+            let tn = pref (name + "-t-n") n
+            let ta = pref (name + "-t-acc") acc
+            let rb = pref (name + "-t-rb") b
+            let len = nd (name + "-t-len") (SemanticNodeKind.BytesLength rb.Id)
+            let add = nd (name + "-t-add") (SemanticNodeKind.Int64WrappingAdd(ta.Id, len.Id))
+            let call =
+                selfCall (name + "-t") name
+                    [ { TargetParameterId = b; ValueNodeId = set.Id }; { TargetParameterId = i; ValueNodeId = plus.Id }
+                      { TargetParameterId = n; ValueNodeId = tn.Id }; { TargetParameterId = acc; ValueNodeId = add.Id } ]
+            let thenGraph = graph call.Id ([ sb; si; one; set ] @ plusNodes @ [ tn; ta; rb; len; add; call ])
+            let ea = pref (name + "-e-acc") acc
+            let elseGraph = graph ea.Id [ ea ]
+            makeFn name [ "b", bytesType; "i", intType; "n", intType; "acc", intType ] intType
+                (conditional name condNodes cond.Id thenGraph elseGraph intType)
+        let readerLoops = [ for k in 1..8 -> readerLoop k ]
         // The old value read by a function value invoked after the update, which forces the copy.
-        let passBytes = create "passBytes" [ "b", bytesType ] bytesType (slot 0)
-        create "invokesOld" [ "b", bytesType ] (listOf bytesType)
-            (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                ExpressionRecipe.ListConstruct(bytesType, [ value; ExpressionRecipe.FunctionInvoke(ExpressionRecipe.FunctionReference passBytes.Id, [ slot 0 ]) ])))
-        |> ignore
-        File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot workspace |> unwrap)
+        let passBytes =
+            let b = paramId "passBytes" "b"
+            let p = pref "pass-b" b
+            makeFn "passBytes" [ "b", bytesType ] bytesType (graph p.Id [ p ])
+        let invokesOld =
+            let b = paramId "invokesOld" "b"
+            let ib = pref "invokes-in-b" b
+            let iz = nd "invokes-in-zero" (SemanticNodeKind.Int64Literal 0L)
+            let isv = nd "invokes-in-seven" (SemanticNodeKind.Int64Literal 7L)
+            let iset = nd "invokes-in-set" (SemanticNodeKind.BytesSet(ib.Id, iz.Id, isv.Id))
+            let bindingId = StableId.createForTesting<PatternBindingTag> "own-invokes-bind"
+            let r = nd "invokes-b-r" (SemanticNodeKind.PatternReference bindingId)
+            let reference = nd "invokes-b-ref" (SemanticNodeKind.FunctionReference passBytes.Id)
+            let q = pref "invokes-b-b" b
+            let invoke = nd "invokes-b-invoke" (SemanticNodeKind.FunctionInvoke(reference.Id, [ q.Id ]))
+            let construct = nd "invokes-b-root" (SemanticNodeKind.ListConstruct(bytesType, [ r.Id; invoke.Id ]))
+            let bodyGraph = graph construct.Id [ r; reference; q; invoke; construct ]
+            let bindNode =
+                nd "invokes-bind"
+                    (SemanticNodeKind.Bind(iset.Id, { ValueBinding = { Id = bindingId; DisplayName = None; Type = bytesType }; Body = bodyGraph }))
+            makeFn "invokesOld" [ "b", bytesType ] (listOf bytesType) (graph bindNode.Id [ ib; iz; isv; iset; bindNode ])
+        let snapshot =
+            { Snapshot.empty (StableIdAllocator.newSnapshotId ()) with
+                Functions = [ fillLoop; keepsArgument; snapshots; twins; oldAndNew; ownedOldAndNew; ownedMergeReturn; appendLoop ] @ readerLoops @ [ passBytes; invokesOld ] }
+        File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
         File.WriteAllText(path + ".backends.json", "{\"targets\": [\"csharp\"]}\n")
 
     /// Snapshots with the constructs the examples lack (aborts, waits, open obligations, long
@@ -643,18 +803,13 @@ module ZigHostParityTests =
         let fixture = MilestoneZeroGraph.create ()
         // An open obligation: a parameter added with the call site left missing.
         let incomplete =
-            Transaction.simulate fixture.Snapshot
-                { Id = StableId.createForTesting<TransactionTag> "zig-host-add-policy"
-                  BaseSnapshotId = fixture.Snapshot.Id
-                  ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "zig-host-incomplete"
-                  Operations =
-                    [ AddFunctionParameter
-                        { TargetFunctionId = fixture.ValidateFunctionId
-                          NewParameterId = StableId.createForTesting<ParameterTag> "zig-host-policy"
-                          NewParameterDisplayName = "policy"
-                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                          CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "zig-host-obligation") ] } ] }
-            |> function Proposed simulation -> simulation.ProposedSnapshot | Rejected diagnostics -> failwithf "%A" diagnostics
+            TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                (StableId.createForTesting<SnapshotTag> "zig-host-incomplete")
+                (StableId.createForTesting<TransactionTag> "zig-host-add-policy")
+                fixture.ValidateFunctionId
+                (StableId.createForTesting<ParameterTag> "zig-host-policy") "policy"
+                (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId
+                (StableId.createForTesting<ObligationTag> "zig-host-obligation")
         // Literals longer than the summaries (256 units) and the outline (64 units) show, with a
         // surrogate pair at each cut, and a body whose outline passes its byte budget.
         let long =
@@ -1091,7 +1246,7 @@ module ZigTypedModelTests =
             // What a commit of each example writes, and of its resolved form (the declarations as an
             // imported dependency, the functions local), as `serializeWithDependency` writes it.
             for index, path in List.indexed (snapshots (Path.Combine(dir, "json") |> fun d -> Directory.CreateDirectory d |> ignore; d)) do
-                let snapshot = AgentWorkspace.create (readSnapshot path) |> unwrap |> AgentWorkspace.serializeCurrentSnapshot |> unwrap |> SnapshotCodec.deserialize |> unwrap
+                let snapshot = SnapshotCodec.serialize (readSnapshot path) |> unwrap |> SnapshotCodec.deserialize |> unwrap
                 plain $"example-{index}" snapshot
                 let snapshot = recordFixture $"resolved-{index}" snapshot
                 let dependencyId = StableIdAllocator.seededPayload "record-fixture:typed-dependency" (int64 index + 1L) |> StableId.createForTesting<SnapshotTag>
@@ -2418,24 +2573,18 @@ module ZigHostReplaceBodyTests =
         withDirectory (fun dir ->
             let fixture = MilestoneZeroGraph.create ()
             let obligationId = StableId.createForTesting<ObligationTag> "replace-obligation"
-            let simulate snapshot name operations =
-                Transaction.simulate snapshot
-                    { Id = StableId.createForTesting<TransactionTag> ("replace-" + name)
-                      BaseSnapshotId = snapshot.Id
-                      ProposedSnapshotId = StableId.createForTesting<SnapshotTag> ("replace-" + name)
-                      Operations = operations }
-                |> function Proposed result -> result.ProposedSnapshot | Rejected errors -> failwithf "%A" errors
             let incomplete =
-                simulate fixture.Snapshot "incomplete"
-                    [ AddFunctionParameter
-                        { TargetFunctionId = fixture.ValidateFunctionId
-                          NewParameterId = StableId.createForTesting<ParameterTag> "replace-policy"
-                          NewParameterDisplayName = "extraPolicy"
-                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                          CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ]
+                TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                    (StableId.createForTesting<SnapshotTag> "replace-incomplete")
+                    (StableId.createForTesting<TransactionTag> "replace-incomplete")
+                    fixture.ValidateFunctionId
+                    (StableId.createForTesting<ParameterTag> "replace-policy") "extraPolicy"
+                    (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId obligationId
             let resolved =
-                simulate incomplete "resolved"
-                    [ ResolveMissingArgument { TargetObligationId = obligationId; ResolutionValueNodeId = fixture.MainPolicyNodeId } ]
+                TestSnapshotEdits.resolveOpenObligation incomplete
+                    (StableId.createForTesting<SnapshotTag> "replace-resolved")
+                    (StableId.createForTesting<TransactionTag> "replace-resolved")
+                    obligationId fixture.MainPolicyNodeId
             for index, snapshot in List.indexed [ incomplete; resolved ] do
                 let source = Path.Combine(dir, $"obligations-{index}.json")
                 File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
@@ -2750,20 +2899,13 @@ module ZigHostCommitParityTests =
         withDirectory (fun dir ->
             let fixture = MilestoneZeroGraph.create ()
             let incomplete =
-                Transaction.simulate fixture.Snapshot
-                    { Id = StableId.createForTesting<TransactionTag> "commit-incomplete"
-                      BaseSnapshotId = fixture.Snapshot.Id
-                      ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "commit-incomplete"
-                      Operations =
-                        [ AddFunctionParameter
-                            { TargetFunctionId = fixture.ValidateFunctionId
-                              NewParameterId = StableId.createForTesting<ParameterTag> "commit-policy"
-                              NewParameterDisplayName = "extraPolicy"
-                              NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                              CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "commit-missing") ] } ] }
-                |> function
-                | Proposed result -> result.ProposedSnapshot
-                | Rejected errors -> failwithf "%A" errors
+                TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                    (StableId.createForTesting<SnapshotTag> "commit-incomplete")
+                    (StableId.createForTesting<TransactionTag> "commit-incomplete")
+                    fixture.ValidateFunctionId
+                    (StableId.createForTesting<ParameterTag> "commit-policy") "extraPolicy"
+                    (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId
+                    (StableId.createForTesting<ObligationTag> "commit-missing")
             let input = Path.Combine(dir, "input")
             Directory.CreateDirectory input |> ignore
             let source = Path.Combine(input, "snapshot.json")

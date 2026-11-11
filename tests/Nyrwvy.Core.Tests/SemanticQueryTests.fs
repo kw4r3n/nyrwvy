@@ -97,23 +97,10 @@ module SemanticQueryTests =
         let transactionId = StableId.createForTesting<TransactionTag> "transaction-query-policy"
         let proposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-query-policy"
 
-        let request: TransactionRequest =
-            { Id = transactionId
-              BaseSnapshotId = fixture.Snapshot.Id
-              ProposedSnapshotId = proposedSnapshotId
-              Operations =
-                [ SemanticOperation.AddFunctionParameter
-                    { TargetFunctionId = fixture.ValidateFunctionId
-                      NewParameterId = newParameterId
-                      NewParameterDisplayName = "policy_for_query"
-                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                      CallSitePlans =
-                        [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
-
         let proposed =
-            match Transaction.simulate fixture.Snapshot request with
-            | Proposed simulation -> simulation.ProposedSnapshot
-            | Rejected diagnostics -> failwithf "Unexpected transaction rejection: %A" diagnostics
+            TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot proposedSnapshotId transactionId
+                fixture.ValidateFunctionId newParameterId "policy_for_query"
+                (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId obligationId
 
         let mainFocus = SemanticQuery.focusFunction proposed fixture.MainFunctionId |> unwrap
         match mainFocus.OpenObligations with

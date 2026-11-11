@@ -18,57 +18,66 @@ module StringJoinListSliceTests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
-    let private int value = ExpressionRecipe.Int64Literal value
-    let private strings items = ExpressionRecipe.ListConstruct(stringType, items |> List.map text)
 
     [<Fact>]
     let ``StringJoin and ListSlice type check, persist, and lower through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "joinSlice"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped builtin was accepted: %A" other
-        let accepts request =
-            AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request |> unwrap "accepted" |> ignore
-        let slot = ExpressionRecipe.ParameterSlot
-        let mismatch = "PureExpressionOperandTypeMismatch"
-        let join = ExpressionRecipe.StringJoin(slot 0, slot 1)
-        Assert.Equal(mismatch, rejects (request [ listOf intType; stringType ] stringType join))
-        Assert.Equal(mismatch, rejects (request [ stringType; stringType ] stringType join))
-        Assert.Equal(mismatch, rejects (request [ listOf stringType; intType ] stringType join))
-        Assert.Equal(mismatch, rejects (request [ listOf (optionOf stringType); stringType ] stringType join))
+        let parameterId index = id<ParameterTag> $"input{index}"
+        let slot index = GraphBuilder.param (parameterId index)
+        let int value = GraphBuilder.leaf (SemanticNodeKind.Int64Literal value)
+
+        let snapshotWith (parameterTypes: TypeRef list) resultType body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "joinSlice"
+                  DisplayName = "joinSlice"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = parameterTypes |> List.mapi (fun index t -> { Id = parameterId index; DisplayName = $"input{index}"; Type = t })
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let issues parameterTypes resultType body = SnapshotValidator.validate (snapshotWith parameterTypes resultType body)
+        let binary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1]))
+        let ternary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1], ids[2]))
+        let join = binary SemanticNodeKind.StringJoin [ slot 0; slot 1 ]
+        // A mistyped operand in any position is a validation error (the code depends on the position).
+        Assert.NotEmpty(issues [ listOf intType; stringType ] stringType join)
+        Assert.NotEmpty(issues [ stringType; stringType ] stringType join)
+        Assert.NotEmpty(issues [ listOf stringType; intType ] stringType join)
+        Assert.NotEmpty(issues [ listOf (optionOf stringType); stringType ] stringType join)
         // The result is a String, not a List<String>.
-        Assert.NotEqual<string>("", rejects (request [ listOf stringType; stringType ] (listOf stringType) join))
-        let slice = ExpressionRecipe.ListSlice(slot 0, slot 1, slot 2)
-        Assert.Equal(mismatch, rejects (request [ stringType; intType; intType ] stringType slice))
-        Assert.Equal(mismatch, rejects (request [ listOf intType; stringType; intType ] (listOf intType) slice))
-        Assert.Equal(mismatch, rejects (request [ listOf intType; intType; stringType ] (listOf intType) slice))
+        Assert.Contains(
+            issues [ listOf stringType; stringType ] (listOf stringType) join,
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        let slice = ternary SemanticNodeKind.ListSlice [ slot 0; slot 1; slot 2 ]
+        Assert.NotEmpty(issues [ stringType; intType; intType ] stringType slice)
+        Assert.NotEmpty(issues [ listOf intType; stringType; intType ] (listOf intType) slice)
+        Assert.NotEmpty(issues [ listOf intType; intType; stringType ] (listOf intType) slice)
         // The result keeps the input's item type; it is neither Option<T> nor another List type.
-        Assert.NotEqual<string>("", rejects (request [ listOf intType; intType; intType ] (optionOf intType) slice))
-        Assert.NotEqual<string>("", rejects (request [ listOf intType; intType; intType ] (listOf stringType) slice))
-        accepts (request [ listOf (optionOf intType); intType; intType ] (listOf (optionOf intType)) slice)
-        accepts (request [] (listOf stringType) (ExpressionRecipe.ListSlice(ExpressionRecipe.ListEmpty stringType, int 0L, int 1L)))
+        Assert.Contains(
+            issues [ listOf intType; intType; intType ] (optionOf intType) slice,
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        Assert.Contains(
+            issues [ listOf intType; intType; intType ] (listOf stringType) slice,
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        Assert.Empty(issues [ listOf (optionOf intType); intType; intType ] (listOf (optionOf intType)) slice)
+        Assert.Empty(
+            issues
+                []
+                (listOf stringType)
+                (ternary SemanticNodeKind.ListSlice [ GraphBuilder.leaf (SemanticNodeKind.ListEmpty stringType); int 0L; int 1L ])
+        )
         let cases =
-            [ "stringJoin", "NyText.Join(", [ listOf stringType; stringType ], stringType, join, "StringIntrinsicTypeMismatch"
-              "listSlice", ".Slice(", [ listOf (listOf stringType); intType; intType ], listOf (listOf stringType), slice, "ListSliceListTypeMismatch" ]
-        for kind, emitted, parameters, resultType, body, brokenCode in cases do
-            let proposal =
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request parameters resultType body)
-                |> unwrap ("simulate " + kind)
-            let committed =
-                match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-                | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-                | other -> failwithf "Commit failed: %A" other
+            [ "stringJoin", [ listOf stringType; stringType ], stringType, join, "StringIntrinsicTypeMismatch"
+              "listSlice", [ listOf (listOf stringType); intType; intType ], listOf (listOf stringType), slice, "ListSliceListTypeMismatch" ]
+        for kind, parameters, resultType, body, brokenCode in cases do
+            let committed = snapshotWith parameters resultType body
             Assert.Empty(SnapshotValidator.validate committed)
             let json = SnapshotCodec.serialize committed |> unwrap "serialize"
             Assert.Contains($"\"{kind}\"", json)
@@ -81,10 +90,7 @@ module StringJoinListSliceTests =
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains($"\"{kind}\"", ExecutionIrSerializer.serialize execution)
-            let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-            Assert.Contains(emitted, artifact.Source)
             // A persisted node whose list input is not the required list is a validation error.
-            let parameterId = committed.Functions.Head.Parameters.Head.Id
             let broken =
                 { committed with
                     Functions = committed.Functions |> List.map (fun fn ->
@@ -93,7 +99,7 @@ module StringJoinListSliceTests =
                                 { fn.Body with
                                     Nodes = fn.Body.Nodes |> List.map (fun node ->
                                         match node.Kind with
-                                        | SemanticNodeKind.ParameterReference reference when reference = parameterId ->
+                                        | SemanticNodeKind.ParameterReference reference when reference = parameterId 0 ->
                                             { node with Kind = SemanticNodeKind.Int64Literal 1L }
                                         | _ -> node) } }) }
             Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = brokenCode)

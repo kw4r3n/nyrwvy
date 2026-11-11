@@ -31,37 +31,40 @@ module StringSliceTests =
 
     [<Fact>]
     let ``length and slice reject mistyped operands in recipes and persisted graphs`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "measure"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped string operation was accepted: %A" other
-        let slot = ExpressionRecipe.ParameterSlot
-        Assert.Equal("PureExpressionOperandTypeMismatch",
-            rejects (request [ intType ] intType (ExpressionRecipe.StringLength(slot 0))))
-        Assert.Equal("PureExpressionOperandTypeMismatch",
-            rejects (request [ stringType; stringType ] stringType (ExpressionRecipe.StringSlice(slot 0, slot 1, ExpressionRecipe.Int64Literal 0L))))
-        Assert.Equal("PureExpressionOperandTypeMismatch",
-            rejects (request [ stringType ] stringType (ExpressionRecipe.StringSlice(slot 0, ExpressionRecipe.Int64Literal 0L, slot 0))))
+        let parameterId index = id<ParameterTag> $"input{index}"
+        let slot index = GraphBuilder.param (parameterId index)
+        let int value = GraphBuilder.leaf (SemanticNodeKind.Int64Literal value)
+
+        let snapshotWith (parameterTypes: TypeRef list) resultType body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "measure"
+                  DisplayName = "measure"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = parameterTypes |> List.mapi (fun index t -> { Id = parameterId index; DisplayName = $"input{index}"; Type = t })
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let issues parameterTypes resultType body = SnapshotValidator.validate (snapshotWith parameterTypes resultType body)
+        let intrinsic parameterTypes resultType body =
+            Assert.Contains(issues parameterTypes resultType body, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+        let unary kind = GraphBuilder.node (fun ids -> kind ids[0])
+        let ternary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1], ids[2]))
+
+        intrinsic [ intType ] intType (unary SemanticNodeKind.StringLength [ slot 0 ])
+        intrinsic [ stringType; stringType ] stringType (ternary SemanticNodeKind.StringSlice [ slot 0; slot 1; int 0L ])
+        intrinsic [ stringType ] stringType (ternary SemanticNodeKind.StringSlice [ slot 0; int 0L; slot 0 ])
         // The length is Int64, not String.
-        Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringLength(slot 0))))
-        let proposal =
-            AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws
-                (request [ stringType; intType ] stringType (ExpressionRecipe.StringSlice(slot 0, slot 1, slot 1))) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
-        let intParameterId = committed.Functions.Head.Parameters[1].Id
+        Assert.Contains(
+            issues [ stringType ] stringType (unary SemanticNodeKind.StringLength [ slot 0 ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        let committed = snapshotWith [ stringType; intType ] stringType (ternary SemanticNodeKind.StringSlice [ slot 0; slot 1; slot 1 ])
+        Assert.Empty(SnapshotValidator.validate committed)
         let broken =
             { committed with
                 Functions = committed.Functions |> List.map (fun fn ->
@@ -70,7 +73,7 @@ module StringSliceTests =
                             { fn.Body with
                                 Nodes = fn.Body.Nodes |> List.map (fun node ->
                                     match node.Kind with
-                                    | SemanticNodeKind.ParameterReference parameterId when parameterId = intParameterId ->
+                                    | SemanticNodeKind.ParameterReference reference when reference = parameterId 1 ->
                                         { node with Kind = SemanticNodeKind.StringLiteral "1" }
                                     | _ -> node) } }) }
         Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")

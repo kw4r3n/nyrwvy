@@ -305,22 +305,12 @@ module TypedSemanticIrTests =
         let fixture = MilestoneZeroGraph.create ()
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-ir-policy"
         let obligationId = StableId.createForTesting<ObligationTag> "obligation-ir-policy"
-        let request: TransactionRequest =
-            { Id = StableId.createForTesting<TransactionTag> "transaction-ir-add-policy"
-              BaseSnapshotId = fixture.Snapshot.Id
-              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-ir-incomplete"
-              Operations =
-                [ AddFunctionParameter
-                    { TargetFunctionId = fixture.ValidateFunctionId
-                      NewParameterId = parameterId
-                      NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                      CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
-
         let incomplete =
-            match Transaction.simulate fixture.Snapshot request with
-            | Proposed simulation -> simulation.ProposedSnapshot
-            | Rejected diagnostics -> failwithf "Unexpected transaction rejection: %A" diagnostics
+            TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                (StableId.createForTesting<SnapshotTag> "snapshot-ir-incomplete")
+                (StableId.createForTesting<TransactionTag> "transaction-ir-add-policy")
+                fixture.ValidateFunctionId parameterId "policy"
+                (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId obligationId
 
         match TypedSemanticIr.project incomplete with
         | Error(TypedSemanticIrError.IncompleteSnapshot [ actual ]) -> Assert.Equal(obligationId, actual)

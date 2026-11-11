@@ -192,10 +192,6 @@ module Float64Tests =
         let execution = ExecutionIr.lower typed |> unwrap "Execution IR lowering"
         typed, execution
 
-    let private emit fixture =
-        let _, execution = lower fixture
-        CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
-
     let private replaceNodeKind functionId targetNodeId replacementKind (snapshot: Snapshot) =
         let functions =
             snapshot.Functions
@@ -352,93 +348,6 @@ module Float64Tests =
         Assert.Contains("\"bits\":\"8000000000000000\"", typedJson)
         Assert.Contains("\"float64Divide\"", executionJson)
         Assert.Contains("\"float64IsNaN\"", executionJson)
-
-    [<Fact>]
-    let ``C# source emits exact binary64 literals and explicit IEEE classifiers`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture
-        Assert.Contains("double ", artifact.Source)
-        Assert.Contains("BitConverter.UInt64BitsToDouble(0x8000000000000000UL)", artifact.Source)
-        Assert.Contains("BitConverter.UInt64BitsToDouble(0x7ff8000000000000UL)", artifact.Source)
-        Assert.Contains("double.IsNaN(", artifact.Source)
-        Assert.Contains("double.IsFinite(", artifact.Source)
-        Assert.Contains("double.IsInfinity(", artifact.Source)
-        Assert.Contains(" / ", artifact.Source)
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``generated C# executes IEEE binary64 arithmetic equality division and classification`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nyrwvy-float64-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(tempRoot) |> ignore
-
-        try
-            let projectFile =
-                """<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
-</Project>
-"""
-            let callDouble functionId =
-                "Console.WriteLine(NyFunctions."
-                + CSharpBackendNames.functionName functionId
-                + "().ToString(\"R\", CultureInfo.InvariantCulture));"
-            let callBool functionId =
-                "Console.WriteLine(NyFunctions." + CSharpBackendNames.functionName functionId + "());"
-            let harness =
-                String.concat
-                    Environment.NewLine
-                    ([ "using System;"
-                       "using System.Globalization;"
-                       "using Nyrwvy.Generated;"
-                       "" ]
-                     @ [ callDouble fixture.AddFunctionId
-                         callDouble fixture.SubtractFunctionId
-                         callDouble fixture.MultiplyFunctionId
-                         callDouble fixture.DivideFunctionId
-                         callBool fixture.ZeroEqualFunctionId
-                         callBool fixture.NaNEqualFunctionId
-                         callBool fixture.LessFunctionId
-                         callBool fixture.IsNaNFunctionId
-                         callBool fixture.IsFiniteFunctionId
-                         callBool fixture.IsInfiniteFunctionId ])
-
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), projectFile)
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
-            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
-
-            let buildExit, buildOut, buildErr =
-                Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
-            if buildExit <> 0 then
-                failwithf "Generated Float64 C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
-
-            let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
-            if runExit <> 0 then
-                failwithf "Generated Float64 C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
-
-            let normalized = runOut.Replace("\r\n", "\n").Trim()
-            let expected =
-                String.concat
-                    "\n"
-                    [ "3.75"
-                      "3"
-                      "-8"
-                      "Infinity"
-                      "True"
-                      "False"
-                      "True"
-                      "True"
-                      "True"
-                      "True" ]
-            Assert.Equal(expected, normalized)
-        finally
-            if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
     [<Fact>]
     let ``Float64 semantic fingerprints distinguish signed zero and ignore NaN payload identity`` () =

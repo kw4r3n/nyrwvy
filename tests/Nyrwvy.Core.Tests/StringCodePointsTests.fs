@@ -19,32 +19,35 @@ module StringCodePointsTests =
 
     [<Fact>]
     let ``code points type check, persist, and lower through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "points"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped StringCodePoints was accepted: %A" other
-        let slot = ExpressionRecipe.ParameterSlot
-        Assert.Equal("PureExpressionOperandTypeMismatch",
-            rejects (request [ intType ] (listOf stringType) (ExpressionRecipe.StringCodePoints(slot 0))))
+        let parameterId = id<ParameterTag> "input0"
+
+        let snapshotWith parameterType resultType =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "points"
+                  DisplayName = "points"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = [ { Id = parameterId; DisplayName = "input0"; Type = parameterType } ]
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body =
+                    GraphBuilder.build
+                        (id<GraphNodeTag>)
+                        (GraphBuilder.node (fun ids -> SemanticNodeKind.StringCodePoints ids[0]) [ GraphBuilder.param parameterId ]) }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        Assert.Contains(
+            SnapshotValidator.validate (snapshotWith intType (listOf stringType)),
+            fun issue -> issue.Code = "StringIntrinsicTypeMismatch"
+        )
         // The result is List<String>, not String.
-        Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringCodePoints(slot 0))))
-        let proposal =
-            AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws
-                (request [ stringType ] (listOf stringType) (ExpressionRecipe.StringCodePoints(slot 0))) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
+        Assert.Contains(
+            SnapshotValidator.validate (snapshotWith stringType stringType),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        let committed = snapshotWith stringType (listOf stringType)
         Assert.Empty(SnapshotValidator.validate committed)
         let json = SnapshotCodec.serialize committed |> unwrap "serialize"
         Assert.Contains("\"stringCodePoints\"", json)
@@ -56,10 +59,7 @@ module StringCodePointsTests =
         Assert.Contains("\"stringCodePoints\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"stringCodePoints\"", ExecutionIrSerializer.serialize execution)
-        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-        Assert.Contains("NyList<NyStr>.FromOwnedArray(codePoints.ToArray())", artifact.Source)
         // A persisted node over a non-String value is a validation error.
-        let parameterId = committed.Functions.Head.Parameters.Head.Id
         let broken =
             { committed with
                 Functions = committed.Functions |> List.map (fun fn ->

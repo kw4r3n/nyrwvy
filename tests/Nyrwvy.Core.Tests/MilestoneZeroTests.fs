@@ -4,10 +4,6 @@ open Nyrwvy.Core
 open Xunit
 
 module MilestoneZeroTests =
-    let private unwrapSimulation = function
-        | Proposed simulation -> simulation
-        | Rejected diagnostics -> failwithf "Unexpected transaction rejection: %A" diagnostics
-
     let private requireReadiness expected snapshot =
         match SnapshotReadiness.evaluate snapshot with
         | Error issues -> failwithf "Unexpected validation failure: %A" issues
@@ -45,22 +41,20 @@ module MilestoneZeroTests =
     [<Fact>]
     let ``rename preserves validation function identity and direct-call target`` () =
         let fixture = MilestoneZeroGraph.create ()
-        let request: TransactionRequest =
-            { Id = StableId.createForTesting<TransactionTag> "transaction-m0-rename"
-              BaseSnapshotId = fixture.Snapshot.Id
-              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-m0-renamed"
-              Operations =
-                [ RenameDisplayName(
-                    RenameTarget.FunctionTarget fixture.ValidateFunctionId,
-                    "validate_profile"
-                  ) ] }
-
-        let simulation = Transaction.simulate fixture.Snapshot request |> unwrapSimulation
+        let proposed =
+            { fixture.Snapshot with
+                Id = StableId.createForTesting<SnapshotTag> "snapshot-m0-renamed"
+                ParentId = Some fixture.Snapshot.Id
+                Functions =
+                    fixture.Snapshot.Functions |> List.map (fun functionEntity ->
+                        if functionEntity.Id = fixture.ValidateFunctionId then
+                            { functionEntity with DisplayName = "validate_profile" }
+                        else functionEntity) }
         let renamed =
-            simulation.ProposedSnapshot.Functions
+            proposed.Functions
             |> List.find (fun functionEntity -> functionEntity.Id = fixture.ValidateFunctionId)
         let main =
-            simulation.ProposedSnapshot.Functions
+            proposed.Functions
             |> List.find (fun functionEntity -> functionEntity.Id = fixture.MainFunctionId)
         let call =
             ValueGraph.collectNodes main.Body
@@ -71,47 +65,30 @@ module MilestoneZeroTests =
         match call.Kind with
         | SemanticNodeKind.DirectCall(targetFunctionId, _) -> Assert.Equal(fixture.ValidateFunctionId, targetFunctionId)
         | _ -> failwith "The validation call changed semantic node kind during rename."
-        Assert.Single(simulation.Diff.Renames) |> ignore
-        requireReadiness SemanticReadiness.Complete simulation.ProposedSnapshot
+        requireReadiness SemanticReadiness.Complete proposed
 
     [<Fact>]
     let ``signature evolution creates and resolves an explicit MissingArgument on the real graph`` () =
         let fixture = MilestoneZeroGraph.create ()
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
         let obligationId = StableId.createForTesting<ObligationTag> "obligation-main-policy"
-        let addRequest: TransactionRequest =
-            { Id = StableId.createForTesting<TransactionTag> "transaction-m0-add-policy"
-              BaseSnapshotId = fixture.Snapshot.Id
-              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-m0-incomplete"
-              Operations =
-                [ AddFunctionParameter
-                    { TargetFunctionId = fixture.ValidateFunctionId
-                      NewParameterId = parameterId
-                      NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                      CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
+        let incomplete =
+            TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                (StableId.createForTesting<SnapshotTag> "snapshot-m0-incomplete")
+                (StableId.createForTesting<TransactionTag> "transaction-m0-add-policy")
+                fixture.ValidateFunctionId parameterId "policy"
+                (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId obligationId
+        requireReadiness (SemanticReadiness.Incomplete [ obligationId ]) incomplete
 
-        let incomplete = Transaction.simulate fixture.Snapshot addRequest |> unwrapSimulation
-        requireReadiness (SemanticReadiness.Incomplete [ obligationId ]) incomplete.ProposedSnapshot
-        Assert.Single(incomplete.Diff.ParametersAdded) |> ignore
-        Assert.Single(incomplete.Diff.ObligationsCreated) |> ignore
-
-        let resolveRequest: TransactionRequest =
-            { Id = StableId.createForTesting<TransactionTag> "transaction-m0-resolve-policy"
-              BaseSnapshotId = incomplete.ProposedSnapshot.Id
-              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-m0-complete"
-              Operations =
-                [ ResolveMissingArgument
-                    { TargetObligationId = obligationId
-                      ResolutionValueNodeId = fixture.MainPolicyNodeId } ] }
-
-        let resolved = Transaction.simulate incomplete.ProposedSnapshot resolveRequest |> unwrapSimulation
-        requireReadiness SemanticReadiness.Complete resolved.ProposedSnapshot
-        Assert.Single(resolved.Diff.ArgumentsAttached) |> ignore
-        Assert.Single(resolved.Diff.ObligationsResolved) |> ignore
+        let resolved =
+            TestSnapshotEdits.resolveOpenObligation incomplete
+                (StableId.createForTesting<SnapshotTag> "snapshot-m0-complete")
+                (StableId.createForTesting<TransactionTag> "transaction-m0-resolve-policy")
+                obligationId fixture.MainPolicyNodeId
+        requireReadiness SemanticReadiness.Complete resolved
 
         let main =
-            resolved.ProposedSnapshot.Functions
+            resolved.Functions
             |> List.find (fun functionEntity -> functionEntity.Id = fixture.MainFunctionId)
         let call =
             ValueGraph.collectNodes main.Body
@@ -124,7 +101,7 @@ module MilestoneZeroTests =
             Assert.Equal(fixture.MainPolicyNodeId, binding.ValueNodeId)
         | _ -> failwith "The obligated call changed semantic node kind during resolution."
 
-        let obligation = List.exactlyOne resolved.ProposedSnapshot.Obligations
+        let obligation = List.exactlyOne resolved.Obligations
         match obligation.Status with
         | ObligationStatus.Open -> failwith "Resolved milestone-zero obligation remained open."
         | ObligationStatus.Resolved resolution ->
@@ -137,29 +114,17 @@ module MilestoneZeroTests =
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
         let obligationId = StableId.createForTesting<ObligationTag> "obligation-main-policy"
         let incomplete =
-            Transaction.simulate fixture.Snapshot
-                { Id = StableId.createForTesting<TransactionTag> "transaction-m0-obligation-add"
-                  BaseSnapshotId = fixture.Snapshot.Id
-                  ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-m0-obligation-open"
-                  Operations =
-                    [ AddFunctionParameter
-                        { TargetFunctionId = fixture.ValidateFunctionId
-                          NewParameterId = parameterId
-                          NewParameterDisplayName = "policy"
-                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                          CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
-            |> unwrapSimulation
+            TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                (StableId.createForTesting<SnapshotTag> "snapshot-m0-obligation-open")
+                (StableId.createForTesting<TransactionTag> "transaction-m0-obligation-add")
+                fixture.ValidateFunctionId parameterId "policy"
+                (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.MainValidateCallNodeId obligationId
         let resolved =
-            Transaction.simulate incomplete.ProposedSnapshot
-                { Id = StableId.createForTesting<TransactionTag> "transaction-m0-obligation-resolve"
-                  BaseSnapshotId = incomplete.ProposedSnapshot.Id
-                  ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-m0-obligation-resolved"
-                  Operations =
-                    [ ResolveMissingArgument
-                        { TargetObligationId = obligationId
-                          ResolutionValueNodeId = fixture.MainPolicyNodeId } ] }
-            |> unwrapSimulation
-        fixture, incomplete.ProposedSnapshot, resolved.ProposedSnapshot
+            TestSnapshotEdits.resolveOpenObligation incomplete
+                (StableId.createForTesting<SnapshotTag> "snapshot-m0-obligation-resolved")
+                (StableId.createForTesting<TransactionTag> "transaction-m0-obligation-resolve")
+                obligationId fixture.MainPolicyNodeId
+        fixture, incomplete, resolved
 
     let private codes snapshot = SnapshotValidator.validate snapshot |> List.map (fun issue -> issue.Code)
 
@@ -215,11 +180,9 @@ module MilestoneZeroTests =
     [<Fact>]
     let ``deleting an unreferenced function refuses obligations on its body`` () =
         let fixture, incomplete, _ = obligationSnapshots ()
-        let request: TransactionRequest =
-            { Id = StableId.createForTesting<TransactionTag> "transaction-m0-delete-main"
-              BaseSnapshotId = incomplete.Id
-              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-m0-main-deleted"
-              Operations = [ DeleteFunction fixture.MainFunctionId ] }
-        match Transaction.simulate incomplete request with
-        | Rejected [ diagnostic ] -> Assert.Equal("FunctionHasObligations", diagnostic.Code)
-        | other -> failwithf "Expected FunctionHasObligations, got %A" other
+        // The persisted graph that deleting main would leave behind: its body's call node is
+        // gone, so the obligation that targets it no longer agrees with any call.
+        let deleted =
+            { incomplete with
+                Functions = incomplete.Functions |> List.filter (fun fn -> fn.Id <> fixture.MainFunctionId) }
+        Assert.NotEmpty(SnapshotValidator.validate deleted)

@@ -9,6 +9,5 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj" />
-    <Project Path="tests/Nyrwvy.Extended.Tests/Nyrwvy.Extended.Tests.fsproj" />
   </Folder>
 </Solution>

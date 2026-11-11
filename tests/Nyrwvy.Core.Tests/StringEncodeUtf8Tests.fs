@@ -17,7 +17,6 @@ module StringEncodeUtf8Tests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
 
     /// Each input with Python's text.encode("utf-8") written one code point per byte; the unpaired
     /// surrogates, where Python raises, encode as U+FFFD (EF BF BD).
@@ -44,28 +43,33 @@ module StringEncodeUtf8Tests =
 
     [<Fact>]
     let ``StringEncodeUtf8 type checks, persists, and lowers through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "encode"
-              Parameters = [ { DisplayName = "text"; Type = parameterType } ]
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped encode was accepted: %A" other
-        let body = ExpressionRecipe.StringEncodeUtf8(ExpressionRecipe.ParameterSlot 0)
-        Assert.Equal("PureExpressionOperandTypeMismatch", rejects (request intType stringType body))
-        Assert.NotEqual<string>("", rejects (request stringType intType body))
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request stringType stringType body) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
+        let parameterId = id<ParameterTag> "text"
+
+        let snapshotWith parameterType resultType =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "encode"
+                  DisplayName = "encode"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = [ { Id = parameterId; DisplayName = "text"; Type = parameterType } ]
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body =
+                    GraphBuilder.build
+                        (id<GraphNodeTag>)
+                        (GraphBuilder.node
+                            (fun ids -> SemanticNodeKind.StringEncodeUtf8 ids[0])
+                            [ GraphBuilder.param parameterId ]) }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let issues parameterType resultType =
+            SnapshotValidator.validate (snapshotWith parameterType resultType)
+
+        Assert.Contains(issues intType stringType, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+        Assert.Contains(issues stringType intType, fun issue -> issue.Code = "FunctionResultTypeMismatch")
+        let committed = snapshotWith stringType stringType
         Assert.Empty(SnapshotValidator.validate committed)
         Assert.Equal<Set<SnapshotSchemaFeature>>(Set.singleton SnapshotSchemaFeature.StringEncodeUtf8, SnapshotSchema.usedFeatures committed)
         let json = SnapshotCodec.serializeCanonical committed |> unwrap "serialize"
@@ -80,9 +84,6 @@ module StringEncodeUtf8Tests =
         Assert.Contains("\"stringEncodeUtf8\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"stringEncodeUtf8\"", ExecutionIrSerializer.serialize execution)
-        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-        Assert.Contains("NyText.EncodeUtf8(", artifact.Source)
-        let parameterId = committed.Functions.Head.Parameters.Head.Id
         let broken =
             { committed with
                 Functions = committed.Functions |> List.map (fun fn ->

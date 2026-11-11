@@ -17,44 +17,49 @@ module StringCaseTests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
 
     [<Fact>]
     let ``StringToLower, StringToUpper and StringUtf8ByteCount type check, persist, and lower through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "case"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped string builtin was accepted: %A" other
-        let slot = ExpressionRecipe.ParameterSlot
-        let mismatch = "PureExpressionOperandTypeMismatch"
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringToLower(slot 0))))
-        Assert.Equal(mismatch, rejects (request [ intType ] intType (ExpressionRecipe.StringUtf8ByteCount(slot 0))))
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringToUpper(slot 0))))
+        let parameterId = id<ParameterTag> "input0"
+        let slot0 = GraphBuilder.param parameterId
+
+        let snapshotWith parameterType resultType body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "case"
+                  DisplayName = "case"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = [ { Id = parameterId; DisplayName = "input0"; Type = parameterType } ]
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let unary kind = GraphBuilder.node (fun ids -> kind ids[0]) [ slot0 ]
+        let issues parameterType resultType body = SnapshotValidator.validate (snapshotWith parameterType resultType body)
+        let intrinsic parameterType resultType body =
+            Assert.Contains(issues parameterType resultType body, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+
+        intrinsic intType stringType (unary SemanticNodeKind.StringToLower)
+        intrinsic intType intType (unary SemanticNodeKind.StringUtf8ByteCount)
+        intrinsic intType stringType (unary SemanticNodeKind.StringToUpper)
         // Result types: String and Int64, not the other way round.
-        Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringToLower(slot 0))))
-        Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringUtf8ByteCount(slot 0))))
+        Assert.Contains(
+            issues stringType intType (unary SemanticNodeKind.StringToLower),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        Assert.Contains(
+            issues stringType stringType (unary SemanticNodeKind.StringUtf8ByteCount),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
         let cases =
-            [ "stringToLower", "NyText.ToLower(", stringType, ExpressionRecipe.StringToLower(slot 0)
-              "stringToUpper", "NyText.ToUpper(", stringType, ExpressionRecipe.StringToUpper(slot 0)
-              "stringUtf8ByteCount", "NyText.Utf8ByteCount(", intType, ExpressionRecipe.StringUtf8ByteCount(slot 0) ]
-        for kind, emitted, resultType, body in cases do
-            let proposal =
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request [ stringType ] resultType body)
-                |> unwrap ("simulate " + kind)
-            let committed =
-                match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-                | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-                | other -> failwithf "Commit failed: %A" other
+            [ "stringToLower", stringType, unary SemanticNodeKind.StringToLower
+              "stringToUpper", stringType, unary SemanticNodeKind.StringToUpper
+              "stringUtf8ByteCount", intType, unary SemanticNodeKind.StringUtf8ByteCount ]
+        for kind, resultType, body in cases do
+            let committed = snapshotWith stringType resultType body
             Assert.Empty(SnapshotValidator.validate committed)
             let json = SnapshotCodec.serialize committed |> unwrap "serialize"
             Assert.Contains($"\"{kind}\"", json)
@@ -67,10 +72,7 @@ module StringCaseTests =
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains($"\"{kind}\"", ExecutionIrSerializer.serialize execution)
-            let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-            Assert.Contains(emitted, artifact.Source)
             // A persisted node over a non-String operand is a validation error.
-            let parameterId = committed.Functions.Head.Parameters.Head.Id
             let broken =
                 { committed with
                     Functions = committed.Functions |> List.map (fun fn ->

@@ -11,37 +11,39 @@ open Xunit
 module StringConcatTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("concat-" + name)
     let private stringType = TypeRef.Primitive PrimitiveType.String
-    let private parameter name: AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent =
-        { DisplayName = name; Type = stringType }
 
     [<Fact>]
     let ``StringConcat rejects mistyped operands in recipes and persisted graphs`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> function
-            | Ok value -> value
-            | Error errors -> failwithf "Invalid fixture: %A" errors
-        let request body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "join"
-              Parameters = [ parameter "left"; parameter "right" ]
-              ResultType = stringType
-              RequiredEffects = []
-              Body = body }
+        let leftId = id<ParameterTag> "left"
+        let rightId = id<ParameterTag> "right"
+
+        let snapshotWith body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "join"
+                  DisplayName = "join"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters =
+                    [ { Id = leftId; DisplayName = "left"; Type = stringType }
+                      { Id = rightId; DisplayName = "right"; Type = stringType } ]
+                  ResultType = stringType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let concat left right =
+            GraphBuilder.build
+                (id<GraphNodeTag>)
+                (GraphBuilder.node (fun ids -> SemanticNodeKind.StringConcat(ids[0], ids[1])) [ left; right ])
+
         let invalid =
-            request (ExpressionRecipe.StringConcat(ExpressionRecipe.BoolLiteral true, ExpressionRecipe.ParameterSlot 1))
-        match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws invalid with
-        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) ->
-            Assert.Equal("PureExpressionOperandTypeMismatch", diagnostic.Code)
-        | other -> failwithf "Mistyped concatenation was accepted: %A" other
-        let valid = request (ExpressionRecipe.StringConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws valid |> function
-            | Ok result -> result
-            | Error error -> failwithf "Creation failed: %A" error
-        let committed = AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal |> function
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> next
-            | other -> failwithf "Commit failed: %A" other
-        let created = AgentWorkspace.snapshotForStructuralEditing committed
+            snapshotWith (concat (GraphBuilder.leaf (SemanticNodeKind.BoolLiteral true)) (GraphBuilder.param rightId))
+
+        Assert.Contains(SnapshotValidator.validate invalid, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+        let created = snapshotWith (concat (GraphBuilder.param leftId) (GraphBuilder.param rightId))
+        Assert.Empty(SnapshotValidator.validate created)
         let broken =
             { created with
                 Functions = created.Functions |> List.map (fun fn ->
@@ -50,7 +52,7 @@ module StringConcatTests =
                             { fn.Body with
                                 Nodes = fn.Body.Nodes |> List.map (fun node ->
                                     match node.Kind with
-                                    | SemanticNodeKind.ParameterReference parameterId when parameterId = fn.Parameters.Head.Id ->
+                                    | SemanticNodeKind.ParameterReference parameterId when parameterId = leftId ->
                                         { node with Kind = SemanticNodeKind.BoolLiteral true }
                                     | _ -> node) } }) }
         Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")

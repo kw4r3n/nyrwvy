@@ -17,32 +17,37 @@ module StringDecodeUtf8Tests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
 
     [<Fact>]
     let ``StringDecodeUtf8Lossy type checks, persists, and lowers through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "decode"
-              Parameters = [ { DisplayName = "bytes"; Type = parameterType } ]
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped decode was accepted: %A" other
-        let body = ExpressionRecipe.StringDecodeUtf8Lossy(ExpressionRecipe.ParameterSlot 0)
-        Assert.Equal("PureExpressionOperandTypeMismatch", rejects (request intType stringType body))
-        Assert.NotEqual<string>("", rejects (request stringType intType body))
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request stringType stringType body) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
+        let parameterId = id<ParameterTag> "bytes"
+
+        let snapshotWith parameterType resultType =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "decode"
+                  DisplayName = "decode"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = [ { Id = parameterId; DisplayName = "bytes"; Type = parameterType } ]
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body =
+                    GraphBuilder.build
+                        (id<GraphNodeTag>)
+                        (GraphBuilder.node (fun ids -> SemanticNodeKind.StringDecodeUtf8Lossy ids[0]) [ GraphBuilder.param parameterId ]) }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        Assert.Contains(
+            SnapshotValidator.validate (snapshotWith intType stringType),
+            fun issue -> issue.Code = "StringIntrinsicTypeMismatch"
+        )
+        Assert.Contains(
+            SnapshotValidator.validate (snapshotWith stringType intType),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        let committed = snapshotWith stringType stringType
         Assert.Empty(SnapshotValidator.validate committed)
         let json = SnapshotCodec.serialize committed |> unwrap "serialize"
         Assert.Contains("\"stringDecodeUtf8Lossy\"", json)
@@ -55,9 +60,6 @@ module StringDecodeUtf8Tests =
         Assert.Contains("\"stringDecodeUtf8Lossy\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"stringDecodeUtf8Lossy\"", ExecutionIrSerializer.serialize execution)
-        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-        Assert.Contains("NyText.DecodeUtf8Lossy(", artifact.Source)
-        let parameterId = committed.Functions.Head.Parameters.Head.Id
         let broken =
             { committed with
                 Functions = committed.Functions |> List.map (fun fn ->

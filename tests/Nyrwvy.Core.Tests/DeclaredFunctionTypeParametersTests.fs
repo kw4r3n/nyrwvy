@@ -88,16 +88,6 @@ module DeclaredFunctionTypeParametersTests =
                 Types = [ { Exported = true; Id = id<TypeTag> "box"; DisplayName = "Box"; TypeParameters = [ tId, "T" ]; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = t } ] } ] }
         Assert.Contains(SnapshotValidator.validate shared, fun issue -> issue.Code = "TypeParameterSharedAcrossFunctions")
 
-    [<Fact>]
-    let ``the C# backend orders a generic method's type parameters as declared`` () =
-        let emit (fn: SemanticFunction) =
-            let typed = TypedSemanticIr.project (snapshotOf fn) |> unwrap "typed"
-            (CSharpBackend.emit (ExecutionIr.lower typed |> unwrap "lower") CSharpBackendProfile.empty |> unwrap "emit").Source
-        let name = CSharpBackendNames.functionName (id<FunctionTag> "second")
-        let tName, uName = CSharpBackendNames.typeParameterName tId, CSharpBackendNames.typeParameterName uId
-        Assert.Contains(name + "<" + tName + ", " + uName + ">", emit (second [ tId, "T"; uId, "U" ]))
-        Assert.Contains(name + "<" + uName + ", " + tName + ">", emit (second [ uId, "U"; tId, "T" ]))
-
     let private creation (typeParameters: string) =
         let declared = if typeParameters = "" then "" else $"\"typeParameters\":{typeParameters},"
         $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"second",{declared}"parameters":[{{"displayName":"first","type":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"typeParameter","name":"T"}}]}}}},{{"displayName":"second","type":{{"kind":"typeParameter","name":"U"}}}}],"resultType":{{"kind":"typeParameter","name":"U"}},"requiredEffects":[],"body":{{"kind":"parameter","name":"second"}}}}"""

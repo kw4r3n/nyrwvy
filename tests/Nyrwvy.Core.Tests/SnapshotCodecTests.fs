@@ -130,22 +130,12 @@ module SnapshotCodecTests =
         let fixture = TestGraph.create ()
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
         let obligationId = StableId.createForTesting<ObligationTag> "obligation-policy"
-        let request: TransactionRequest =
-            { Id = StableId.createForTesting<TransactionTag> "transaction-add-policy"
-              BaseSnapshotId = fixture.Snapshot.Id
-              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-with-obligation"
-              Operations =
-                [ AddFunctionParameter
-                    { TargetFunctionId = fixture.ValidateFunctionId
-                      NewParameterId = parameterId
-                      NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                      CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
-
         let proposed =
-            match Transaction.simulate fixture.Snapshot request with
-            | Proposed simulation -> simulation.ProposedSnapshot
-            | Rejected diagnostics -> failwithf "Unexpected rejection: %A" diagnostics
+            TestSnapshotEdits.addParameterWithOpenObligation fixture.Snapshot
+                (StableId.createForTesting<SnapshotTag> "snapshot-with-obligation")
+                (StableId.createForTesting<TransactionTag> "transaction-add-policy")
+                fixture.ValidateFunctionId parameterId "policy"
+                (TypeRef.Named(fixture.PolicyTypeId, [])) fixture.RunCallNodeId obligationId
 
         let canonical = SnapshotCodec.serialize proposed |> unwrap
         let restored = SnapshotCodec.deserialize canonical |> unwrap

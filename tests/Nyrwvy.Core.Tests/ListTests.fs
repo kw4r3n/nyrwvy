@@ -164,10 +164,6 @@ module ListTests =
         let execution = ExecutionIr.lower typed |> unwrap "Execution IR lowering"
         typed, execution
 
-    let private emit (fixture: ListFixture) =
-        let _, execution = lower fixture
-        CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
-
     [<Fact>]
     let ``List validation reports precise shape and item type failures`` () =
         let fixture = createFixture ()
@@ -278,61 +274,6 @@ module ListTests =
         Assert.Contains("\"listConstruct\"", typedJson)
         Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", executionJson)
         Assert.Contains("\"listConstruct\"", executionJson)
-
-    [<Fact>]
-    let ``C# source uses an immutable-style dedicated NyList runtime`` () =
-        let artifact = createFixture () |> emit
-        Assert.Contains("public sealed class NyList<T>", artifact.Source)
-        Assert.Contains("private readonly object[]? _root;", artifact.Source)
-        Assert.Contains("private readonly Store _tail;", artifact.Source)
-        Assert.Contains("private readonly int _count;", artifact.Source)
-        Assert.Contains("public long Length => Count;", artifact.Source)
-        Assert.Contains("AppendItem(T item)", artifact.Source)
-        Assert.Contains("Concat(NyList<T> other)", artifact.Source)
-        Assert.Contains("Array.Copy", artifact.Source)
-        Assert.DoesNotContain("System.Collections.Generic.List", artifact.Source)
-
-    [<Fact>]
-    let ``generated C# executes basic List construction append concat and length`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nyrwvy-list-basic-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(tempRoot) |> ignore
-        try
-            let projectFile =
-                """<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
-</Project>
-"""
-            let call functionId = "Console.WriteLine(NyFunctions." + CSharpBackendNames.functionName functionId + "());"
-            let harness =
-                String.concat Environment.NewLine
-                    [ "using System;"
-                      "using Nyrwvy.Generated;"
-                      ""
-                      call fixture.PipelineFunctionId
-                      call fixture.EmptyLengthFunctionId ]
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), projectFile)
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
-            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
-
-            let buildExit, buildOut, buildErr =
-                Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
-            if buildExit <> 0 then
-                failwithf "Generated List C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
-            let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
-            if runExit <> 0 then
-                failwithf "Generated List C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
-            Assert.Equal("5\n0", runOut.Replace("\r\n", "\n").Trim())
-        finally
-            if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
     [<Fact>]
     let ``ListConstruct item order is semantic fingerprint state`` () =

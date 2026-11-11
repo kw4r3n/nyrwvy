@@ -27,17 +27,14 @@ module AssemblyBoundaryTests =
     let ``architecture layers compile into distinct assemblies`` () =
         let semanticAssembly = typeof<Snapshot>.Assembly
         let executionAssembly = typeof<TypedSemanticProgram>.Assembly
-        let backendAssembly = typeof<CSharpArtifact>.Assembly
 
         let actual =
             [ assemblyName semanticAssembly
-              assemblyName executionAssembly
-              assemblyName backendAssembly ]
+              assemblyName executionAssembly ]
 
         let expected =
             [ "Nyrwvy.Semantics"
-              "Nyrwvy.Execution"
-              "Nyrwvy.Backend.CSharp" ]
+              "Nyrwvy.Execution" ]
 
         if actual <> expected then
             failwithf "Unexpected architecture assemblies. Expected %A, got %A" expected actual
@@ -52,9 +49,8 @@ module AssemblyBoundaryTests =
     [<Fact>]
     let ``shared structural contracts stay in semantics`` () =
         let semantics = typeof<Snapshot>.Assembly
-        Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<FunctionBodyReplacementDiff>.Assembly)
-        Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<AgentStructuralWorkflowError>.Assembly)
-        Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<ExpressionRecipe>.Assembly)
+        Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<SemanticFunction>.Assembly)
+        Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<TypeRef>.Assembly)
         Assert.Null(semantics.GetType("Nyrwvy.Core.AgentStructuralWorkflow"))
         Assert.Null(semantics.GetType("Nyrwvy.Core.AgentListMapStructuralWorkflow"))
 
@@ -63,7 +59,3 @@ module AssemblyBoundaryTests =
         let assembly = typeof<ExecutionProgram>.Assembly
         requireReference "Nyrwvy.Semantics" assembly
         forbidReferences [ "Nyrwvy.Backend.CSharp" ] assembly
-
-    [<Fact>]
-    let ``C# backend depends on execution`` () =
-        requireReference "Nyrwvy.Execution" typeof<CSharpArtifact>.Assembly

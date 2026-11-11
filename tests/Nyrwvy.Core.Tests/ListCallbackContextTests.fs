@@ -17,56 +17,99 @@ module ListCallbackContextTests =
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
 
-    let private request ws name (parameters: (string * TypeRef) list) resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
-          TypeParameters = None
+    let private fnId name = id<FunctionTag> name
+    let private paramId name = id<ParameterTag> name
+
+    let private makeFn name parameters resultType body : SemanticFunction =
+        { Id = fnId name
           DisplayName = name
-          Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
+          Exported = true
+          MustNotWait = false
+          TypeParameters = []
+          Parameters = parameters |> List.map (fun (pid, displayName, itemType) -> { Id = pid; DisplayName = displayName; Type = itemType })
           ResultType = resultType
           RequiredEffects = []
           Body = body }
 
-    let private create ws name parameters resultType body =
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request ws name parameters resultType body) |> unwrap ("create " + name)
-        match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-        | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> next
-        | other -> failwithf "Commit failed: %A" other
+    let private buildFor prefix tree = GraphBuilder.build (fun path -> id<GraphNodeTag> (prefix + "-" + path)) tree
 
-    let private find ws name = (AgentWorkspace.snapshotForStructuralEditing ws).Functions |> List.find (fun fn -> fn.DisplayName = name)
+    let private find snapshot name = snapshot.Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private parameter (fn: SemanticFunction) name = (fn.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
 
     /// Callbacks take a context parameter first; the same callbacks serve any runtime threshold or factor.
     let private fixture () =
-        let ws = AgentWorkspace.create (Snapshot.empty (id<SnapshotTag> "base")) |> unwrap "workspace"
-        let slot = ExpressionRecipe.ParameterSlot
-        let ws = create ws "above" [ "threshold", intType; "item", intType ] boolType (ExpressionRecipe.Int64GreaterThan(slot 1, slot 0))
-        let ws = create ws "scale" [ "factor", intType; "item", intType ] intType (ExpressionRecipe.Int64WrappingMultiply(slot 0, slot 1))
-        let ws =
-            create ws "sumAbove" [ "threshold", intType; "total", intType; "item", intType ] intType
-                (ExpressionRecipe.Conditional(ExpressionRecipe.Int64GreaterThan(slot 2, slot 0), ExpressionRecipe.Int64WrappingAdd(slot 1, slot 2), slot 1))
-        let above, scale, sumAbove = find ws "above", find ws "scale", find ws "sumAbove"
-        let items, bound = slot 0, slot 1
-        let ws = create ws "filterAbove" [ "items", intList; "threshold", intType ] intList (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", bound ]))
-        let ws = create ws "scaleAll" [ "items", intList; "factor", intType ] intList (ExpressionRecipe.ListMap(items, scale.Id, [ parameter scale "factor", bound ]))
-        let ws =
-            create ws "totalAbove" [ "items", intList; "threshold", intType ] intType
-                (ExpressionRecipe.ListFold(items, ExpressionRecipe.Int64Literal 0L, sumAbove.Id, [ parameter sumAbove "threshold", bound ]))
-        let ws = create ws "anyAbove" [ "items", intList; "threshold", intType ] boolType (ExpressionRecipe.ListAny(items, above.Id, [ parameter above "threshold", bound ]))
-        let ws = create ws "allAbove" [ "items", intList; "threshold", intType ] boolType (ExpressionRecipe.ListAll(items, above.Id, [ parameter above "threshold", bound ]))
-        create ws "plainLength" [ "items", intList ] intType (ExpressionRecipe.ListLength items)
+        let above =
+            makeFn "above"
+                [ paramId "above-threshold", "threshold", intType; paramId "above-item", "item", intType ] boolType
+                (buildFor "above"
+                    (GraphBuilder.node (fun ids -> SemanticNodeKind.Int64GreaterThan(ids[1], ids[0]))
+                        [ GraphBuilder.param (paramId "above-threshold"); GraphBuilder.param (paramId "above-item") ]))
+        let scale =
+            makeFn "scale"
+                [ paramId "scale-factor", "factor", intType; paramId "scale-item", "item", intType ] intType
+                (buildFor "scale"
+                    (GraphBuilder.node (fun ids -> SemanticNodeKind.Int64WrappingMultiply(ids[0], ids[1]))
+                        [ GraphBuilder.param (paramId "scale-factor"); GraphBuilder.param (paramId "scale-item") ]))
+        let sumAbove =
+            let node name kind = { Id = id<GraphNodeTag> name; Kind = kind }
+            let paramRef name pid = node name (SemanticNodeKind.ParameterReference pid)
+            let condId = id<GraphNodeTag> "sumAbove-cond"
+            let whenTrue: ValueGraph =
+                let addId = id<GraphNodeTag> "sumAbove-true-add"
+                { Nodes =
+                    [ paramRef "sumAbove-true-total" (paramId "sumAbove-total")
+                      paramRef "sumAbove-true-item" (paramId "sumAbove-item")
+                      node "sumAbove-true-add" (SemanticNodeKind.Int64WrappingAdd(id<GraphNodeTag> "sumAbove-true-total", id<GraphNodeTag> "sumAbove-true-item")) ]
+                  ResultNodeId = addId }
+            let whenFalse: ValueGraph =
+                { Nodes = [ paramRef "sumAbove-false-total" (paramId "sumAbove-total") ]
+                  ResultNodeId = id<GraphNodeTag> "sumAbove-false-total" }
+            let body: ValueGraph =
+                { Nodes =
+                    [ paramRef "sumAbove-cond-threshold" (paramId "sumAbove-threshold")
+                      paramRef "sumAbove-cond-item" (paramId "sumAbove-item")
+                      { Id = condId; Kind = SemanticNodeKind.Int64GreaterThan(id<GraphNodeTag> "sumAbove-cond-item", id<GraphNodeTag> "sumAbove-cond-threshold") }
+                      node "sumAbove-root" (SemanticNodeKind.Conditional(condId, whenTrue, whenFalse)) ]
+                  ResultNodeId = id<GraphNodeTag> "sumAbove-root" }
+            makeFn "sumAbove"
+                [ paramId "sumAbove-threshold", "threshold", intType; paramId "sumAbove-total", "total", intType; paramId "sumAbove-item", "item", intType ]
+                intType body
+        let withContext name kindOf callbackId targetId resultType =
+            makeFn name
+                [ paramId (name + "-items"), "items", intList; paramId (name + "-threshold"), "threshold", intType ] resultType
+                (buildFor name
+                    (GraphBuilder.node
+                        (fun ids -> kindOf ids[0] callbackId [ { TargetParameterId = targetId; ValueNodeId = ids[1] } ])
+                        [ GraphBuilder.param (paramId (name + "-items")); GraphBuilder.param (paramId (name + "-threshold")) ]))
+        let filterAbove = withContext "filterAbove" (fun list cb ctx -> SemanticNodeKind.ListFilter(list, cb, ctx)) (fnId "above") (paramId "above-threshold") intList
+        let scaleAll = withContext "scaleAll" (fun list cb ctx -> SemanticNodeKind.ListMap(list, cb, ctx)) (fnId "scale") (paramId "scale-factor") intList
+        let anyAbove = withContext "anyAbove" (fun list cb ctx -> SemanticNodeKind.ListAny(list, cb, ctx)) (fnId "above") (paramId "above-threshold") boolType
+        let allAbove = withContext "allAbove" (fun list cb ctx -> SemanticNodeKind.ListAll(list, cb, ctx)) (fnId "above") (paramId "above-threshold") boolType
+        let totalAbove =
+            makeFn "totalAbove"
+                [ paramId "totalAbove-items", "items", intList; paramId "totalAbove-threshold", "threshold", intType ] intType
+                (buildFor "totalAbove"
+                    (GraphBuilder.node
+                        (fun ids -> SemanticNodeKind.ListFold(ids[0], ids[1], fnId "sumAbove", [ { TargetParameterId = paramId "sumAbove-threshold"; ValueNodeId = ids[2] } ]))
+                        [ GraphBuilder.param (paramId "totalAbove-items"); GraphBuilder.leaf (SemanticNodeKind.Int64Literal 0L); GraphBuilder.param (paramId "totalAbove-threshold") ]))
+        let plainLength =
+            makeFn "plainLength" [ paramId "plainLength-items", "items", intList ] intType
+                (buildFor "plainLength"
+                    (GraphBuilder.node (fun ids -> SemanticNodeKind.ListLength ids[0]) [ GraphBuilder.param (paramId "plainLength-items") ]))
+        { Snapshot.empty (id<SnapshotTag> "base") with
+            Functions = [ above; scale; sumAbove; filterAbove; scaleAll; totalAbove; anyAbove; allAbove; plainLength ] }
 
     [<Fact>]
     let ``context callbacks author persist and keep context-free graphs byte-identical`` () =
-        let ws = fixture ()
-        let snapshot = AgentWorkspace.snapshotForStructuralEditing ws
+        let snapshot = fixture ()
         Assert.Empty(SnapshotValidator.validate snapshot)
-        let filterAbove = find ws "filterAbove"
+        let filterAbove = find snapshot "filterAbove"
         let bindings =
             ValueGraph.collectNodes filterAbove.Body |> List.pick (fun node ->
                 match node.Kind with
                 | SemanticNodeKind.ListFilter(_, _, context) -> Some context
                 | _ -> None)
-        Assert.Equal<ParameterId list>([ parameter (find ws "above") "threshold" ], bindings |> List.map (fun binding -> binding.TargetParameterId))
+        Assert.Equal<ParameterId list>([ parameter (find snapshot "above") "threshold" ], bindings |> List.map (fun binding -> binding.TargetParameterId))
         let json = SnapshotCodec.serialize snapshot |> unwrap "json"
         Assert.Contains("\"context\"", json)
         let restored = SnapshotCodec.deserialize json |> unwrap "restore"
@@ -83,7 +126,7 @@ module ListCallbackContextTests =
 
     [<Fact>]
     let ``persisted callback context is omitted rather than written empty`` () =
-        let snapshot = AgentWorkspace.snapshotForStructuralEditing (fixture ())
+        let snapshot = fixture ()
         let json = SnapshotCodec.serialize snapshot |> unwrap "json"
         let contexts = Text.RegularExpressions.Regex("\"context\":\\[[^\\]]*\\]")
         Assert.Equal(5, contexts.Matches(json).Count)
@@ -99,23 +142,27 @@ module ListCallbackContextTests =
 
     [<Fact>]
     let ``context bindings are checked in recipes and in persisted graphs`` () =
-        let ws = fixture ()
-        let above = find ws "above"
-        let reject body =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request ws "bad" [ "items", intList; "threshold", intType ] intList body) with
-            | Error(AgentStructuralWorkflowError.SimulationRejected(diagnostic :: _)) -> diagnostic.Code
-            | other -> failwithf "Invalid context accepted: %A" other
-        let items, bound = ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1
-        Assert.Equal("PureExpressionCallbackArityMismatch", reject (ExpressionRecipe.ListFilter(items, above.Id, [])))
-        Assert.Equal("PureExpressionCallArgumentTargetNotFound", reject (ExpressionRecipe.ListFilter(items, above.Id, [ id<ParameterTag> "foreign", bound ])))
-        Assert.Equal("PureExpressionCallbackContextTypeMismatch",
-            reject (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", ExpressionRecipe.BoolLiteral true ])))
-        Assert.Equal("PureExpressionDuplicateCallArgument",
-            reject (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", bound; parameter above "threshold", bound ])))
-        Assert.Equal("PureExpressionCallbackArityMismatch",
-            reject (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", bound; parameter above "item", bound ])))
+        let snapshot = fixture ()
+        let above = find snapshot "above"
+        let badWith prefix kindOf children =
+            let bad =
+                makeFn "bad"
+                    [ paramId "bad-items", "items", intList; paramId "bad-threshold", "threshold", intType ] intList
+                    (buildFor prefix (GraphBuilder.node kindOf children))
+            SnapshotValidator.validate { snapshot with Functions = snapshot.Functions @ [ bad ] }
+        let items = GraphBuilder.param (paramId "bad-items")
+        let bound = GraphBuilder.param (paramId "bad-threshold")
+        let filterWith context children =
+            badWith "bad" (fun ids -> SemanticNodeKind.ListFilter(ids[0], above.Id, context ids)) children
+        Assert.NotEmpty(filterWith (fun _ -> []) [ items ])
+        Assert.NotEmpty(filterWith (fun ids -> [ { TargetParameterId = id<ParameterTag> "foreign"; ValueNodeId = ids[1] } ]) [ items; bound ])
+        Assert.Contains(
+            filterWith (fun ids -> [ { TargetParameterId = parameter above "threshold"; ValueNodeId = ids[1] } ])
+                [ items; GraphBuilder.leaf (SemanticNodeKind.BoolLiteral true) ],
+            fun issue -> issue.Code = "CallbackContextTypeMismatch")
+        Assert.NotEmpty(filterWith (fun ids -> [ { TargetParameterId = parameter above "threshold"; ValueNodeId = ids[1] }; { TargetParameterId = parameter above "threshold"; ValueNodeId = ids[1] } ]) [ items; bound ])
+        Assert.NotEmpty(filterWith (fun ids -> [ { TargetParameterId = parameter above "threshold"; ValueNodeId = ids[1] }; { TargetParameterId = parameter above "item"; ValueNodeId = ids[1] } ]) [ items; bound ])
         // A persisted graph whose context value has the wrong type is rejected by the validator.
-        let snapshot = AgentWorkspace.snapshotForStructuralEditing ws
         let broken =
             { snapshot with
                 Functions = snapshot.Functions |> List.map (fun fn ->

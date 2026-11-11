@@ -17,47 +17,55 @@ module StringSpanTests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
-    let private int value = ExpressionRecipe.Int64Literal value
 
     [<Fact>]
     let ``StringSpan and StringSpanBack type check, persist, and lower through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "span"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped string span was accepted: %A" other
-        let slot = ExpressionRecipe.ParameterSlot
-        let mismatch = "PureExpressionOperandTypeMismatch"
-        Assert.Equal(mismatch, rejects (request [ intType; stringType ] intType (ExpressionRecipe.StringSpan(slot 0, slot 1, int 0L))))
-        Assert.Equal(mismatch, rejects (request [ stringType; intType ] intType (ExpressionRecipe.StringSpan(slot 0, slot 1, int 0L))))
-        Assert.Equal(mismatch, rejects (request [ stringType; stringType ] intType (ExpressionRecipe.StringSpan(slot 0, slot 1, slot 1))))
-        Assert.Equal(mismatch, rejects (request [ intType; stringType ] intType (ExpressionRecipe.StringSpanBack(slot 0, slot 1, int 0L))))
-        Assert.Equal(mismatch, rejects (request [ stringType; intType ] intType (ExpressionRecipe.StringSpanBack(slot 0, slot 1, int 0L))))
-        Assert.Equal(mismatch, rejects (request [ stringType; stringType ] intType (ExpressionRecipe.StringSpanBack(slot 0, slot 1, slot 0))))
+        let parameterId index = id<ParameterTag> $"input{index}"
+        let slot index = GraphBuilder.param (parameterId index)
+        let text value = GraphBuilder.leaf (SemanticNodeKind.StringLiteral value)
+        let int value = GraphBuilder.leaf (SemanticNodeKind.Int64Literal value)
+
+        let snapshotWith (parameterTypes: TypeRef list) resultType body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "span"
+                  DisplayName = "span"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = parameterTypes |> List.mapi (fun index t -> { Id = parameterId index; DisplayName = $"input{index}"; Type = t })
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let issues parameterTypes resultType body = SnapshotValidator.validate (snapshotWith parameterTypes resultType body)
+        let intrinsic parameterTypes resultType body =
+            Assert.Contains(issues parameterTypes resultType body, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+        let ternary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1], ids[2]))
+        let span = ternary SemanticNodeKind.StringSpan
+        let spanBack = ternary SemanticNodeKind.StringSpanBack
+
+        intrinsic [ intType; stringType ] intType (span [ slot 0; slot 1; int 0L ])
+        intrinsic [ stringType; intType ] intType (span [ slot 0; slot 1; int 0L ])
+        intrinsic [ stringType; stringType ] intType (span [ slot 0; slot 1; slot 1 ])
+        intrinsic [ intType; stringType ] intType (spanBack [ slot 0; slot 1; int 0L ])
+        intrinsic [ stringType; intType ] intType (spanBack [ slot 0; slot 1; int 0L ])
+        intrinsic [ stringType; stringType ] intType (spanBack [ slot 0; slot 1; slot 0 ])
         // Result type: Int64, not Option<Int64> or String.
-        Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringSpan(slot 0, text " ", int 0L))))
-        Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringSpanBack(slot 0, text " ", int 0L))))
+        Assert.Contains(
+            issues [ stringType ] stringType (span [ slot 0; text " "; int 0L ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        Assert.Contains(
+            issues [ stringType ] stringType (spanBack [ slot 0; text " "; int 0L ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
         let cases =
-            [ "stringSpan", "NyText.Span(", ExpressionRecipe.StringSpan(slot 0, slot 1, int 2L)
-              "stringSpanBack", "NyText.SpanBack(", ExpressionRecipe.StringSpanBack(slot 0, slot 1, int 2L) ]
-        for kind, emitted, body in cases do
-            let proposal =
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request [ stringType; stringType ] intType body)
-                |> unwrap ("simulate " + kind)
-            let committed =
-                match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-                | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-                | other -> failwithf "Commit failed: %A" other
+            [ "stringSpan", span [ slot 0; slot 1; int 2L ]
+              "stringSpanBack", spanBack [ slot 0; slot 1; int 2L ] ]
+        for kind, body in cases do
+            let committed = snapshotWith [ stringType; stringType ] intType body
             Assert.Empty(SnapshotValidator.validate committed)
             let json = SnapshotCodec.serialize committed |> unwrap "serialize"
             Assert.Contains($"\"{kind}\"", json)
@@ -70,10 +78,7 @@ module StringSpanTests =
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains($"\"{kind}\"", ExecutionIrSerializer.serialize execution)
-            let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-            Assert.Contains(emitted, artifact.Source)
             // A persisted node over a non-String set is a validation error.
-            let parameterId = committed.Functions.Head.Parameters.[1].Id
             let broken =
                 { committed with
                     Functions = committed.Functions |> List.map (fun fn ->
@@ -82,7 +87,7 @@ module StringSpanTests =
                                 { fn.Body with
                                     Nodes = fn.Body.Nodes |> List.map (fun node ->
                                         match node.Kind with
-                                        | SemanticNodeKind.ParameterReference reference when reference = parameterId ->
+                                        | SemanticNodeKind.ParameterReference reference when reference = parameterId 1 ->
                                             { node with Kind = SemanticNodeKind.Int64Literal 1L }
                                         | _ -> node) } }) }
             Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")

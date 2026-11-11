@@ -25,61 +25,64 @@ module StandardOperationChoiceTests =
         | Error error -> failwithf "%s: %A" label error
 
     /// Parameter types, result type and body of a one-operation function for each mode.
+    /// Parameters are numbered from 0 in declaration order.
     let private shapeOf mode =
-        let slot = ExpressionRecipe.ParameterSlot
+        let unary kind = GraphBuilder.node (fun ids -> kind ids[0])
+        let binary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1]))
+        let slot index = GraphBuilder.param (id<ParameterTag> $"p{index}")
         match mode with
-        | "range" -> [ intType; intType ], listOf intType, ExpressionRecipe.ListRange(slot 0, slot 1)
-        | "repeat" -> [ textType; intType ], textType, ExpressionRecipe.StringRepeat(slot 0, slot 1)
-        | "hex" -> [ intType ], textType, ExpressionRecipe.Int64ToHexString(slot 0)
-        | "parseHex" -> [ textType ], optionOf intType, ExpressionRecipe.StringParseInt64Hex(slot 0)
-        | "min" -> [ intType; intType ], intType, ExpressionRecipe.Int64Min(slot 0, slot 1)
-        | "max" -> [ intType; intType ], intType, ExpressionRecipe.Int64Max(slot 0, slot 1)
-        | "abs" -> [ intType ], intType, ExpressionRecipe.Int64WrappingAbs(slot 0)
-        | "checkedAdd" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedAdd(slot 0, slot 1)
-        | "checkedSubtract" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedSubtract(slot 0, slot 1)
-        | "checkedMultiply" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedMultiply(slot 0, slot 1)
-        | "round" -> [ floatType; intType ], floatType, ExpressionRecipe.Float64Round(slot 0, slot 1)
+        | "range" -> [ intType; intType ], listOf intType, binary SemanticNodeKind.ListRange [ slot 0; slot 1 ]
+        | "repeat" -> [ textType; intType ], textType, binary SemanticNodeKind.StringRepeat [ slot 0; slot 1 ]
+        | "hex" -> [ intType ], textType, unary SemanticNodeKind.Int64ToHexString [ slot 0 ]
+        | "parseHex" -> [ textType ], optionOf intType, unary SemanticNodeKind.StringParseInt64Hex [ slot 0 ]
+        | "min" -> [ intType; intType ], intType, binary SemanticNodeKind.Int64Min [ slot 0; slot 1 ]
+        | "max" -> [ intType; intType ], intType, binary SemanticNodeKind.Int64Max [ slot 0; slot 1 ]
+        | "abs" -> [ intType ], intType, unary SemanticNodeKind.Int64WrappingAbs [ slot 0 ]
+        | "checkedAdd" -> [ intType; intType ], optionOf intType, binary SemanticNodeKind.Int64CheckedAdd [ slot 0; slot 1 ]
+        | "checkedSubtract" -> [ intType; intType ], optionOf intType, binary SemanticNodeKind.Int64CheckedSubtract [ slot 0; slot 1 ]
+        | "checkedMultiply" -> [ intType; intType ], optionOf intType, binary SemanticNodeKind.Int64CheckedMultiply [ slot 0; slot 1 ]
+        | "round" -> [ floatType; intType ], floatType, binary SemanticNodeKind.Float64Round [ slot 0; slot 1 ]
         | other -> failwithf "Unknown mode %s" other
 
     [<Theory>]
-    [<InlineData("range", "listRange", "FromOwnedArray(items)", "Int64OperandTypeMismatch")>]
-    [<InlineData("repeat", "stringRepeat", ".Insert(0, text, (int)count)", "StringIntrinsicTypeMismatch")>]
-    [<InlineData("hex", "int64ToHexString", "ToString(\"x\"", "Int64IntrinsicTypeMismatch")>]
-    [<InlineData("parseHex", "stringParseInt64Hex", "magnitude << 4", "StringIntrinsicTypeMismatch")>]
-    [<InlineData("min", "int64Min", "System.Math.Min(", "Int64OperandTypeMismatch")>]
-    [<InlineData("max", "int64Max", "System.Math.Max(", "Int64OperandTypeMismatch")>]
-    [<InlineData("abs", "int64WrappingAbs", "unchecked(-", "Int64IntrinsicTypeMismatch")>]
-    [<InlineData("checkedAdd", "int64CheckedAdd", "NyNumber.CheckedAdd(", "Int64OperandTypeMismatch")>]
-    [<InlineData("checkedSubtract", "int64CheckedSubtract", "NyNumber.CheckedSubtract(", "Int64OperandTypeMismatch")>]
-    [<InlineData("checkedMultiply", "int64CheckedMultiply", "NyNumber.CheckedMultiply(", "Int64OperandTypeMismatch")>]
-    [<InlineData("round", "float64Round", "NyNumber.Round(", "Float64OperandTypeMismatch")>]
+    [<InlineData("range", "listRange", "Int64OperandTypeMismatch")>]
+    [<InlineData("repeat", "stringRepeat", "StringIntrinsicTypeMismatch")>]
+    [<InlineData("hex", "int64ToHexString", "Int64IntrinsicTypeMismatch")>]
+    [<InlineData("parseHex", "stringParseInt64Hex", "StringIntrinsicTypeMismatch")>]
+    [<InlineData("min", "int64Min", "Int64OperandTypeMismatch")>]
+    [<InlineData("max", "int64Max", "Int64OperandTypeMismatch")>]
+    [<InlineData("abs", "int64WrappingAbs", "Int64IntrinsicTypeMismatch")>]
+    [<InlineData("checkedAdd", "int64CheckedAdd", "Int64OperandTypeMismatch")>]
+    [<InlineData("checkedSubtract", "int64CheckedSubtract", "Int64OperandTypeMismatch")>]
+    [<InlineData("checkedMultiply", "int64CheckedMultiply", "Int64OperandTypeMismatch")>]
+    [<InlineData("round", "float64Round", "Float64OperandTypeMismatch")>]
     let ``Standard operations type check, persist, and lower through every layer``
-        (mode: string, wireKind: string, csharpCall: string, issueCode: string) =
+        (mode: string, wireKind: string, issueCode: string) =
         let parameterTypes, resultType, body = shapeOf mode
         let wrongFor parameterType = if parameterType = intType then textType else intType
-        let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request (types: TypeRef list) result: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = mode
-              Parameters = types |> List.mapi (fun index parameterType -> { DisplayName = $"p{index}"; Type = parameterType })
-              ResultType = result
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped operation was accepted: %A" other
+
+        let snapshotWith (types: TypeRef list) declaredResultType =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> ("fn-" + mode)
+                  DisplayName = mode
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = types |> List.mapi (fun index t -> { Id = id<ParameterTag> $"p{index}"; DisplayName = $"p{index}"; Type = t })
+                  ResultType = declaredResultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> ("base-" + mode)) with Functions = [ fn ] }
+
         for index in 0 .. parameterTypes.Length - 1 do
             let mistyped = parameterTypes |> List.mapi (fun at parameterType -> if at = index then wrongFor parameterType else parameterType)
-            Assert.NotEqual<string>("", rejects (request mistyped resultType))
-        Assert.NotEqual<string>("", rejects (request parameterTypes (wrongFor resultType)))
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request parameterTypes resultType) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
+            Assert.Contains(SnapshotValidator.validate (snapshotWith mistyped resultType), fun issue -> issue.Code = issueCode)
+        Assert.Contains(
+            SnapshotValidator.validate (snapshotWith parameterTypes (wrongFor resultType)),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        let committed = snapshotWith parameterTypes resultType
         Assert.Empty(SnapshotValidator.validate committed)
         let json = SnapshotCodec.serialize committed |> unwrap "serialize"
         Assert.Contains("\"" + wireKind + "\"", json)
@@ -92,8 +95,6 @@ module StandardOperationChoiceTests =
         Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"" + wireKind + "\"", ExecutionIrSerializer.serialize execution)
-        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-        Assert.Contains(csharpCall, artifact.Source)
         // Every parameter reference replaced by a literal of the other primitive type.
         let parameters = committed.Functions.Head.Parameters
         let broken =

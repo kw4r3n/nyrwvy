@@ -19,50 +19,57 @@ module StringSearchTests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
-    let private int value = ExpressionRecipe.Int64Literal value
 
     [<Fact>]
     let ``string search builtins type check, persist, and lower through every layer`` () =
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "search"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped string search was accepted: %A" other
-        let slot = ExpressionRecipe.ParameterSlot
-        let mismatch = "PureExpressionOperandTypeMismatch"
-        Assert.Equal(mismatch, rejects (request [ stringType; intType ] (optionOf intType) (ExpressionRecipe.StringIndexOf(slot 0, slot 1, int 0L))))
-        Assert.Equal(mismatch, rejects (request [ stringType; stringType ] (optionOf intType) (ExpressionRecipe.StringIndexOf(slot 0, slot 1, slot 1))))
-        Assert.Equal(mismatch, rejects (request [ intType ] (optionOf intType) (ExpressionRecipe.StringLastIndexOf(slot 0, text "a"))))
-        Assert.Equal(mismatch, rejects (request [ stringType; intType ] boolType (ExpressionRecipe.StringStartsWith(slot 0, slot 1))))
-        Assert.Equal(mismatch, rejects (request [ intType ] boolType (ExpressionRecipe.StringEndsWith(slot 0, text "a"))))
-        Assert.Equal(mismatch, rejects (request [ stringType; intType ] (listOf stringType) (ExpressionRecipe.StringSplit(slot 0, slot 1))))
+        let parameterId index = id<ParameterTag> $"input{index}"
+        let slot index = GraphBuilder.param (parameterId index)
+        let text value = GraphBuilder.leaf (SemanticNodeKind.StringLiteral value)
+        let int value = GraphBuilder.leaf (SemanticNodeKind.Int64Literal value)
+
+        let snapshotWith (parameterTypes: TypeRef list) resultType body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "search"
+                  DisplayName = "search"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = parameterTypes |> List.mapi (fun index t -> { Id = parameterId index; DisplayName = $"input{index}"; Type = t })
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let issues parameterTypes resultType body = SnapshotValidator.validate (snapshotWith parameterTypes resultType body)
+        let intrinsic parameterTypes resultType body =
+            Assert.Contains(issues parameterTypes resultType body, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+        let binary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1]))
+        let ternary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1], ids[2]))
+
+        intrinsic [ stringType; intType ] (optionOf intType) (ternary SemanticNodeKind.StringIndexOf [ slot 0; slot 1; int 0L ])
+        intrinsic [ stringType; stringType ] (optionOf intType) (ternary SemanticNodeKind.StringIndexOf [ slot 0; slot 1; slot 1 ])
+        intrinsic [ intType ] (optionOf intType) (binary SemanticNodeKind.StringLastIndexOf [ slot 0; text "a" ])
+        intrinsic [ stringType; intType ] boolType (binary SemanticNodeKind.StringStartsWith [ slot 0; slot 1 ])
+        intrinsic [ intType ] boolType (binary SemanticNodeKind.StringEndsWith [ slot 0; text "a" ])
+        intrinsic [ stringType; intType ] (listOf stringType) (binary SemanticNodeKind.StringSplit [ slot 0; slot 1 ])
         // Result types: Option<Int64>, Bool and List<String>, not String.
-        Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringIndexOf(slot 0, text "a", int 0L))))
-        Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringSplit(slot 0, text ","))))
+        Assert.Contains(
+            issues [ stringType ] intType (ternary SemanticNodeKind.StringIndexOf [ slot 0; text "a"; int 0L ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        Assert.Contains(
+            issues [ stringType ] stringType (binary SemanticNodeKind.StringSplit [ slot 0; text "," ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
         let cases =
-            [ "stringIndexOf", "NyText.IndexOf(", optionOf intType, ExpressionRecipe.StringIndexOf(slot 0, slot 1, int 2L)
-              "stringLastIndexOf", "NyText.LastIndexOf(", optionOf intType, ExpressionRecipe.StringLastIndexOf(slot 0, slot 1)
-              "stringStartsWith", "NyText.StartsWith(", boolType, ExpressionRecipe.StringStartsWith(slot 0, slot 1)
-              "stringEndsWith", "NyText.EndsWith(", boolType, ExpressionRecipe.StringEndsWith(slot 0, slot 1)
-              "stringSplit", "NyText.Split(", listOf stringType, ExpressionRecipe.StringSplit(slot 0, slot 1) ]
-        for kind, emitted, resultType, body in cases do
-            let proposal =
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request [ stringType; stringType ] resultType body)
-                |> unwrap ("simulate " + kind)
-            let committed =
-                match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-                | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-                | other -> failwithf "Commit failed: %A" other
+            [ "stringIndexOf", optionOf intType, ternary SemanticNodeKind.StringIndexOf [ slot 0; slot 1; int 2L ]
+              "stringLastIndexOf", optionOf intType, binary SemanticNodeKind.StringLastIndexOf [ slot 0; slot 1 ]
+              "stringStartsWith", boolType, binary SemanticNodeKind.StringStartsWith [ slot 0; slot 1 ]
+              "stringEndsWith", boolType, binary SemanticNodeKind.StringEndsWith [ slot 0; slot 1 ]
+              "stringSplit", listOf stringType, binary SemanticNodeKind.StringSplit [ slot 0; slot 1 ] ]
+        for kind, resultType, body in cases do
+            let committed = snapshotWith [ stringType; stringType ] resultType body
             Assert.Empty(SnapshotValidator.validate committed)
             let json = SnapshotCodec.serialize committed |> unwrap "serialize"
             Assert.Contains($"\"{kind}\"", json)
@@ -75,10 +82,7 @@ module StringSearchTests =
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains($"\"{kind}\"", ExecutionIrSerializer.serialize execution)
-            let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-            Assert.Contains(emitted, artifact.Source)
             // A persisted node over a non-String operand is a validation error.
-            let parameterId = committed.Functions.Head.Parameters.[1].Id
             let broken =
                 { committed with
                     Functions = committed.Functions |> List.map (fun fn ->
@@ -87,7 +91,7 @@ module StringSearchTests =
                                 { fn.Body with
                                     Nodes = fn.Body.Nodes |> List.map (fun node ->
                                         match node.Kind with
-                                        | SemanticNodeKind.ParameterReference reference when reference = parameterId ->
+                                        | SemanticNodeKind.ParameterReference reference when reference = parameterId 1 ->
                                             { node with Kind = SemanticNodeKind.Int64Literal 1L }
                                         | _ -> node) } }) }
             Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")

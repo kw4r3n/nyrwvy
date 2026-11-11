@@ -150,10 +150,6 @@ module Int64Tests =
         let execution = ExecutionIr.lower typed |> unwrap "Execution IR lowering"
         typed, execution
 
-    let private emit fixture =
-        let _, execution = lower fixture
-        CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
-
     [<Fact>]
     let ``Int64 operations reject non-Int64 operands`` () =
         let fixture = createFixture ()
@@ -234,78 +230,6 @@ module Int64Tests =
         Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", typedJson)
         Assert.Contains("\"primitiveInt64\"", typedJson)
         Assert.Contains("\"int64WrappingAdd\"", executionJson)
-
-    [<Fact>]
-    let ``C# source makes Int64 wrapping and minimum literal explicit`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture
-        Assert.Contains("long.MinValue", artifact.Source)
-        Assert.Contains("unchecked(", artifact.Source)
-        Assert.Contains(" + ", artifact.Source)
-        Assert.Contains(" - ", artifact.Source)
-        Assert.Contains(" * ", artifact.Source)
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``generated C# executes Int64 wrapping arithmetic and comparisons`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nyrwvy-int64-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(tempRoot) |> ignore
-
-        try
-            let projectFile =
-                """<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
-</Project>
-"""
-            let call functionId = "Console.WriteLine(NyFunctions." + CSharpBackendNames.functionName functionId + "());"
-            let harness =
-                String.concat
-                    Environment.NewLine
-                    ([ "using System;"; "using Nyrwvy.Generated;"; "" ]
-                     @ [ call fixture.AddFunctionId
-                         call fixture.SubtractFunctionId
-                         call fixture.MultiplyFunctionId
-                         call fixture.EqualFunctionId
-                         call fixture.LessFunctionId
-                         call fixture.LessOrEqualFunctionId
-                         call fixture.GreaterFunctionId
-                         call fixture.GreaterOrEqualFunctionId ])
-
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), projectFile)
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
-            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
-
-            let buildExit, buildOut, buildErr =
-                Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
-            if buildExit <> 0 then
-                failwithf "Generated Int64 C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
-
-            let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
-            if runExit <> 0 then
-                failwithf "Generated Int64 C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
-
-            let normalized = runOut.Replace("\r\n", "\n").Trim()
-            let expected =
-                String.concat "\n"
-                    [ Int64.MinValue.ToString(CultureInfo.InvariantCulture)
-                      Int64.MaxValue.ToString(CultureInfo.InvariantCulture)
-                      "-2"
-                      "True"
-                      "True"
-                      "True"
-                      "True"
-                      "True" ]
-            Assert.Equal(expected, normalized)
-        finally
-            if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
     [<Fact>]
     let ``Int64 semantic changes participate in semantic fingerprints`` () =

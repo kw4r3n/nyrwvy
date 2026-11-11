@@ -19,52 +19,48 @@ module Float64ToInt64Tests =
         | Error error -> failwithf "%s: %A" label error
 
     [<Theory>]
-    [<InlineData("round", "float64RoundToInt64", "NyNumber.RoundToInt64(")>]
-    [<InlineData("floor", "float64FloorToInt64", "NyNumber.FloorToInt64(")>]
+    [<InlineData("round", "float64RoundToInt64")>]
+    [<InlineData("floor", "float64FloorToInt64")>]
     let ``Float64 to Int64 conversions type check, persist, and lower through every layer``
-        (mode: string, wireKind: string, csharpCall: string) =
-        let build value =
-            if mode = "round" then ExpressionRecipe.Float64RoundToInt64 value else ExpressionRecipe.Float64FloorToInt64 value
-        let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = mode
-              Parameters = [ { DisplayName = "value"; Type = parameterType } ]
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped conversion was accepted: %A" other
-        let body = build (ExpressionRecipe.ParameterSlot 0)
-        Assert.Equal("PureExpressionOperandTypeMismatch", rejects (request intType (optionOf intType) body))
-        Assert.NotEqual<string>("", rejects (request floatType intType body))
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request floatType (optionOf intType) body) |> unwrap "simulate"
-        let committed =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-            | other -> failwithf "Commit failed: %A" other
-        Assert.Empty(SnapshotValidator.validate committed)
-        let json = SnapshotCodec.serialize committed |> unwrap "serialize"
+        (mode: string, wireKind: string) =
+        let kindOf (ids: GraphNodeId list) =
+            if mode = "round" then SemanticNodeKind.Float64RoundToInt64 ids[0] else SemanticNodeKind.Float64FloorToInt64 ids[0]
+        let buildSnapshot parameterType resultType =
+            let functionId = id<FunctionTag> ("convert-" + mode)
+            let parameterId = id<ParameterTag> ("value-" + mode)
+            let body =
+                GraphBuilder.build (id<GraphNodeTag>)
+                    (GraphBuilder.node kindOf [ GraphBuilder.param parameterId ])
+            let fn: SemanticFunction =
+                { Id = functionId
+                  DisplayName = mode
+                  Exported = true
+                  MustNotWait = false
+                  TypeParameters = []
+                  Parameters = [ { Id = parameterId; DisplayName = "value"; Type = parameterType } ]
+                  ResultType = resultType
+                  RequiredEffects = []
+                  Body = body }
+            { Snapshot.empty (id<SnapshotTag> ("base-" + mode)) with Functions = [ fn ] }
+        Assert.NotEmpty(SnapshotValidator.validate (buildSnapshot intType (optionOf intType)))
+        Assert.Contains(SnapshotValidator.validate (buildSnapshot floatType intType), fun issue -> issue.Code = "FunctionResultTypeMismatch")
+        let snapshot = buildSnapshot floatType (optionOf intType)
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        let json = SnapshotCodec.serialize snapshot |> unwrap "serialize"
         Assert.Contains("\"" + wireKind + "\"", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
-        Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute decoded)
         let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
         let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
-        Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"" + wireKind + "\"", ExecutionIrSerializer.serialize execution)
-        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-        Assert.Contains(csharpCall, artifact.Source)
-        let parameterId = committed.Functions.Head.Parameters.Head.Id
+        let parameterId = snapshot.Functions.Head.Parameters.Head.Id
         let broken =
-            { committed with
-                Functions = committed.Functions |> List.map (fun fn ->
+            { snapshot with
+                Functions = snapshot.Functions |> List.map (fun fn ->
                     { fn with
                         Body =
                             { fn.Body with

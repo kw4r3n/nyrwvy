@@ -307,10 +307,6 @@ module ListHigherOrderTests =
         let execution = ExecutionIr.lower typed |> unwrap "Execution IR lowering"
         typed, execution
 
-    let private emit snapshot =
-        let _, execution = lower snapshot
-        CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
-
     let private showcaseNode fixture snapshot nodeIdToFind =
         snapshot.Functions
         |> List.find (fun functionEntity -> functionEntity.Id = fixture.ShowcaseFunctionId)
@@ -406,67 +402,6 @@ module ListHigherOrderTests =
         Assert.Contains(StableId.value fixture.PositiveFunctionId, typedJson)
         Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", executionJson)
         Assert.Contains("\"listFilter\"", executionJson)
-
-    [<Fact>]
-    let ``C# source emits dedicated pure higher-order NyList operations`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture.Snapshot
-        Assert.Contains("public NyList<U> Map<U>(Func<T, U> mapper)", artifact.Source)
-        Assert.Contains("public NyList<T> Filter(Func<T, bool> predicate)", artifact.Source)
-        Assert.Contains("public bool Any(Func<T, bool> predicate)", artifact.Source)
-        Assert.Contains("public bool All(Func<T, bool> predicate)", artifact.Source)
-        Assert.Contains("return false;", artifact.Source)
-        Assert.Contains("return true;", artifact.Source)
-        Assert.Contains("NyFunctions." + CSharpBackendNames.functionName fixture.PositiveFunctionId, artifact.Source)
-        Assert.Contains("NyFunctions." + CSharpBackendNames.functionName fixture.BoolIdentityFunctionId, artifact.Source)
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``generated C# executes pure higher-order List and empty Any All semantics`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture.Snapshot
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nyrwvy-list-ho-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(tempRoot) |> ignore
-        try
-            let projectFile =
-                """<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
-</Project>
-"""
-            let call functionId = "Console.WriteLine(NyFunctions." + CSharpBackendNames.functionName functionId + "());"
-            let harness =
-                String.concat Environment.NewLine
-                    [ "using System;"
-                      "using Nyrwvy.Generated;"
-                      ""
-                      call fixture.FilteredLengthFunctionId
-                      call fixture.AnyPositiveFunctionId
-                      call fixture.AllPositiveFunctionId
-                      call fixture.MappedAnyFunctionId
-                      call fixture.ShowcaseFunctionId
-                      call fixture.EmptyAnyFunctionId
-                      call fixture.EmptyAllFunctionId ]
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), projectFile)
-            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
-            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
-
-            let buildExit, buildOut, buildErr =
-                Dotnet.run tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
-            if buildExit <> 0 then
-                failwithf "Generated higher-order List C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
-            let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
-            let runExit, runOut, runErr = Dotnet.run tempRoot [ assemblyPath ]
-            if runExit <> 0 then
-                failwithf "Generated higher-order List C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
-            let expected = String.concat "\n" [ "2"; "True"; "False"; "True"; "False"; "False"; "True" ]
-            Assert.Equal(expected, runOut.Replace("\r\n", "\n").Trim())
-        finally
-            if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
     [<Fact>]
     let ``higher-order List callback identity participates in semantic fingerprint`` () =

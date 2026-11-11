@@ -16,7 +16,6 @@ module StringReplaceTrimTests =
         match result with
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
-    let private text value = ExpressionRecipe.StringLiteral value
 
     /// The 25 White_Space code points, all in the BMP.
     let private whiteSpace =
@@ -37,44 +36,52 @@ module StringReplaceTrimTests =
     let ``StringReplace and the trims type check, persist, and lower through every layer`` () =
         Assert.Equal(25, whiteSpace.Length)
         Assert.All(whiteSpace, fun space -> Assert.True(Char.IsWhiteSpace(space, 0)))
-        let snapshot = Snapshot.empty (id<SnapshotTag> "base")
-        let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
-        let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
-              TypeParameters = None
-              DisplayName = "edit"
-              Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
-              ResultType = resultType
-              RequiredEffects = []
-              Body = body }
-        let rejects request =
-            match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
-            | other -> failwithf "Mistyped string edit was accepted: %A" other
-        let slot = ExpressionRecipe.ParameterSlot
-        let mismatch = "PureExpressionOperandTypeMismatch"
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringReplace(slot 0, text "a", text "b"))))
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringReplace(text "a", slot 0, text "b"))))
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringReplace(text "a", text "b", slot 0))))
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringTrim(slot 0))))
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringTrimStart(slot 0))))
-        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringTrimEnd(slot 0))))
+        let parameterId index = id<ParameterTag> $"input{index}"
+        let slot index = GraphBuilder.param (parameterId index)
+        let text value = GraphBuilder.leaf (SemanticNodeKind.StringLiteral value)
+
+        let snapshotWith (parameterTypes: TypeRef list) resultType body =
+            let fn: SemanticFunction =
+                { Id = id<FunctionTag> "edit"
+                  DisplayName = "edit"
+                  Exported = true
+                  TypeParameters = []
+                  Parameters = parameterTypes |> List.mapi (fun index t -> { Id = parameterId index; DisplayName = $"input{index}"; Type = t })
+                  ResultType = resultType
+                  RequiredEffects = []
+                  MustNotWait = false
+                  Body = GraphBuilder.build (id<GraphNodeTag>) body }
+
+            { Snapshot.empty (id<SnapshotTag> "base") with Functions = [ fn ] }
+
+        let issues parameterTypes resultType body = SnapshotValidator.validate (snapshotWith parameterTypes resultType body)
+        let intrinsic parameterTypes resultType body =
+            Assert.Contains(issues parameterTypes resultType body, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
+        let unary kind = GraphBuilder.node (fun ids -> kind ids[0])
+        let ternary kind = GraphBuilder.node (fun ids -> kind (ids[0], ids[1], ids[2]))
+
+        intrinsic [ intType ] stringType (ternary SemanticNodeKind.StringReplace [ slot 0; text "a"; text "b" ])
+        intrinsic [ intType ] stringType (ternary SemanticNodeKind.StringReplace [ text "a"; slot 0; text "b" ])
+        intrinsic [ intType ] stringType (ternary SemanticNodeKind.StringReplace [ text "a"; text "b"; slot 0 ])
+        intrinsic [ intType ] stringType (unary SemanticNodeKind.StringTrim [ slot 0 ])
+        intrinsic [ intType ] stringType (unary SemanticNodeKind.StringTrimStart [ slot 0 ])
+        intrinsic [ intType ] stringType (unary SemanticNodeKind.StringTrimEnd [ slot 0 ])
         // The result is a String, not an Int64.
-        Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringTrim(slot 0))))
-        Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringReplace(slot 0, text "a", text "b"))))
+        Assert.Contains(
+            issues [ stringType ] intType (unary SemanticNodeKind.StringTrim [ slot 0 ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
+        Assert.Contains(
+            issues [ stringType ] intType (ternary SemanticNodeKind.StringReplace [ slot 0; text "a"; text "b" ]),
+            fun issue -> issue.Code = "FunctionResultTypeMismatch"
+        )
         let cases =
-            [ "stringReplace", "NyText.Replace(", [ stringType; stringType; stringType ], ExpressionRecipe.StringReplace(slot 0, slot 1, slot 2)
-              "stringTrim", "NyText.Trim(", [ stringType ], ExpressionRecipe.StringTrim(slot 0)
-              "stringTrimStart", "NyText.TrimStart(", [ stringType ], ExpressionRecipe.StringTrimStart(slot 0)
-              "stringTrimEnd", "NyText.TrimEnd(", [ stringType ], ExpressionRecipe.StringTrimEnd(slot 0) ]
-        for kind, emitted, parameters, body in cases do
-            let proposal =
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request parameters stringType body)
-                |> unwrap ("simulate " + kind)
-            let committed =
-                match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
-                | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next
-                | other -> failwithf "Commit failed: %A" other
+            [ "stringReplace", [ stringType; stringType; stringType ], ternary SemanticNodeKind.StringReplace [ slot 0; slot 1; slot 2 ]
+              "stringTrim", [ stringType ], unary SemanticNodeKind.StringTrim [ slot 0 ]
+              "stringTrimStart", [ stringType ], unary SemanticNodeKind.StringTrimStart [ slot 0 ]
+              "stringTrimEnd", [ stringType ], unary SemanticNodeKind.StringTrimEnd [ slot 0 ] ]
+        for kind, parameters, body in cases do
+            let committed = snapshotWith parameters stringType body
             Assert.Empty(SnapshotValidator.validate committed)
             Assert.Equal(SnapshotSchema.minimumVersion SnapshotSchemaFeature.StringReplaceAndTrim, SnapshotSchema.required committed)
             let json = SnapshotCodec.serialize committed |> unwrap "serialize"
@@ -88,8 +95,6 @@ module StringReplaceTrimTests =
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains($"\"{kind}\"", ExecutionIrSerializer.serialize execution)
-            let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-            Assert.Contains(emitted, artifact.Source)
             // A persisted node over a non-String operand is a validation error.
             let broken =
                 { committed with
