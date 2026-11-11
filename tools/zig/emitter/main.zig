@@ -1849,6 +1849,66 @@ const Ownership = struct {
     }
 };
 
+/// Merges repeated reads of one parameter or pattern binding within a block into the first, so the
+/// block holds one reference to its value: a field read and the update of the same box then share a
+/// source (`moveOutUpdatedFields`) and `nyUnique` is not defeated by sibling aliases. A read has no
+/// effect and its source cannot change within a block, so only where the alias's retain and release
+/// fall moves; the source itself stays live until the merged read either way. shortcut: per block;
+/// reads in different blocks stay separate aliases, so a read before a branch and an update after it
+/// still copy; merge across dominating blocks if that shape turns out to be slow.
+fn mergeRepeatedReads(original: Function) Function {
+    var fn_ = original;
+    fn_.blocks = a.dupe(Block, original.blocks) catch oom();
+    var renamed = std.StringHashMap([]const u8).init(a);
+    for (fn_.blocks) |*block| {
+        var first = std.StringHashMap(Value).init(a);
+        var kept: List(Instruction) = .empty;
+        for (block.instructions) |instruction| {
+            const kind = str(instruction.o, "kind");
+            if (eql(kind, "readParameter") or eql(kind, "readPatternBinding")) {
+                const entry = first.getOrPut(str(instruction.o, "sourceValueId")) catch oom();
+                if (!entry.found_existing) {
+                    entry.value_ptr.* = instruction.result;
+                } else if (sameType(entry.value_ptr.type, instruction.result.type)) {
+                    renamed.put(instruction.result.id, entry.value_ptr.id) catch oom();
+                    continue;
+                }
+            }
+            push(Instruction, &kept, instruction);
+        }
+        block.instructions = kept.items;
+    }
+    if (renamed.count() == 0) return fn_;
+    const rename = struct {
+        fn of(map: *const std.StringHashMap([]const u8), node: json.Value) json.Value {
+            return switch (node) {
+                .string => |id| .{ .string = map.get(id) orelse id },
+                .array => |items| blk: {
+                    var copy = json.Array.init(a);
+                    for (items.items) |item| copy.append(of(map, item)) catch oom();
+                    break :blk .{ .array = copy };
+                },
+                .object => |o| blk: {
+                    // A string literal's text is not a value id, whatever it spells.
+                    if (o.get("kind")) |kind| if (kind == .string and eql(kind.string, "stringLiteral")) break :blk node;
+                    var copy = o.clone(a) catch oom();
+                    var it = copy.iterator();
+                    while (it.next()) |entry| if (!eql(entry.key_ptr.*, "result") and !eql(entry.key_ptr.*, "kind")) {
+                        entry.value_ptr.* = of(map, entry.value_ptr.*);
+                    };
+                    break :blk .{ .object = copy };
+                },
+                else => node,
+            };
+        }
+    }.of;
+    for (fn_.blocks) |*block| {
+        for (block.instructions) |*instruction| instruction.o = rename(&renamed, .{ .object = instruction.o }).object;
+        block.terminator = rename(&renamed, .{ .object = block.terminator }).object;
+    }
+    return fn_;
+}
+
 /// Reuse only a still-owned box whose last read precedes this constructor in the same block.
 /// Adding the consumed operand before ownership analysis keeps it alive through intervening errors.
 fn reuseProductConstructors(original: Function, values: *const std.StringHashMap(*const Type)) Function {
@@ -2176,7 +2236,7 @@ fn emit(ordered: []const Function) ?[]const u8 {
         const values = valuesOf(fn_);
         var body = Body{ .values = .init(a) };
         for (values) |value| body.values.put(value.id, value.type) catch oom();
-        fn_ = moveOutUpdatedFields(reuseProductConstructors(fn_, &body.values), &body.values);
+        fn_ = moveOutUpdatedFields(reuseProductConstructors(mergeRepeatedReads(fn_), &body.values), &body.values);
         for (values) |value| _ = zigOf(value.type);
         _ = zigOf(fn_.result);
         var lines: List([]const u8) = .empty;
@@ -3788,6 +3848,49 @@ test "a field read moves out only when the next use of its box overwrites it and
         if (scenario == 1) try std.testing.expect(marked[1].o.get("moveOut") == null);
         if (scenario == 2) try std.testing.expect(marked[1].o.get("moveOut") != null);
     }
+}
+
+test "repeated reads of a parameter in a block merge so the update's field read moves out" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    const box: Type = .{ .named = .{ .id = "Box", .args = &.{} } };
+    const string: Type = .{ .primitive = "primitiveString" };
+    declarations = .init(a);
+    try declarations.put("Box", .{ .id = "Box", .type_parameters = &.{}, .product = try a.dupe(Field, &.{.{ .id = "text", .type = &string }}), .variants = &.{} });
+    const json_of = struct {
+        fn of(text: []const u8) !json.ObjectMap {
+            return (try parseJson(text)).object;
+        }
+    }.of;
+    var instructions = [_]Instruction{
+        .{ .result = .{ .id = "first", .type = &box }, .o = try json_of(
+            \\{"kind":"readParameter","sourceValueId":"state"}
+        ) },
+        .{ .result = .{ .id = "text", .type = &string }, .o = try json_of(
+            \\{"kind":"fieldAccess","sourceValueId":"first","fieldId":"text"}
+        ) },
+        .{ .result = .{ .id = "second", .type = &box }, .o = try json_of(
+            \\{"kind":"readParameter","sourceValueId":"state"}
+        ) },
+        .{ .result = .{ .id = "result", .type = &box }, .o = try json_of(
+            \\{"kind":"productUpdate","sourceValueId":"second","fields":[{"targetFieldId":"text","valueId":"text"}]}
+        ) },
+    };
+    var blocks = [_]Block{.{ .id = "entry", .parameters = &.{}, .instructions = &instructions, .terminator = try json_of(
+        \\{"kind":"return","valueId":"result"}
+    ) }};
+    var parameters = [_]Parameter{.{ .id = "state", .value = .{ .id = "state", .type = &box } }};
+    const fn_: Function = .{ .id = "test", .type_parameters = &.{}, .parameters = &parameters, .result = &box, .entry = "entry", .blocks = &blocks };
+    var values = std.StringHashMap(*const Type).init(a);
+    try values.put("state", &box);
+    for (instructions) |instruction| try values.put(instruction.result.id, instruction.result.type);
+    const merged = moveOutUpdatedFields(mergeRepeatedReads(fn_), &values).blocks[0].instructions;
+    try std.testing.expectEqual(@as(usize, 3), merged.len);
+    try std.testing.expectEqualStrings("first", str(merged[2].o, "sourceValueId"));
+    try std.testing.expect(merged[1].o.get("moveOut") != null);
+    // The original IR is left as it was.
+    try std.testing.expectEqualStrings("second", str(instructions[3].o, "sourceValueId"));
 }
 
 test "emitted constructor reuse executes unique shared nested and failing paths without leaks" {
