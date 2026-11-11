@@ -25,7 +25,7 @@ The ABI gap that had actually been hit was smaller and unrelated to state: `Opti
 **Rhifill's native host needs no state in Nyr.** Paths are under `rhifill/`.
 
 - It owns its PTY in C: `openpty` at `spikes/native-pane/src/bridge.c:403`, a non-blocking fd at `:457`, polled from its own loop (`:613`).
-- It calls Nyr only for pure rules, with scalars and flat lists: `ny_layoutFrame` (`spikes/native-pane/src/main.zig:266`), `ny_pickPane` (`spikes/native-pane/src/panes.zig:214`), `ny_busyStart` (`bridge.c:138`), `ny_isAgentName`, `ny_agentNextState` and `ny_agentNextAlert` (`bridge.c:156-159`). `tools/build-zig-layout.mjs:19` lists its exports; there is no `zigTables`.
+- It calls Nyr only for pure rules, with scalars and flat lists: `ny_layoutFrame` (`spikes/native-pane/src/main.zig:420`), `ny_pickPane` (`spikes/native-pane/src/panes.zig:214`), `ny_busyStart` (`bridge.c:349`), `ny_isAgentName` and the combined `ny_agentNext` (one call returning both the alert and the state, `bridge.c:367-369`). Its exports are listed in `app/nyr/workspace.json.backends.json`; there is no `zigTables`.
 - Its state lives in the C `Host` struct (`agent_state`, `last_output`, `busy_since`, `bridge.c:50`), goes in by value on each call and comes back through an out parameter (`bridge.c:138-143`, `:157-159`). That replaces the C# `agentLoop` (`app/Program.cs:139`) with one call per transition. The state is three integers, so the copy is trivial.
 - `app/nyr/workspace.json` has no `mustNotWait` function.
 

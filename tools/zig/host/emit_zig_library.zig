@@ -1,6 +1,7 @@
 //! `emitZigLibrary`: the Zig backend's library mode for the functions `<snapshot>.backends.json` lists
 //! under "exports" (docs/decisions/zig-backend-memory-ownership.md, first milestone). The source goes
 //! through the viewer writer's confinement; the caller builds it with `zig build-lib -dynamic`.
+//! An optional "header" names a C header written the same way, from the same emitter walk.
 const std = @import("std");
 const q = @import("query.zig");
 const recipe = @import("recipe.zig");
@@ -58,8 +59,9 @@ fn unsupported(r: *q.Request, problems: []const []const u8) anyerror {
 pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
     const request: std.json.Value = .{ .object = r.root };
-    try d.ensureFields("", request, "emitZigLibrary request", &.{ "id", "op", "output" }, &.{ "id", "op" });
+    try d.ensureFields("", request, "emitZigLibrary request", &.{ "id", "op", "output", "header" }, &.{ "id", "op" });
     const output = if (r.root.contains("output")) try d.requiredString(request, "output") else null;
+    const header = if (r.root.contains("header")) try d.requiredString(request, "header") else null;
     try r.ensureUsable();
     if (try host.verifyPersisted(r.a)) |rejection| {
         r.rejection = rejection;
@@ -104,6 +106,27 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     } else {
         try out.writeAll("\"source\":");
         try host.writeString(out, source);
+    }
+    if (header) |path| {
+        // The emitter built the header in the same walk as the source; a missing one means the
+        // emit took a path that produced no library, which the source above already ruled out.
+        const text = emitter.takeLibraryHeader() orelse {
+            r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
+            return error.Rejected;
+        };
+        const written = switch (try files.write(r.a, r.snapshot_path, path, ".h", "", marker, text)) {
+            .written => |written| written,
+            .refused => |message| {
+                r.rejection = .{ .code = "EmitWriteFailed", .message = message };
+                return error.Rejected;
+            },
+            .internal => {
+                r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
+                return error.Rejected;
+            },
+        };
+        try out.writeAll(",\"headerPath\":");
+        try host.writeString(out, written);
     }
     try out.writeAll(",\"exports\":[");
     for (names, exports, wait_paths, 0..) |name, item, wait_path, i| {

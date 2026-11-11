@@ -149,6 +149,18 @@ fn nyValidText(ptr: ?[*]const u8, len: usize) bool {
     return len == 0 or std.unicode.utf8ValidateSlice(ptr.?[0..len]);
 }
 
+/// Every row of a `List<String>` argument (concatenated bytes plus one length per row) is checked
+/// the same way, before `nyRows` copies any of them.
+fn nyValidRows(ptr: ?[*]const u8, row_lens: ?[*]const usize, rows: usize) bool {
+    var at: usize = 0;
+    for (0..rows) |index| {
+        const len = row_lens.?[index];
+        if (len > 0 and !std.unicode.utf8ValidateSlice(ptr.?[at..][0..len])) return false;
+        at += len;
+    }
+    return true;
+}
+
 fn nyExportInvalid(message: []const u8) c_int {
     std.heap.page_allocator.free(ny_export_failure);
     ny_export_failure = std.heap.page_allocator.dupe(u8, message) catch &.{};

@@ -2597,6 +2597,16 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
 /// A function the library exports, and its C symbol; `may_wait` goes into its doc comment.
 pub const Export = struct { id: []const u8, symbol: []const u8, may_wait: bool = false };
 var library_exports: ?[]const Export = null;
+/// The C header of the most recent `library` call, built by the same walk that builds the Zig
+/// signatures in `libraryExports`, so the two can never drift. Taken (and cleared) by the host
+/// through `takeLibraryHeader`; null when a caller did not ask for one or the emit failed.
+var library_header: ?[]const u8 = null;
+
+pub fn takeLibraryHeader() ?[]const u8 {
+    const header = library_header;
+    library_header = null;
+    return header;
+}
 /// A capability operation bound by a `<graph>.zig.json` table; no declaration means unavailable.
 /// `handle` names the Zig type holding a handle capability's state, `closes` the parameter (by ID)
 /// whose handle the operation closes; `may_wait` and `task_bound` are copied from the graph.
@@ -2636,8 +2646,11 @@ fn abiListItem(t: *const Type) ?[]const u8 {
     return if (eql(item, "bool")) null else item;
 }
 
+/// The row item of a two-level List: a numeric item for `List<List<Int64|Float64>>`, or `u8` for a
+/// `List<String>`, whose rows are the strings themselves (concatenated bytes, one length per row).
 fn abiRowsItem(t: *const Type) ?[]const u8 {
     if (t.* != .builtin or !eql(t.builtin.kind, "list")) return null;
+    if (isString(t.builtin.args[0])) return "u8";
     return abiListItem(t.builtin.args[0]);
 }
 
@@ -2645,16 +2658,64 @@ fn isString(t: *const Type) bool {
     return t.* == .primitive and eql(t.primitive, "primitiveString");
 }
 
+fn isStringList(t: *const Type) bool {
+    return t.* == .builtin and eql(t.builtin.kind, "list") and isString(t.builtin.args[0]);
+}
+
 fn isBytes(t: *const Type) bool {
     return t.* == .primitive and eql(t.primitive, "primitiveBytes");
 }
 
-/// The fields of a non-generic Product whose fields are all scalars.
-fn abiProduct(t: *const Type) ?[]Field {
-    if (t.* != .named or t.named.args.len > 0) return null;
-    const fields = (declarations.get(t.named.id) orelse return null).product orelse return null;
-    for (fields) |field| if (abiScalar(field.type) == null) return null;
-    return fields;
+/// One argument value of a Product field (or, at the top, of a whole Product argument), flattened
+/// the same way `abiResult` flattens a result: scalars as one parameter, Strings and Bytes as
+/// pointer plus length, Lists as pointer plus length, two-level Lists and `List<String>` as
+/// concatenated rows, an Option as a `<name>_some` flag plus its value's parameters, and a nested
+/// Product as one set per field. Returns the Zig expression that builds the value, or null for a
+/// type the ABI cannot carry. Every String is validated into `checks` before anything is copied,
+/// because an early return would leak the copies made so far. A recursive Product is refused
+/// through `within`, exactly as on the result side.
+fn abiArgumentValue(parameters: *List([]const u8), checks: *List(u8), doc: *List([]const u8), t: *const Type, name: []const u8, within: []const []const u8) ?[]const u8 {
+    if (abiScalar(t)) |zig_type| {
+        push([]const u8, parameters, cat(&.{ name, ": ", zig_type }));
+        return name;
+    } else if (isString(t) or isBytes(t)) {
+        push([]const u8, parameters, cat(&.{ name, ": ?[*]const u8, ", name, "_len: usize" }));
+        const slice = cat(&.{ "nySlice(u8, ", name, ", ", name, "_len)" });
+        if (isBytes(t)) return cat(&.{ "NyBytes{ .data = ", slice, " }" });
+        lineCat(checks, &.{ "    if (!nyValidText(", name, ", ", name, "_len)) return nyExportInvalid(\"", name, " is not UTF-8\");" });
+        return slice;
+    } else if (abiListItem(t)) |zig_type| {
+        push([]const u8, parameters, cat(&.{ name, ": ?[*]const ", zig_type, ", ", name, "_len: usize" }));
+        return cat(&.{ "nySlice(", zig_type, ", ", name, ", ", name, "_len)" });
+    } else if (abiRowsItem(t)) |zig_type| {
+        push([]const u8, parameters, cat(&.{ name, ": ?[*]const ", zig_type, ", ", name, "_row_lens: ?[*]const usize, ", name, "_rows: usize" }));
+        if (isStringList(t)) lineCat(checks, &.{ "    if (!nyValidRows(", name, ", ", name, "_row_lens, ", name, "_rows)) return nyExportInvalid(\"", name, " is not UTF-8\");" });
+        return cat(&.{ "nyRows(", zig_type, ", ", name, ", ", name, "_row_lens, ", name, "_rows)" });
+    } else if (t.* == .builtin and eql(t.builtin.kind, "option")) {
+        if (t.builtin.args[0].* == .builtin and eql(t.builtin.args[0].builtin.kind, "option")) return null;
+        push([]const u8, parameters, cat(&.{ name, "_some: bool" }));
+        const inner = abiArgumentValue(parameters, checks, doc, t.builtin.args[0], name, within) orelse return null;
+        return cat(&.{ "(if (", name, "_some) ", inner, " else null)" });
+    } else if (t.* == .named and t.named.args.len == 0) {
+        const fields = (declarations.get(t.named.id) orelse return null).product orelse return null;
+        for (within) |id| if (eql(id, t.named.id)) return null;
+        const nested = std.mem.concat(a, []const u8, &.{ within, &.{t.named.id} }) catch oom();
+        var inits: List([]const u8) = .empty;
+        var names: List([]const u8) = .empty;
+        for (fields) |field| {
+            const value = abiArgumentValue(parameters, checks, doc, field.type, cat(&.{ name, "_", fieldName(field.id) }), nested) orelse return null;
+            push([]const u8, &inits, cat(&.{ ".", fieldName(field.id), " = ", value }));
+            push([]const u8, &names, field.id);
+        }
+        push([]const u8, doc, cat(&.{ name, " fields in this order: ", join(", ", names.items) }));
+        return cat(&.{ "nyBox(", typeName(t.named.id, &.{}), ", .{ ", join(", ", inits.items), " })" });
+    } else if (t.* == .capability and handleBinding(t.capability) != null) {
+        const capability = identifier("C_", t.capability);
+        push([]const u8, parameters, cat(&.{ name, ": ?*NyHandle" }));
+        lineCat(checks, &.{ "    if (!nyHandleIs(", name, ", ", capability, ".ny_tag)) return nyExportInvalid(\"", name, " is not a handle of its capability\");" });
+        return cat(&.{ capability, "{ .fake = 0, .site = 0, .implementation = ", capability, ".ny_tag, .handle = ", name, " }" });
+    }
+    return null;
 }
 
 /// Out parameters and copy statements for a result: scalars, Strings and Lists as before, an Option as
@@ -2701,8 +2762,107 @@ fn abiResult(parameters: *List([]const u8), copies: *List(u8), doc: *List([]cons
     return true;
 }
 
+/// The C spelling of one flattened Zig parameter type, or null when it has none (the header then
+/// omits that export's declaration instead of guessing; the Zig source stays the authority).
+fn abiCType(zig_type: []const u8) ?[]const u8 {
+    const table = .{
+        .{ "i64", "int64_t" },     .{ "f64", "double" },       .{ "bool", "bool" },           .{ "usize", "size_t" },
+        .{ "?[*]const i64", "const int64_t *" }, .{ "?[*]const u8", "const char *" }, .{ "?[*]const usize", "const size_t *" }, .{ "?[*]const f64", "const double *" },
+        .{ "?[*]i64", "int64_t *" }, .{ "?[*]u8", "char *" }, .{ "?[*]usize", "size_t *" }, .{ "?[*]f64", "double *" },
+        .{ "*i64", "int64_t *" },  .{ "*f64", "double *" },    .{ "*bool", "bool *" },         .{ "*usize", "size_t *" },
+        .{ "?*NyHandle", "void *" }, .{ "*?*NyHandle", "void **" },
+    };
+    inline for (table) |row| if (eql(zig_type, row[0])) return row[1];
+    return null;
+}
+
+fn abiParamName(param: []const u8) []const u8 {
+    const colon = std.mem.indexOf(u8, param, ": ") orelse return param;
+    return param[0..colon];
+}
+
+fn abiParamType(param: []const u8) []const u8 {
+    const colon = std.mem.indexOf(u8, param, ": ") orelse return "";
+    return param[colon + 2 ..];
+}
+
+/// A C declarator: a pointer type binds to the name (`const char *a0`), any other type takes a
+/// space (`size_t a0_rows`).
+fn abiCSpelled(c_type: []const u8, name: []const u8) []const u8 {
+    if (std.mem.endsWith(u8, c_type, "*")) return cat(&.{ c_type, name });
+    return cat(&.{ c_type, " ", name });
+}
+
+/// The emitter's parameter list packs a multi-part parameter (a String, a List, a buffer result)
+/// into one entry with ", " inside it; the header walks the individual parameters instead.
+fn abiFlatParams(parameters: []const []const u8) []const []const u8 {
+    var flat: List([]const u8) = .empty;
+    for (parameters) |entry| {
+        var parts = std.mem.splitSequence(u8, entry, ", ");
+        while (parts.next()) |part| push([]const u8, &flat, part);
+    }
+    return flat.items;
+}
+
+/// One export's C declaration, from the same flattened parameter list as its Zig signature.
+fn abiCDeclaration(symbol: []const u8, parameters: []const []const u8) ?[]const u8 {
+    var parts: List([]const u8) = .empty;
+    for (abiFlatParams(parameters)) |param| {
+        const c_type = abiCType(abiParamType(param)) orelse return null;
+        push([]const u8, &parts, abiCSpelled(c_type, abiParamName(param)));
+    }
+    return cat(&.{ "int ", symbol, "(", join(", ", parts.items), ");" });
+}
+
+/// For an export whose result is a Product (possibly under an Option): a struct that names the
+/// flattened `out_…` parameters after their fields, and a `static inline` wrapper that fills it.
+/// Callers read the fields by name, so a field-ID order change in the flattened ABI is absorbed by
+/// the regenerated wrapper instead of silently shifting a caller's positional arguments. Member
+/// names are the field IDs' `f_…` spellings (the lowered IR carries no display names); recreating
+/// a type mints new IDs, renames the members, and fails the caller's compile — the intended signal.
+/// Null when the result is not a Product, or an `out` parameter does not belong to it.
+fn abiCResultWrapper(symbol: []const u8, parameters: []const []const u8, doc: []const []const u8) ?[]const u8 {
+    var is_product = false;
+    for (doc) |text| if (std.mem.startsWith(u8, text, "out fields in this order:")) {
+        is_product = true;
+    };
+    if (!is_product) return null;
+    var members: List([]const u8) = .empty;
+    var own: List([]const u8) = .empty;
+    var call_args: List([]const u8) = .empty;
+    for (abiFlatParams(parameters)) |param| {
+        const name = abiParamName(param);
+        const zig_type = abiParamType(param);
+        const c_type = abiCType(zig_type) orelse return null;
+        if (eql(name, "out_some") or std.mem.startsWith(u8, name, "out_f_")) {
+            const member = if (eql(name, "out_some")) "some" else name[4..];
+            // A `*T` out parameter becomes a plain `T` member; a buffer or a plain value keeps
+            // its spelling (a pointer member for a buffer, the value itself for a `_cap`).
+            const member_type = if (std.mem.startsWith(u8, zig_type, "*")) c_type[0 .. c_type.len - 2] else c_type;
+            push([]const u8, &members, cat(&.{ "    ", abiCSpelled(member_type, member), ";" }));
+            push([]const u8, &call_args, if (std.mem.startsWith(u8, zig_type, "*")) cat(&.{ "&result->", member }) else cat(&.{ "result->", member }));
+        } else if (std.mem.startsWith(u8, name, "out")) {
+            return null;
+        } else {
+            push([]const u8, &own, abiCSpelled(c_type, name));
+            push([]const u8, &call_args, name);
+        }
+    }
+    if (members.items.len == 0) return null;
+    var out: List(u8) = .empty;
+    lineCat(&out, &.{ "typedef struct {", "" });
+    for (members.items) |member| line(&out, member);
+    lineCat(&out, &.{ "} ", symbol, "_result;" });
+    lineCat(&out, &.{ "static inline int ", symbol, "_into(", join(", ", own.items), if (own.items.len > 0) ", " else "", symbol, "_result *result) {" });
+    lineCat(&out, &.{ "    return ", symbol, "(", join(", ", call_args.items), ");" });
+    line(&out, "}");
+    return out.items;
+}
+
 fn libraryExports(exports: []const Export) []const u8 {
     var out: List(u8) = .empty;
+    var header_decls: List(u8) = .empty;
+    var header_wrappers: List(u8) = .empty;
     out.appendSlice(a, library_support) catch oom();
     // Exports take no capability, so functions that do are never analysed; Zig still resolves their names.
     out.appendSlice(a, capabilityTypes(false) orelse return "") catch oom();
@@ -2744,18 +2904,12 @@ fn libraryExports(exports: []const Export) []const u8 {
                 push([]const u8, &arguments, cat(&.{ "nySlice(", zig_type, ", ", p, ", ", p, "_len)" }));
             } else if (abiRowsItem(t)) |zig_type| {
                 push([]const u8, &parameters, cat(&.{ p, ": ?[*]const ", zig_type, ", ", p, "_row_lens: ?[*]const usize, ", p, "_rows: usize" }));
+                if (isStringList(t)) lineCat(&checks, &.{ "    if (!nyValidRows(", p, ", ", p, "_row_lens, ", p, "_rows)) return nyExportInvalid(\"", p, " is not UTF-8\");" });
                 push([]const u8, &arguments, cat(&.{ "nyRows(", zig_type, ", ", p, ", ", p, "_row_lens, ", p, "_rows)" }));
-            } else if (abiProduct(t)) |fields| {
-                var inits: List([]const u8) = .empty;
-                var names: List([]const u8) = .empty;
-                for (fields) |field| {
-                    const name = cat(&.{ p, "_", fieldName(field.id) });
-                    push([]const u8, &parameters, cat(&.{ name, ": ", abiScalar(field.type).? }));
-                    push([]const u8, &inits, cat(&.{ ".", fieldName(field.id), " = ", name }));
-                    push([]const u8, &names, field.id);
-                }
-                push([]const u8, &doc, cat(&.{ p, " fields in this order: ", join(", ", names.items) }));
-                push([]const u8, &arguments, cat(&.{ "nyBox(", typeName(t.named.id, &.{}), ", .{ ", join(", ", inits.items), " })" }));
+            } else if (t.* == .named or (t.* == .builtin and eql(t.builtin.kind, "option"))) {
+                if (abiArgumentValue(&parameters, &checks, &doc, t, p, &.{})) |argument| {
+                    push([]const u8, &arguments, argument);
+                } else problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
             } else if (t.* == .capability and handleBinding(t.capability) != null) {
                 // The host holds the handle; a null one or another capability's is refused before anything is copied.
                 const capability = identifier("C_", t.capability);
@@ -2777,6 +2931,11 @@ fn libraryExports(exports: []const Export) []const u8 {
             if (!abiResult(&parameters, &copies, &doc, &buffered, value, "out", if (status4) "result.ok" else "result", &.{})) problem(cat(&.{ "export result type ", typeDisplay(r) }));
         }
         if (item.may_wait) push([]const u8, &doc, if (buffered) "May wait. Status 3 runs it again on the next call, so pass buffers large enough for one result." else "May wait.");
+        // The C header is built from this same parameter list, before anything else can add to it.
+        if (abiCDeclaration(item.symbol, parameters.items)) |declaration| {
+            line(&header_decls, declaration);
+            if (abiCResultWrapper(item.symbol, parameters.items, doc.items)) |wrapper| header_wrappers.appendSlice(a, wrapper) catch oom();
+        } else lineCat(&header_decls, &.{ "// No C declaration for ", item.symbol, ": a parameter type has no C spelling." });
         for (doc.items) |text| lineCat(&out, &.{ "/// ", text });
         lineCat(&out, &.{ "export fn ", item.symbol, "(", join(", ", parameters.items), ") c_int {" });
         out.appendSlice(a, checks.items) catch oom();
@@ -2792,6 +2951,29 @@ fn libraryExports(exports: []const Export) []const u8 {
         line(&out, "}");
         line(&out, "");
     }
+    var header: List(u8) = .empty;
+    line(&header, "// Generated by the Nyrwvy Zig backend.");
+    line(&header, "// The C ABI of this library: one declaration per export, in the same flattened order as");
+    line(&header, "// the generated Zig source. Status: 0 ok, 1 fault and 2 cancelled (message through");
+    line(&header, "// ny_last_failure), 3 a result buffer too small, 4 an Err result (text through ny_last_failure).");
+    line(&header, "#ifndef NYRWVY_ZIG_LIBRARY_H");
+    line(&header, "#define NYRWVY_ZIG_LIBRARY_H");
+    line(&header, "#include <stdbool.h>");
+    line(&header, "#include <stddef.h>");
+    line(&header, "#include <stdint.h>");
+    line(&header, "#ifdef __cplusplus");
+    line(&header, "extern \"C\" {");
+    line(&header, "#endif");
+    line(&header, "const char *ny_last_failure(size_t *len);");
+    line(&header, "size_t ny_open_handles(void);");
+    line(&header, "size_t ny_arena_capacity(void);");
+    header.appendSlice(a, header_decls.items) catch oom();
+    line(&header, "#ifdef __cplusplus");
+    line(&header, "}");
+    line(&header, "#endif");
+    header.appendSlice(a, header_wrappers.items) catch oom();
+    line(&header, "#endif /* NYRWVY_ZIG_LIBRARY_H */");
+    library_header = header.items;
     return out.items;
 }
 
@@ -2875,6 +3057,7 @@ fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
 /// this invocation's allocator; no request-arena reference survives the next call.
 pub const Runner = union(enum) { source: []const u8, unsupported: []const []const u8 };
 pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8) !Runner {
+    library_header = null;
     library_exports = null;
     return emitRequest(allocator, text, entry);
 }
@@ -2885,6 +3068,7 @@ pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8
 pub const Host = struct { operations: []const HostBinding = &.{}, products: []const HostProduct = &.{}, functions: []const HostFunction = &.{} };
 
 pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export, host: Host) !Runner {
+    library_header = null;
     library_exports = exports;
     host_bindings = host.operations;
     host_products = host.products;
@@ -3199,6 +3383,50 @@ test "a library returns a handle capability only with its table mark, and never 
         try std.testing.expect(std.mem.indexOf(u8, text, expected) != null);
         try std.testing.expectEqual(handle != null and !task_bound, result == .source);
     }
+}
+
+test "a library export takes a string list and a record with string, list and nested record fields, and its header names the record result's fields" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const strings =
+        \\{"kind":"list","itemType":{"kind":"primitiveString"}}
+    ;
+    const rec =
+        \\{"kind":"named","typeId":"Rec","arguments":[]}
+    ;
+    const ir = try std.mem.concat(allocator, u8, &.{
+        \\{"types":[{"id":"Grid","kind":"product","fields":[{"id":"narrow","type":{"kind":"primitiveInt64"}},{"id":"wide","type":{"kind":"primitiveInt64"}}]},{"id":"Rec","kind":"product","fields":[{"id":"name","type":{"kind":"primitiveString"}},{"id":"argv","type":
+        , strings,
+        \\},{"id":"grid","type":{"kind":"named","typeId":"Grid","arguments":[]}},{"id":"count","type":{"kind":"primitiveInt64"}}]}],"capabilities":[],"functions":[{"semanticFunctionId":"echoStrings","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":
+        , strings,
+        \\}}],"resultType":
+        , strings,
+        \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]},{"semanticFunctionId":"echoRec","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":
+        , rec,
+        \\}}],"resultType":
+        , rec,
+        \\,"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    });
+    const result = try library(allocator, ir, &.{ .{ .id = "echoStrings", .symbol = "ny_echoStrings" }, .{ .id = "echoRec", .symbol = "ny_echoRec" } }, .{});
+    try std.testing.expect(result == .source);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "export fn ny_echoStrings(a0: ?[*]const u8, a0_row_lens: ?[*]const usize, a0_rows: usize, out: ?[*]u8, out_cap: usize, out_len: *usize, out_row_lens: ?[*]usize, out_row_cap: usize, out_rows: *usize) c_int {") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "if (!nyValidRows(a0, a0_row_lens, a0_rows))") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "a0_f_name: ?[*]const u8, a0_f_name_len: usize") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "a0_f_argv: ?[*]const u8, a0_f_argv_row_lens: ?[*]const usize, a0_f_argv_rows: usize") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "a0_f_grid_f_narrow: i64, a0_f_grid_f_wide: i64") != null);
+    const header = takeLibraryHeader() orelse return error.MissingHeader;
+    try std.testing.expect(std.mem.indexOf(u8, header, "int ny_echoStrings(const char *a0, const size_t *a0_row_lens, size_t a0_rows, char *out, size_t out_cap, size_t *out_len, size_t *out_row_lens, size_t out_row_cap, size_t *out_rows);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "} ny_echoRec_result;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "static inline int ny_echoRec_into(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "&result->f_count") != null);
+    try std.testing.expect(std.mem.indexOf(u8, header, "result->f_name") != null);
+    // A recursive record still cannot cross: it is reported, not flattened forever.
+    const loop_ir =
+        \\{"types":[{"id":"Loop","kind":"product","fields":[{"id":"next","type":{"kind":"named","typeId":"Loop","arguments":[]}}]}],"capabilities":[],"functions":[{"semanticFunctionId":"echoLoop","parameters":[{"semanticParameterId":"p","value":{"id":"v","type":{"kind":"named","typeId":"Loop","arguments":[]}}}],"resultType":{"kind":"named","typeId":"Loop","arguments":[]},"entryBlockId":"entry","blocks":[{"id":"entry","parameters":[],"instructions":[],"terminator":{"kind":"return","valueId":"v"}}]}]}
+    ;
+    const refused = try library(allocator, loop_ir, &.{.{ .id = "echoLoop", .symbol = "ny_echoLoop" }}, .{});
+    try std.testing.expect(refused == .unsupported);
 }
 
 test "constructor reuse keeps owned sources live and excludes consumed or later-used sources" {

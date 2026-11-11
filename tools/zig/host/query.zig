@@ -761,8 +761,9 @@ const KeyContext = struct {
 };
 const KeySet = std.HashMapUnmanaged(Key, void, KeyContext, 80);
 
-/// `unreferenced` of `AuthoringProtocol`: the local functions, capability operations and types
-/// nothing else refers to, or that `roots` (function names) do not reach.
+/// `unreferenced` of `AuthoringProtocol`: the local functions, capability operations, types and
+/// capabilities nothing else refers to, or that `roots` (function names) do not reach. A capability
+/// is listed only when none of its operations is referred to or reached either.
 pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "unreferenced request", &.{ "id", "op", "roots" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
     var root_names: ?[]const []const u8 = null;
@@ -871,8 +872,20 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
     var unused_types: std.ArrayList(Row) = .empty;
     for (types) |item| if (try local(r, "type", item) and keep(marked, .{ .kind = "type", .id = decodedId(item) }))
         try unused_types.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
-    inline for (.{ &unused_functions, &unused_operations, &unused_types }) |rows| std.mem.sort(Row, rows.items, {}, rowLess);
-    const lists = [_]struct { []const u8, []const Row }{ .{ "functions", unused_functions.items }, .{ "operations", unused_operations.items }, .{ "types", unused_types.items } };
+    // A capability itself is listed only when nothing reaches it or any of its operations: an
+    // operation in use keeps its capability off this list even when no edge targets the
+    // capability declaration directly.
+    var unused_capabilities: std.ArrayList(Row) = .empty;
+    for (capabilities) |item| {
+        if (!(try local(r, "capability", item)) or !keep(marked, .{ .kind = "capability", .id = decodedId(item) })) continue;
+        var any_operation_kept = false;
+        for (item.operations()) |operation| if (!keep(marked, .{ .kind = "operation", .id = decodedId(operation) })) {
+            any_operation_kept = true;
+        };
+        if (!any_operation_kept) try unused_capabilities.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
+    }
+    inline for (.{ &unused_functions, &unused_operations, &unused_types, &unused_capabilities }) |rows| std.mem.sort(Row, rows.items, {}, rowLess);
+    const lists = [_]struct { []const u8, []const Row }{ .{ "functions", unused_functions.items }, .{ "operations", unused_operations.items }, .{ "types", unused_types.items }, .{ "capabilities", unused_capabilities.items } };
     try out.writeByte('{');
     for (lists, 0..) |list, index| {
         if (index > 0) try out.writeByte(',');
@@ -1940,7 +1953,7 @@ test "typed references and binding scopes do not read a value model" {
     defer interner.deinit();
     const generation = try model.session_model.load(a, &interner, root, null);
     const lines = [_][]const u8{ "{\"id\":1,\"op\":\"references\",\"kind\":\"function\",\"function\":\"F\"}", "{\"id\":2,\"op\":\"unreferenced\"}", "{\"id\":3,\"op\":\"bindingScopes\",\"functionId\":\"f\",\"nodeId\":\"n\"}", "{\"id\":4,\"op\":\"bindingScopes\",\"functionId\":\"f\",\"nodeId\":\"x\"}" };
-    const expected = [_][]const u8{ "{\"subject\":{\"kind\":\"function\",\"id\":\"f\",\"displayName\":\"F\"},\"count\":0,\"references\":[]}", "{\"functions\":[{\"id\":\"f\",\"name\":\"F\"}],\"operations\":[],\"types\":[]}", "{\"functionId\":\"f\",\"nodeId\":\"n\",\"frames\":[]}", "{\"functionId\":\"f\",\"nodeId\":\"x\",\"frames\":[{\"scopeDepth\":0,\"ownerNodeId\":\"b\",\"role\":\"bind\",\"bindings\":[{\"slot\":\"value\",\"bindingId\":\"v\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"displayName\":\"value\"}]}]}" };
+    const expected = [_][]const u8{ "{\"subject\":{\"kind\":\"function\",\"id\":\"f\",\"displayName\":\"F\"},\"count\":0,\"references\":[]}", "{\"functions\":[{\"id\":\"f\",\"name\":\"F\"}],\"operations\":[],\"types\":[],\"capabilities\":[]}", "{\"functionId\":\"f\",\"nodeId\":\"n\",\"frames\":[]}", "{\"functionId\":\"f\",\"nodeId\":\"x\",\"frames\":[{\"scopeDepth\":0,\"ownerNodeId\":\"b\",\"role\":\"bind\",\"bindings\":[{\"slot\":\"value\",\"bindingId\":\"v\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"displayName\":\"value\"}]}]}" };
     for (lines, expected, [_]*const fn (*Request, *Writer) anyerror!void{ references, unreferenced, bindingScopes, bindingScopes }) |line, answer, run| {
         const parsed = try std.json.parseFromSlice(std.json.Value, a, line, .{});
         var r: Request = .{ .a = a, .line = line, .root = parsed.value.object, .provenance = null, .generation = &generation, .interner = &interner };
