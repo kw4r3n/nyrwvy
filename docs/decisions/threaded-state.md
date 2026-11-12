@@ -2,8 +2,7 @@
 
 - **Status:** Accepted (owner decision 2026-11-12; measured 2026-11-12). The revisit conditions
   below were reworded after acceptance, later the same day, on the owner's clarification that
-  they are signs to judge by rather than measurements to demand; the conditions themselves are
-  unchanged.
+  they are signs to judge by rather than measurements to demand.
 - **Date:** 2026-11-12
 - **Builds on:** [host handles as capability values](capability-handles.md), [Zig exports that keep state between calls](zig-stateful-exports.md)
 

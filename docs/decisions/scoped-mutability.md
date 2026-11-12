@@ -16,20 +16,20 @@
   same day, the owner took the entities design up; it lives in
   [entities](entities.md), and where the two records differ —
   entities reuses the existing all-pairs order check and needs no
-  reference machinery, because a cell is named by a declaration id
+  reference machinery, because an entity is named by a declaration id
   and cannot alias — the entities record governs. Where the entities
   record has since superseded this draft's expectations, again in
   favour of the entities record: the binding discipline carries over
   only as a style — explicit access nodes and the diagnostics style
   — not as bindings (entities has declarations, not bindings); the
   reference mechanism sketched in *The step after this one* was not
-  adopted (entities orders cell accesses with the existing all-pairs
+  adopted (entities orders entity accesses with the existing all-pairs
   effect check, where this draft's sketch said it would use the
   reference mechanism); and the demand list in *Context* below (a
   terminal's pane tree and binding set, a chat layer's cross-request
   state, caches) is superseded by the entities record's demand
   section — the chat layer's cross-request state turned out to be
-  files and locks, not cells.
+  files and locks, not entities.
 - **Date:** 2026-11-12
 - **Builds on:** [explicit ordering for effectful expression composition](effectful-expression-ordering.md) (whose revisit conditions list mutation, but only for a concrete use case, which this record does not have), [runtime ordering](../specs/runtime-ordering.md), [scoped one-shot handoff](../specs/scoped-one-shot.md), [concurrency control beyond ParallelAll](concurrency-control.md), [tail self-calls](tail-self-calls.md), [host handles as capability values](capability-handles.md), [memory ownership in the Zig backend](zig-backend-memory-ownership.md)
 
