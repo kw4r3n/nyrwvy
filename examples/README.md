@@ -29,6 +29,11 @@ Maintained authoring scripts use the replacement recipe kinds. The three committ
 - [`bounded-worker-stream/`](bounded-worker-stream/README.md): two long-lived producers with independent OneShot chains and acknowledgement-bounded input.
 - [`dynamic-worker-collector/`](dynamic-worker-collector/README.md): two to four workers that register after a running collector has started, with failure, individual cancellation and shutdown cases; its `lib.mjs` is the recipe helper library the other task examples share.
 
+## Program state and the host library
+
+- [`threaded-state-loop/`](threaded-state-loop/README.md) *(extended)*: a record threaded through a million-turn tail loop on the Zig backend, with allocations per turn measured for each kind of update; the evidence for [threaded state](../docs/decisions/threaded-state.md).
+- [`model-cooldown/`](model-cooldown/README.md) *(extended)*: rrawrlet's model cooldown update ported to a graph program over the host library's file, clock and lock primitives, run on the Zig and C# backends.
+
 ## Removed examples
 
 The Member lifecycle series (an offline port of a Python Team controller) and its Offline Leader and session continuations were removed from `main` on 2026-10-19 by step 2 of the [legacy cutover](../docs/plans/post-m2-roadmap.md#legacy-cutover-planned), as the evaluation runners were ([tools](../tools/README.md#evaluation-runners)). Their exact inputs, authoring scripts, retained binaries and matching reader remain available at tag `archive/legacy-examples-pre-cutover-20261019` (commit `0913a1b6db48386301a638d7a4d3c75f47832e4a`). Their [verification records](../docs/verification/README.md#offline-teammember-reconstruction) link to that frozen tag.
