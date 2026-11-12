@@ -1855,30 +1855,51 @@ const Ownership = struct {
 /// only by a plain jump is first appended to the block that jumps, its parameters renamed to the jump's
 /// arguments, so a `bind` body counts as the same block as its value. A read has no effect and its
 /// source cannot change within a block, so only where the alias's retain and release fall moves; the
-/// source itself stays live until the merged read either way. shortcut: reads separated by a branch or
-/// a merge point stay separate aliases, so a read before a conditional and an update inside one still
-/// copy; merge across dominating blocks if that shape turns out to be slow.
+/// source itself stays live until the merged read either way. Renaming function-wide relies on one
+/// definition per value id: lowering forms ids as `node/`, `parameter/` or `pattern/` plus a graph id
+/// (`ExecutionIrAnalysis.fs` `semanticId`) and snapshot validation rejects duplicate node, parameter
+/// and pattern binding ids (`Validation.fs` `DuplicateGraphNodeId`), but nothing checks the Execution
+/// IR itself, so a function that defines an id twice is left as it is. shortcut: reads separated by a
+/// branch or a merge point stay separate aliases, so a field read before a conditional with the update
+/// inside one arm still copies the field; merge across dominating blocks if a measured loop with that
+/// shape turns out to be slow.
 fn mergeRepeatedReads(original: Function, values: *const std.StringHashMap(*const Type)) Function {
+    var defined = std.StringHashMap(void).init(a);
+    for (valuesOf(original)) |value| if ((defined.getOrPut(value.id) catch oom()).found_existing) return original;
     var fn_ = original;
     var renamed = std.StringHashMap([]const u8).init(a);
     var blocks: List(Block) = .empty;
     blocks.appendSlice(a, original.blocks) catch oom();
+    // Lowering writes these slices, which a non-generic function shares with the parsed program.
+    for (blocks.items) |*b| b.instructions = a.dupe(Instruction, b.instructions) catch oom();
     const own = Ownership{ .values = values, .fn_ = original, .live_in = .init(a) };
     fuse: while (true) {
         var entering = std.StringHashMap(usize).init(a);
         for (blocks.items) |b| for (own.successors(b.terminator)) |target| {
             (entering.getOrPutValue(target, 0) catch oom()).value_ptr.* += 1;
         };
-        for (blocks.items) |*b| {
+        each: for (blocks.items) |*b| {
             if (!eql(str(b.terminator, "kind"), "jump")) continue;
             const target = str(b.terminator, "blockId");
             if (eql(target, fn_.entry) or eql(target, b.id) or entering.get(target).? != 1) continue;
+            // A jump to an unknown block is left for the later checks to report.
             const index = for (blocks.items, 0..) |candidate, i| {
                 if (eql(candidate.id, target)) break i;
-            } else unreachable;
+            } else continue;
             const next = blocks.items[index];
             const arguments = arr(b.terminator, "arguments");
             if (arguments.len != next.parameters.len) continue;
+            for (arguments) |argument| {
+                const parameter = for (next.parameters) |item| {
+                    if (eql(item.id, str(argument.object, "targetValueId"))) break item;
+                } else continue :each;
+                // Only an argument of the parameter's exact type, so dropping `parameter = argument`
+                // loses no coercion; and none that resolves back to a parameter, which would loop.
+                const value = resolve(&renamed, str(argument.object, "valueId"));
+                const value_type = values.get(value) orelse continue :each;
+                if (!sameType(value_type, parameter.type)) continue :each;
+                for (next.parameters) |item| if (eql(item.id, value)) continue :each;
+            }
             for (arguments) |argument| renamed.put(str(argument.object, "targetValueId"), str(argument.object, "valueId")) catch oom();
             b.instructions = std.mem.concat(a, Instruction, &.{ b.instructions, next.instructions }) catch oom();
             b.terminator = next.terminator;
@@ -1912,30 +1933,37 @@ fn mergeRepeatedReads(original: Function, values: *const std.StringHashMap(*cons
     return fn_;
 }
 
-/// Replaces every use of a renamed value, following chains, in a function's instructions and terminators.
+/// The value a renamed id stands for, following chains (at most one step per renaming, so a cycle,
+/// which `mergeRepeatedReads` never adds, cannot loop).
+fn resolve(renamed: *const std.StringHashMap([]const u8), id: []const u8) []const u8 {
+    var to = id;
+    for (0..renamed.count()) |_| to = renamed.get(to) orelse break;
+    return to;
+}
+
+/// Replaces every use of a renamed value in a function's instructions and terminators. A use is what
+/// `Ownership.uses` counts: any string outside the `result` and `kind` keys and the `target*` keys (which
+/// name what a jump or call defines, not what it reads); a string literal's text is not one either.
 fn renameValues(fn_: *Function, renamed: *const std.StringHashMap([]const u8)) void {
     if (renamed.count() == 0) return;
     const rename = struct {
         fn of(map: *const std.StringHashMap([]const u8), node: json.Value) json.Value {
             return switch (node) {
-                .string => |id| blk: {
-                    var to = id;
-                    while (map.get(to)) |next| to = next;
-                    break :blk .{ .string = to };
-                },
+                .string => |id| .{ .string = resolve(map, id) },
                 .array => |items| blk: {
                     var copy = json.Array.init(a);
                     for (items.items) |item| copy.append(of(map, item)) catch oom();
                     break :blk .{ .array = copy };
                 },
                 .object => |o| blk: {
-                    // A string literal's text is not a value id, whatever it spells.
                     if (o.get("kind")) |kind| if (kind == .string and eql(kind.string, "stringLiteral")) break :blk node;
                     var copy = o.clone(a) catch oom();
                     var it = copy.iterator();
-                    while (it.next()) |entry| if (!eql(entry.key_ptr.*, "result") and !eql(entry.key_ptr.*, "kind")) {
+                    while (it.next()) |entry| {
+                        const key = entry.key_ptr.*;
+                        if (eql(key, "result") or eql(key, "kind") or std.mem.startsWith(u8, key, "target")) continue;
                         entry.value_ptr.* = of(map, entry.value_ptr.*);
-                    };
+                    }
                     break :blk .{ .object = copy };
                 },
                 else => node,
