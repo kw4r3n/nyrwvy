@@ -17,7 +17,9 @@ for (const file of ["host.json", "host.zig", "host.zig.json"]) copyFileSync(join
 const snapshot = join(work, "check.json")
 writeFileSync(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp"], zigTables: ["host.zig.json"],
   exports: ["readOr", "readBytesOr", "write", "env", "exitCode", "stdout", "stderr", "runError", "spawned",
-    "openShell", "openShellAt", "ptyRead", "ptyWrite", "ptyResize", "ptyForeground", "ptyClose"] }))
+    "openShell", "openShellAt", "ptyRead", "ptyWrite", "ptyResize", "ptyForeground", "ptyClose",
+    "lockPath", "lockFail", "lockAcquire", "lockRelease", "lockPathOf",
+    "rename", "exists", "clockNow", "slept"] }))
 
 const cli = spawn(executable, ["create", "--snapshot", snapshot, "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"], cwd: repo })
 const exchange = hostExchange(cli)
@@ -69,6 +71,22 @@ await define("ptyWrite", "Pty", { kind: "primitive", primitive: "unit" }, [["dat
 await define("ptyResize", "Pty", { kind: "primitive", primitive: "unit" }, [["cols", int], ["rows", int]], invoke("Pty", "resize", { cols: P("cols"), rows: P("rows") }))
 await define("ptyForeground", "Pty", generic("option", str), [], invoke("Pty", "foregroundCommand"))
 await define("ptyClose", "Ptys", generic("option", int), [["pty", pty]], invoke("Ptys", "close", { pty: P("pty") }))
+// Locks: the UseResource bodies get the Lock handle as their one unbound parameter (here, `cap`).
+const lock = { kind: "capability", name: "Lock" }
+const strResult = generic("result", str, str)
+await define("lockPathBody", "Lock", strResult, [], { kind: "resultOk", errorType: str, value: invoke("Lock", "path") })
+await define("lockFailBody", "Lock", strResult, [], { kind: "resultErr", okType: str, error: text("body failed") })
+const lockUse = body => ({ kind: "useResource", acquire: invoke("Locks", "acquire", { path: P("path") }),
+  releaseCapability: P("cap"), capability: "Locks", releaseOperation: "release", body, context: [] })
+await define("lockPath", "Locks", strResult, ["path"], lockUse("lockPathBody"))
+await define("lockFail", "Locks", strResult, ["path"], lockUse("lockFailBody"))
+await define("lockAcquire", "Locks", generic("result", lock, str), ["path"], invoke("Locks", "acquire", { path: P("path") }))
+await define("lockRelease", "Locks", { kind: "primitive", primitive: "unit" }, [["lock", lock]], invoke("Locks", "release", { lock: P("lock") }))
+await define("lockPathOf", "Lock", str, [], invoke("Lock", "path"))
+await define("rename", "Fs", str, ["from", "to"], orError(invoke("Fs", "rename", { from: P("from"), to: P("to") })))
+await define("exists", "Fs", str, ["path"], { kind: "conditional", condition: invoke("Fs", "exists", { path: P("path") }), whenTrue: text("yes"), whenFalse: text("no") })
+await define("clockNow", "Clock", int, [], invoke("Clock", "now"))
+await define("slept", "Clock", int, [["ms", int]], { kind: "bind", value: invoke("Clock", "sleep", { milliseconds: P("ms") }), body: P("ms") })
 const emitted = await send({ op: "emitZigLibrary", output: "check.zig" })
 cli.stdin.end()
 
@@ -214,6 +232,64 @@ test "pty on Zig" {
     const bad_dir = "/nyr-host-no-such-dir";
     var bad_pty: ?*NyHandle = null;
     try std.testing.expectEqual(@as(c_int, 4), ny_openShellAt("sh".ptr, 2, "pwd".ptr, 3, bad_dir.ptr, bad_dir.len, &bad_pty));
+    try std.testing.expectEqual(@as(usize, 0), ny_open_handles());
+    try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
+}
+
+fn checkRename(from: []const u8, to: []const u8) ![]const u8 {
+    var n: usize = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_rename(from.ptr, from.len, to.ptr, to.len, &check_buffer, check_buffer.len, &n));
+    return check_buffer[0..n];
+}
+test "rename, exists and clock on Zig" {
+    ny_values = check_values.allocator();
+    const a = ${JSON.stringify(join(work, "a.txt"))};
+    const b = ${JSON.stringify(join(work, "b.txt"))};
+    try std.testing.expectEqualStrings("ok", try checkWrite(a, "hello"));
+    try std.testing.expectEqualStrings("ok", try checkWrite(b, "old"));
+    try std.testing.expectEqualStrings("ok", try checkRename(a, b));
+    try std.testing.expectEqualStrings("hello", try checkCall(ny_readOr, b));
+    try std.testing.expectEqualStrings("no", try checkCall(ny_exists, a));
+    try std.testing.expectEqualStrings("yes", try checkCall(ny_exists, b));
+    try std.testing.expectEqualStrings("no", try checkCall(ny_exists, ${JSON.stringify(work)}));
+    try std.testing.expectEqualStrings("FileNotFound", try checkRename(a, b));
+    var secs: i64 = 0;
+    try std.testing.expectEqual(@as(c_int, 0), ny_clockNow(&secs));
+    const real = std.Io.Clock.real.now(std.testing.io).toSeconds();
+    try std.testing.expect(secs >= real - 5 and secs <= real + 5);
+    var out: i64 = 0;
+    const start = std.Io.Clock.awake.now(std.testing.io);
+    try std.testing.expectEqual(@as(c_int, 0), ny_slept(150, &out));
+    try std.testing.expectEqual(@as(i64, 150), out);
+    try std.testing.expect(start.durationTo(std.Io.Clock.awake.now(std.testing.io)).toMilliseconds() >= 140);
+    try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
+}
+
+test "locks on Zig" {
+    ny_values = check_values.allocator();
+    const path = ${JSON.stringify(join(work, "cooldown.lock"))};
+    var n: usize = 0;
+    // UseResource: acquire, run the body (which reads the handle's path), release.
+    try std.testing.expectEqual(@as(c_int, 0), ny_lockPath(path.ptr, path.len, &check_buffer, check_buffer.len, &n));
+    try std.testing.expectEqualStrings(path, check_buffer[0..n]);
+    try std.testing.expectEqual(@as(usize, 0), ny_open_handles());
+    // A body that returns Err still releases, so the same path can be taken again.
+    try std.testing.expectEqual(@as(c_int, 4), ny_lockFail(path.ptr, path.len, &check_buffer, check_buffer.len, &n));
+    try std.testing.expectEqual(@as(usize, 0), ny_open_handles());
+    try std.testing.expectEqual(@as(c_int, 0), ny_lockPath(path.ptr, path.len, &check_buffer, check_buffer.len, &n));
+    // A held lock refuses a second acquire without waiting; release frees it.
+    var handle: ?*NyHandle = null;
+    try std.testing.expectEqual(@as(c_int, 0), ny_lockAcquire(path.ptr, path.len, &handle));
+    try std.testing.expect(handle != null);
+    var second: ?*NyHandle = null;
+    try std.testing.expectEqual(@as(c_int, 4), ny_lockAcquire(path.ptr, path.len, &second));
+    var flen: usize = 0;
+    const fmsg = ny_last_failure(&flen);
+    try std.testing.expectEqualStrings("LockHeld", fmsg[0..flen]);
+    try std.testing.expectEqual(@as(c_int, 0), ny_lockPathOf(handle, &check_buffer, check_buffer.len, &n));
+    try std.testing.expectEqualStrings(path, check_buffer[0..n]);
+    try std.testing.expectEqual(@as(c_int, 0), ny_lockRelease(handle));
+    try checkFailure("Handle is not open", ny_lockPathOf(handle, &check_buffer, check_buffer.len, &n));
     try std.testing.expectEqual(@as(usize, 0), ny_open_handles());
     try std.testing.expectEqual(@as(usize, 0), check_values.detectLeaks());
 }

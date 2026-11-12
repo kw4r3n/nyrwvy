@@ -4,14 +4,18 @@ Operating-system access for Nyrwvy programs without host code of their own: a wo
 
 All operations use the effect `System`. A failure the program can act on is a `Result` whose error is the OS's message.
 
-Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Process.run`, `Pty.read`, `Pty.write` (it blocks while the pty's buffer is full, until the child reads) and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Ptys.open`, `Ptys.openAt`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
+Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Fs.rename`, `Fs.exists`, `Clock.sleep`, `Process.run`, `Pty.read`, `Pty.write` (it blocks while the pty's buffer is full, until the child reads) and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Clock.now`, `Locks.acquire`, `Locks.release`, `Lock.path`, `Ptys.open`, `Ptys.openAt`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
 
 | Capability | Operation | Result |
 | --- | --- | --- |
 | `Fs` | `readText(path)` | `Result<String, String>`; decoded as UTF-8 (a UTF-8 byte order mark is dropped, invalid bytes read as U+FFFD) |
 | `Fs` | `readBytes(path)` | `Result<Bytes, String>` |
 | `Fs` | `writeBytes(path, data)` | `Result<Unit, String>`; creates or replaces the file |
+| `Fs` | `rename(from, to)` | `Result<Unit, String>`; moves the file, replacing the destination if there is one |
+| `Fs` | `exists(path)` | `Bool`; whether the file exists (a directory does not count) |
 | `Env` | `get(name)` | `Option<String>`; `None` when unset |
+| `Clock` | `now()` | `Int64`; the current UTC time in unix seconds |
+| `Clock` | `sleep(milliseconds)` | `Unit`; waits for the given time |
 | `Process` | `spawn(program, args)` | `Result<Unit, String>`; starts without waiting |
 | `Process` | `run(program, args)` | `Result<ProcessOutput, String>`; runs to completion with empty standard input and waits until stdout and stderr close, as Python's `subprocess.run` does (a background process left holding them keeps it waiting); `ProcessOutput` has `exitCode`, `stdout` and `stderr` (Bytes) |
 | `Ptys` | `open(argv, environment, cols, rows)` | `Result<Pty, String>`; a program on a new pseudo terminal, inheriting this process's environment with `environment` (`Map<String, String>`, for example `TERM`) replaced or added |
@@ -21,10 +25,15 @@ Operations that can wait for an external event for an unbounded time are marked 
 | `Pty` | `write(data)` | `Unit` |
 | `Pty` | `resize(cols, rows)` | `Unit` |
 | `Pty` | `foregroundCommand()` | `Option<String>`; the foreground process group leader's name (from `/proc`) |
+| `Locks` | `acquire(path)` | `Result<Lock, String>`; takes the lock file's exclusive lock without waiting, so a held lock is an `Err` and retrying is the program's job; the file is created if needed |
+| `Locks` | `release(lock)` | `Unit`; releases the lock; the file itself is left in place |
+| `Lock` | `path()` | `String`; the path the lock was acquired on |
 
 `Pty` is a [capability handle](../../docs/decisions/capability-handles.md): an operation on a closed `Pty` throws "Handle is not open". `close` may run while another thread is blocked in `read`; that `read` then returns `None`. `Ptys` needs Linux with glibc.
 
-Not provided yet: directory operations, file deletion, a working directory for `run`, standard input for `run`, sockets and clocks. They are added when a program needs them.
+`Lock` is a capability handle too: an operation on a released `Lock` throws "Handle is not open". `Lock` carries a `path()` operation because neither backend treats an operation-less capability as a handle. C# holds the lock as an open `FileStream` with `FileShare.None` and Zig as an `flock` on the open file; the two exclude each other on the same file, so a program and its port can share a lock file across backends (checked by `check/run-cross.mjs`).
+
+Not provided yet: directory operations, file deletion, a working directory for `run`, standard input for `run` and sockets. They are added when a program needs them.
 
 ## Using it
 
@@ -44,4 +53,4 @@ The behaviour matches the table above, except that an `Err` holds the Zig error'
 
 ## Check
 
-`node libraries/host/check/run-zig.mjs` (Linux, needs `zig` and `sh`) does the same for `host.zig` with a checking allocator, which must find nothing live at the end: files, environment, processes and a pty (size and environment, foreground command, resize, exit code, a call that returns while another thread is blocked in `read`, closing while that read waits, use after close and a second close, a child that ignores the hangup). `node libraries/host/check/run.mjs` (Linux, needs `dotnet`, the Zig session host built by `npm run build:host`, `sh` and `cat`) builds a program that imports the library, emits its C#, and runs [`check/Program.cs`](check/Program.cs) against the real OS: files in a temporary directory, environment variables, process start, and `Process.run` output and exit codes, and a pty driven both from C# and from a Nyrwvy function (`ptyEcho`: open `cat` with `TERM` set by the program, write, read the echo, close), including closing while another thread reads and a child that ignores the hangup. It is not part of the Node suite.
+`node libraries/host/check/run-zig.mjs` (Linux, needs `zig` and `sh`) does the same for `host.zig` with a checking allocator, which must find nothing live at the end: files, environment, processes and a pty (size and environment, foreground command, resize, exit code, a call that returns while another thread is blocked in `read`, closing while that read waits, use after close and a second close, a child that ignores the hangup), file rename and existence, the clock, and locks (a lock used through `UseResource` and released when the body fails, a held lock refusing a second acquire, use after release). `node libraries/host/check/run.mjs` (Linux, needs `dotnet`, the Zig session host built by `npm run build:host`, `sh` and `cat`) builds a program that imports the library, emits its C#, and runs [`check/Program.cs`](check/Program.cs) against the real OS: files in a temporary directory (including rename and existence), environment variables, process start, and `Process.run` output and exit codes, the clock, locks (a held lock refusing a second acquire, use after release), and a pty driven both from C# and from a Nyrwvy function (`ptyEcho`: open `cat` with `TERM` set by the program, write, read the echo, close), including closing while another thread reads and a child that ignores the hangup. It runs in the extended Node suite (`.opencode/tests-extended/nyrwvy-host-library-csharp.test.mjs`). `node libraries/host/check/run-cross.mjs` holds a lock through one backend's emitted program and requires the other backend's acquire of the same lock file to fail, in both directions. It is a manual check, not part of the Node suite: each side holds its lock for 6 s while the other must fail to acquire within 1.5 s or 2.5 s (including dotnet start-up), and Node runs test files concurrently, so a loaded machine could fail it spuriously.

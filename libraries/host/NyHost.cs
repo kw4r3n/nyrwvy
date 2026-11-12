@@ -1,5 +1,5 @@
-// Host implementations of the host library's capabilities (host.json: Fs, Env, Process, Ptys and the Pty
-// handle; effect System). Distributed as source: the *Base classes come from the program's own emitted
+// Host implementations of the host library's capabilities (host.json: Fs, Env, Process, Clock, Locks,
+// Ptys and the Pty and Lock handles; effect System). Distributed as source: the *Base classes come from the program's own emitted
 // facade, so include this file in a project whose Nyrwvy graph imports host.json (docs/plans/host-capability-library.md).
 using System;
 using System.Collections;
@@ -36,6 +36,76 @@ public sealed class FsHost : FsBase
     /// Creates or replaces the file.
     public override NyResult<NyUnit, NyStr> writeBytes(NyStr path, NyBytes data) =>
         Attempt(() => { File.WriteAllBytes(path, data.Span); return NyUnit.Value; });
+
+    /// Moves the file, replacing the destination if there is one.
+    public override NyResult<NyUnit, NyStr> rename(NyStr from, NyStr to) =>
+        Attempt(() => { File.Move(from, to, true); return NyUnit.Value; });
+
+    /// Whether the file exists.
+    public override bool exists(NyStr path) => File.Exists(path);
+}
+
+public sealed class ClockHost : ClockBase
+{
+    /// The current UTC time in unix seconds.
+    public override long now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    public override NyUnit sleep(long milliseconds)
+    {
+        // Thread.Sleep takes at most Int32.MaxValue milliseconds at once, so sleep in day-long slices.
+        while (milliseconds > 0)
+        {
+            var slice = (int)Math.Min(milliseconds, 86_400_000);
+            System.Threading.Thread.Sleep(slice);
+            milliseconds -= slice;
+        }
+        return NyUnit.Value;
+    }
+}
+
+/// Exclusive file locks, held by an open FileStream with FileShare.None, as rrawrlet's Paths.Hold does.
+/// The lock file itself is left in place on release.
+public sealed class LocksHost : LocksBase
+{
+    // The bare Lock is the facade's global using alias for the generated handle type; the alias is
+    // what binds the name, ahead of System.Threading.Lock in a consumer with implicit usings.
+    public override NyResult<Lock, NyStr> acquire(NyStr path)
+    {
+        try { return NyResult<Lock, NyStr>.Ok(new LockHost(path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        { return NyResult<Lock, NyStr>.Err(e.Message); }
+    }
+
+    public override NyUnit release(Lock handle)
+    {
+        ((LockHost)handle).Release();
+        return NyUnit.Value;
+    }
+}
+
+public sealed class LockHost : LockBase
+{
+    readonly FileStream _stream;
+    readonly string _path;
+    bool _released;
+
+    internal LockHost(string path)
+    {
+        _path = path;
+        _stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    void Open() { if (_released) throw new InvalidOperationException("Handle is not open"); }
+
+    /// The path the lock was acquired on.
+    public override NyStr path() { Open(); return _path; }
+
+    internal void Release()
+    {
+        Open();
+        _released = true;
+        _stream.Dispose();
+    }
 }
 
 public sealed class EnvHost : EnvBase

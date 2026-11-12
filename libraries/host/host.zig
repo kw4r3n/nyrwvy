@@ -30,6 +30,27 @@ pub fn writeBytes(_: Allocator, path: []const u8, data: []const u8) !void {
     try std.Io.Dir.cwd().writeFile(io(), .{ .sub_path = path, .data = data });
 }
 
+/// Moves the file, replacing the destination if there is one.
+pub fn fsRename(_: Allocator, from: []const u8, to: []const u8) !void {
+    try std.Io.Dir.cwd().rename(from, std.Io.Dir.cwd(), to, io());
+}
+
+/// Whether the file exists (a directory does not count, as in NyHost.cs).
+pub fn fsExists(_: Allocator, path: []const u8) bool {
+    const stat = std.Io.Dir.cwd().statFile(io(), path, .{}) catch return false;
+    return stat.kind == .file;
+}
+
+/// The current UTC time in unix seconds.
+pub fn clockNow(_: Allocator) i64 {
+    return std.Io.Clock.real.now(io()).toSeconds();
+}
+
+pub fn clockSleep(_: Allocator, milliseconds: i64) void {
+    if (milliseconds <= 0) return;
+    std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(milliseconds) }, io()) catch {};
+}
+
 pub fn envGet(allocator: Allocator, name: []const u8) !?[]const u8 {
     if (std.mem.indexOfScalar(u8, name, 0) != null) return null;
     const value = std.c.getenv(try allocator.dupeSentinel(u8, name, 0)) orelse return null;
@@ -79,6 +100,51 @@ pub fn processRun(allocator: Allocator, program: []const u8, args: []const []con
         .stdout = result.stdout,
         .stderr = result.stderr,
     };
+}
+
+// Locks: an exclusive flock on an open lock file. The file is left in place on release.
+// flock and its operations, which std.c leaves out (LOCK_EX, LOCK_NB from flock(2)).
+extern "c" fn flock(fd: c_int, operation: c_int) c_int;
+const LOCK_EX = 2;
+const LOCK_NB = 4;
+/// Never freed, like Pty: the emitter rejects calls on a released handle before they reach here,
+/// and a released struct may still be named by a call that passed that check.
+pub const Lock = struct {
+    path: []const u8,
+    fd: c_int,
+};
+
+/// Takes the lock without waiting: a held lock is error.LockHeld, and the graph retries.
+// shortcut: the Lock struct and its path copy are never freed (see Lock), so a program that takes
+// locks in a loop grows by one small allocation per acquire. Pty handles are few and long-lived and
+// locks are not, so revisit this when a long-lived program takes locks per event, or when the
+// emitter can prove no call can name a released handle and freeing here becomes safe.
+pub fn lockAcquire(allocator: Allocator, path: []const u8) !*Lock {
+    const c_path = try allocator.dupeSentinel(u8, path, 0);
+    const fd = std.c.open(c_path.ptr, .{ .ACCMODE = .RDWR, .CREAT = true, .CLOEXEC = true }, @as(std.c.mode_t, 0o666));
+    if (fd < 0) return switch (std.c.errno(fd)) {
+        .NOENT => error.FileNotFound,
+        .ACCES => error.AccessDenied,
+        else => error.OpenFailed,
+    };
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        const e = std.c.errno(-1);
+        _ = std.c.close(fd);
+        return if (e == .AGAIN) error.LockHeld else error.LockFailed; // EWOULDBLOCK is EAGAIN on Linux
+    }
+    errdefer _ = std.c.close(fd);
+    const lock = try std.heap.smp_allocator.create(Lock);
+    errdefer std.heap.smp_allocator.destroy(lock);
+    lock.* = .{ .path = try std.heap.smp_allocator.dupe(u8, path), .fd = fd };
+    return lock;
+}
+
+pub fn lockRelease(_: Allocator, lock: *Lock) void {
+    _ = std.c.close(lock.fd);
+}
+
+pub fn lockPath(_: Allocator, lock: *Lock) []const u8 {
+    return lock.path;
 }
 
 // Ptys (Linux with glibc; posix_spawn, as NyHost.cs). glibc declarations std.c leaves out:

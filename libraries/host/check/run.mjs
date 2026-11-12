@@ -37,6 +37,21 @@ const created = await send({ op: "simulateCreateFunctionByName", displayName: "p
           body: { kind: "bytesToLatin1", value: { kind: "optionGetOrDefault", option: R("chunk"), default: { kind: "bytesEmpty" } } } } } },
     errBody: { kind: "stringConcat", left: { kind: "stringLiteral", value: "open failed: " }, right: R("failure") } } })
 await send({ op: "commit", proposalId: created.proposalId })
+
+// lockFail(locks, path): UseResource with a body that returns Err; Program.cs checks the body's Err
+// comes back and that the lock was still released (the same pair as run-zig.mjs's lockFail).
+const strResult = { kind: "builtinGeneric", generic: "result", arguments: [str, str] }
+const failBody = await send({ op: "simulateCreateFunctionByName", displayName: "lockFailBody", exported: false,
+  parameters: [{ displayName: "cap", type: { kind: "capability", name: "Lock" } }],
+  resultType: strResult, requiredEffects: [],
+  body: { kind: "resultErr", okType: str, error: { kind: "stringLiteral", value: "body failed" } } })
+await send({ op: "commit", proposalId: failBody.proposalId })
+const failFn = await send({ op: "simulateCreateFunctionByName", displayName: "lockFail", exported: true,
+  parameters: [{ displayName: "locks", type: { kind: "capability", name: "Locks" } }, { displayName: "path", type: str }],
+  resultType: strResult, requiredEffects: ["System"],
+  body: { kind: "useResource", acquire: invoke(P("locks"), "Locks", "acquire", { path: P("path") }),
+    releaseCapability: P("locks"), capability: "Locks", releaseOperation: "release", body: "lockFailBody", context: [] } })
+await send({ op: "commit", proposalId: failFn.proposalId })
 const host = JSON.parse(readFileSync(join(work, "host.json"), "utf8"))
 const operationIds = host.capabilities.flatMap(capability => capability.operations.map(operation => operation.id))
 await send({ op: "emitCSharp", profile: { kind: "externalImplementations", operationIds }, output: join(work, "Generated.cs"), facade: join(work, "Facade.cs") })

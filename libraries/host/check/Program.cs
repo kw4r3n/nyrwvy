@@ -105,6 +105,43 @@ System.Threading.Thread.Sleep(200);
 var watch = System.Diagnostics.Stopwatch.StartNew();
 Check("Ptys.close kills a child that ignores the hangup", !ptys.close(stubborn).HasValue && watch.ElapsedMilliseconds < 5000);
 
+var moveFrom = Path.Combine(dir.FullName, "move-from.bin");
+var moveTo = Path.Combine(dir.FullName, "move-to.bin");
+fs.writeBytes(moveFrom, data);
+fs.writeBytes(moveTo, NyBytes.FromOwnedArray([9]));
+Check("Fs.rename replaces the destination", fs.rename(moveFrom, moveTo).IsOk && !File.Exists(moveFrom)
+    && fs.readBytes(moveTo) is { IsOk: true } moved && moved.OkValue.Equals(data));
+Check("Fs.rename missing source", !fs.rename(moveFrom, moveTo).IsOk);
+Check("Fs.exists", fs.exists(moveTo) && !fs.exists(moveFrom));
+Check("Fs.exists of a directory is false", !fs.exists(dir.FullName));
+
+var clock = new ClockHost();
+var unixBefore = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+Check("Clock.now", clock.now() >= unixBefore && clock.now() <= unixBefore + 5);
+var sleepWatch = System.Diagnostics.Stopwatch.StartNew();
+clock.sleep(120);
+Check("Clock.sleep waits", sleepWatch.ElapsedMilliseconds >= 100);
+
+var locks = new LocksHost();
+var lockFile = Path.Combine(dir.FullName, "cooldown.lock");
+var acquired = locks.acquire(lockFile);
+Check("Locks.acquire", acquired.IsOk);
+Check("Locks.acquire while held", !locks.acquire(lockFile).IsOk);
+var heldLock = (LockHost)acquired.OkValue;
+Check("Lock.path", heldLock.path().Text == lockFile);
+locks.release(acquired.OkValue);
+Check("Lock.path after release fails", Throws(() => heldLock.path()));
+var reacquired = locks.acquire(lockFile);
+Check("Locks.acquire after release", reacquired.IsOk);
+if (reacquired.IsOk) locks.release(reacquired.OkValue);
+Check("the lock file stays in place", File.Exists(lockFile));
+var failFile = Path.Combine(dir.FullName, "fail.lock");
+var failedBody = NyFacade.lockFail(locks, failFile);
+Check("a failed UseResource body returns its Err", !failedBody.IsOk && failedBody.ErrorValue.Text == "body failed");
+var afterFailure = locks.acquire(failFile);
+Check("Locks.acquire after a failed body", afterFailure.IsOk);
+if (afterFailure.IsOk) locks.release(afterFailure.OkValue);
+
 dir.Delete(true);
 Console.WriteLine(failures == 0 ? "all checks passed" : $"{failures} checks failed");
 return failures == 0 ? 0 : 1;
