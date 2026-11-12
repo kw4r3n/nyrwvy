@@ -1,6 +1,9 @@
 # Threaded state: program state as a value through the program's own loop
 
-- **Status:** Accepted (owner decision 2026-11-12; measured 2026-11-12)
+- **Status:** Accepted (owner decision 2026-11-12; measured 2026-11-12). The revisit conditions
+  below were reworded after acceptance, later the same day, on the owner's clarification that
+  they are signs to judge by rather than measurements to demand; the conditions themselves are
+  unchanged.
 - **Date:** 2026-11-12
 - **Builds on:** [host handles as capability values](capability-handles.md), [Zig exports that keep state between calls](zig-stateful-exports.md)
 
@@ -87,13 +90,14 @@ turn would add over 900,000 extra turns. The "after" column was re-measured with
 ## Where threading does not reach
 
 - **Host-driven libraries.** Threading needs the program to own its loop. A library the host drives
-  by calling several exports cannot thread state through a loop it does not have; the substitute is
-  the host carrying the state between calls as a value handle
+  by calling several exports cannot thread state through a loop it does not have. The substitute
+  that is built is the host carrying the state between calls as a value handle
   ([Zig exports that keep state between calls](zig-stateful-exports.md), slice 3), at one top-box
   copy per call. The owner has since decided (2026-11-12) that a host-held handle does not count
-  as the state being written in Nyrwvy, and opened [entities](entities.md) as the form for a
-  host-driven library whose state must reside in the session; that step was opened by the
-  decision, not by the fourth revisit condition below being met.
+  as the state being written in Nyrwvy; the designed form for this case is
+  [entities](entities.md) (designed, not built), which moves the state's residence into the
+  session. That step was opened by the decision, not by the fourth revisit condition below
+  being met.
 - **Several tasks sharing one state.** Two loops cannot thread the same value and both keep their
   changes; merging is the program's own problem, and a program that truly needs shared changing
   state has no form yet.
@@ -118,5 +122,6 @@ required; that was stronger than the intent.)
 - a program needs several tasks sharing one changing state;
 - value-handle threading proves insufficient for a host-driven library.
 
-The design to start from is [scoped mutability](scoped-mutability.md).
-Cross-invocation state has its own record: [entities](entities.md).
+The design to start from, for state inside one invocation, is
+[scoped mutability](scoped-mutability.md); for state across invocations,
+[entities](entities.md).

@@ -2,6 +2,13 @@
 
 - **Status:** Accepted, built ahead of trigger (owner decision 2026-11-10)
 - **Built:** slices 1 and 2 on 2026-11-10; slice 3 on 2026-11-11 (any type the flattened ABI cannot carry crosses whole as an opaque `ny_value`: a structural type tag checked before anything is copied, the call sharing the argument, one `ny_release` for every type; the check is `tools/zig/emitter/value-handle-check/run.sh`). Rhifill does not use value handles yet: its pane tree still lives in the host. Rhifill's `layoutFrame` bench was not run, so slice 1's cost is unmeasured and the arena-keeping fallback is not built. Differences from the design below: the `Pty` struct is never freed either (a read or write that passed the handle check runs with the lock released and may start after the close, so freeing it would leave that call a dangling pointer; the last of the close and running reads or writes closes the fds); a wrong-capability handle is refused at the export (`nyHandleIs`), and with one handle capability in `libraries/host` only the null case is checked; the 64 KiB read limit is in `host.zig` and the README, and the emitted doc comment of an export that may wait says only that status 3 runs it again; `run-zig.mjs` appends its harness to the emitted source so it can set the checking allocator.
+- **Note (2026-11-12):** For program state across calls, the successor design is
+  [entities](entities.md) (designed, not built): state held in the session rather than carried
+  as host-held handles. This record's Demand section is stale: rhifill has since retired its
+  C# host and deleted the Nyr pane tree it once had, so "the other users stay on C#" and the
+  pane-tree trigger below no longer describe the world. The last revisit condition below —
+  reconsider the whole record if Rhifill retires C# — has in fact been met, which is part of
+  how the entities step came to be designed.
 - **Date:** 2026-11-06
 - **Plan:** [backend-neutral semantics and generated library bindings](../plans/multi-backend-and-bindings.md#order), Order step 5; §5, §7, §8 and §10
 - **Builds on:** [memory ownership in the Zig backend](zig-backend-memory-ownership.md), [capability handles](capability-handles.md), [wait and task-bound attributes](wait-and-task-bound-attributes.md), [C# mapping tables](csharp-mapping-tables.md)

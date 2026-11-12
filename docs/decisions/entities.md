@@ -8,6 +8,11 @@
   judge by, not gates that require a measurement first. The first step
   is the minimal form in *The first step*; nothing here is implemented
   or scheduled. Revised after two external design reviews on 2026-11-12.
+  Amended later the same day, after a review of the committed record:
+  the C# refusal narrowed to selections that reach a cell, the
+  kind-classification sites named, `runPure` kept to one function per
+  case, the rhifill facts corrected to the prototype that exists, and
+  the costs restated as expectations with their measurement conditions.
 - **Date:** 2026-11-12
 - **Builds on:** [threaded state](threaded-state.md), [scoped mutability](scoped-mutability.md), [Zig exports that keep state between calls](zig-stateful-exports.md), [host handles as capability values](capability-handles.md), [effectful expression ordering](effectful-expression-ordering.md)
 
@@ -47,7 +52,16 @@ its own:
   and one pane tree per tab is split, closed and re-ratioed across
   those calls. The tree cannot be threaded (the program does not own
   the loop), and under the owner's decision it should not reside in
-  the host either.
+  the host either. Stated precisely, the instance is prospective:
+  rhifill's workspace today has no `PaneTree` type and no tree
+  functions at all (the Nyrwvy tree rhifill once had was deleted in
+  2026-11), and the running tree is the host's own Zig prototype
+  (`spikes/native-pane/src/panes.zig`), which its probe record says
+  does not claim to migrate Nyr pane logic. The tree is not passed
+  across export calls today; the host operates on its own value.
+  Moving it means first writing (or restoring) the pure tree
+  functions in Nyrwvy, checked against the prototype's ten tests;
+  the cell is where those functions' results would live.
 - **Rrawrlet is not an instance.** Graph invocation there is one
   process per call, so nothing in-process survives to a next call; its
   cross-request state is files and file locks, which is the host
@@ -59,6 +73,16 @@ its own:
   clarified (2026-11-12) that the revisit conditions are signs, not
   measurement gates, so anticipation recorded as such does not block
   the design.
+
+This design is written ahead of demand, and the record says so
+plainly: no program is blocked on it today — the pane tree runs as
+host code, and threading and value handles cover the programs that
+exist. It was designed now because the owner's fork decision above
+settles what the construct must be, and designing while the demand
+instance is small keeps the design honest. The posture is the one
+[Zig exports that keep state between calls](zig-stateful-exports.md)
+took with "built ahead of trigger", one notch earlier: designed
+ahead of trigger.
 
 This record is also where the entities design that
 [scoped mutability](scoped-mutability.md) anticipated now lives; that
@@ -116,11 +140,15 @@ function, so `update(f)` cannot be implemented as an operation.
   (a pane id, a ratio) are passed that way. The runtime takes the
   value out of the cell — the cell is empty while `f` runs — so `f`
   receives it with reference count one, and field updates inside `f`
-  reuse the boxes they change, as in threading's in-place rows. The
+  are positioned to reuse the boxes they change, as in threading's
+  in-place rows, under the conditions *Costs by shape* states. The
   empty interval is not observable: `f` is pure and cannot wait, so
   the export lock (see *Failure and waiting*) is held throughout it,
   and `f` cannot touch any cell (cell access is effectful), so
-  re-entry into the same cell cannot occur either.
+  re-entry into the same cell cannot occur either. Nor can `f` spawn
+  workers inside the interval: `ParallelAll` is itself an
+  intrinsically effectful kind, so it cannot appear in a pure
+  function at all.
 - `update`'s callback does not return a `Result` in the first step.
   A consumed argument is written in place, so by the time a callback
   could return `Err` the old value no longer exists to put back;
@@ -133,8 +161,9 @@ function, so `update(f)` cannot be implemented as an operation.
   `update` can be added later at the copy cost above, if a program
   wants it.
 - The check in that shape runs against a `read` snapshot, at
-  reference count two: a check that builds a new tree pays the
-  threaded copy rows for what it builds, and discards it on `Err`.
+  reference count two: a check that builds a new tree is expected to
+  pay the threaded copy rows for what it builds, and discards it on
+  `Err`.
   A hot path therefore splits the shape differently: the check is a
   predicate that builds nothing, and the change itself runs inside
   `update`, whose callback sees reference count one. `setRatio` in
@@ -146,7 +175,12 @@ function, so `update(f)` cannot be implemented as an operation.
 A cell access is an inherently effectful node and joins the existing
 all-pairs order check unchanged (`AmbiguousEffectOrder`); no new check
 is added. Two unordered accesses to a cell are refused, and the author
-sequences them with `Bind`, as for capability calls. The declaration's
+sequences them with `Bind`, as for capability calls. The check is over
+observable nodes as a class, not over one cell, and the record states
+its actual reach: two unordered `read`s of *different* cells are
+refused, a `read` unordered beside a capability call is refused, and
+two calls to cell-reading functions inside one record construction
+are refused. The declaration's
 `EffectId` must be declared by any function that touches the cell,
 diagnosed by the existing `MissingEffectRequirement`; the granularity
 is the author's choice, as for capability operations.
@@ -196,8 +230,11 @@ caller buffer is re-run by the host when the buffer is too small
 (status 3).
 
 - **Buffer-copied results.** If an export the wrapper can return
-  status 3 for — a result copied into a caller buffer, today
-  strings, bytes, numeric lists and rows — also writes a cell, the
+  status 3 for — one whose result, in any part, the generated
+  wrapper marks `buffered` (the emitter's `abiResult`): a string,
+  bytes, a numeric list or a row, including one nested inside an
+  `Option`, a flattened record field, or the `Ok` side of a
+  status-4 `Result` — also writes a cell, the
   status-3 re-run applies the write twice. Such an export must
   therefore not write a cell. This is a fact about the ABI, not
   about the graph, so it is diagnosed where library exports are
@@ -240,6 +277,12 @@ is not automatic. The first step implements and tests none of this.
 
 ### Lifetime, initialization, reset
 
+In this record a *session* is the lifetime of one loaded library,
+from the load that creates its cell storage to the release that ends
+it — not an authoring session, and not a host's session file. A
+`runPure` case runs in a fresh process (Zig) or a fresh load context
+(C#), so there a session spans exactly one case.
+
 The initializer is a nullary pure function, evaluated lazily on first
 access. A `set` on an uninitialized cell stores its value without
 evaluating the initializer, and seeding a test case does the same.
@@ -258,14 +301,18 @@ an uninitialized cell holds nothing. The next access re-evaluates the
 initializer lazily, as on first access. The entry doubles as the
 teardown a host runs before unloading the library or ending the
 process — "release" in this record means that teardown; there is
-no other release entry. It takes the export lock. It is not
-required to serialize against whole exports: it can land inside
-another export's released wait, and that export's cell reads may
-then straddle the reset; this is accepted for the first step,
-because a may-wait export cannot write a cell, and hosts reset
-between operations, not during them. Reset covers every cell in
-the session, including cells declared by libraries the session's
-libraries depend on.
+no other release entry. It takes the export lock, so it cannot land
+in the middle of an export's non-waiting parts. Used as that
+teardown, it carries one precondition: **no export is in flight.** A
+waiting export that read a cell again after a reset would re-run the
+initializer and could return results computed from post-reset state
+as if nothing had happened, and could leave values in cells the
+teardown meant to empty. Serializing the reset against whole exports
+is therefore the host's obligation when it uses the entry this way,
+not a property the entry provides on its own. (An earlier draft of
+this record accepted cell reads straddling a reset; that acceptance
+is withdrawn.) Reset covers every cell in the session, including
+cells declared by libraries the session's libraries depend on.
 
 Cells give up one property of value handles: that nothing global
 exists in the library. On the Zig backend a cell is process state, so
@@ -278,8 +325,12 @@ if a real program needs two independent copies in one process.
 
 Cells are in-process only. Durable state stays with the host library's
 file primitives. Saving a cell is an ordinary export that reads it and
-writes it out; restoring is an export that sets it. Rhifill's session
-JSON round-trips this way, with no new machinery.
+writes it out; restoring is an export that sets it. On the Nyrwvy
+side, Rhifill's session JSON round-trips this way with no new
+machinery. On Rhifill's side the session file's format does change:
+today it stores the prototype tree's internal node array as it
+stands, inside each tab record, and a tree that lives in a cell is
+written out through an export in whatever shape the program declares.
 
 A cell exists only inside one process, so a snapshot change never
 meets a live cell: there is no migration rule. What a new declaration
@@ -288,19 +339,33 @@ listed in *The first step*.
 
 ### Tests
 
-`runPure` cases gain, per cell, initial contents by
-library-qualified declaration name as input and final contents in the
-reply; a case may call several exports in sequence against one
-session, which is what cross-invocation state means. On the Zig route
-each run is already a fresh process, so starting from the initializer
-needs nothing new; the seeding and read-back are a change to the
-request and reply format and to the generated runner, and saved-case
-files (client-side JSON) keep the new fields optional so old cases
-still load. Read-back reports a never-accessed, never-seeded cell
-as uninitialized, and does not evaluate its initializer to do so.
-The generated runner calls the reset entry after read-back, on the
+`runPure` cases stay one function and its arguments, as today. A
+case that needs several steps against one session is written as one
+test-only function that sequences the operations with `Bind`, which
+is what cross-invocation state means inside one case. A case then
+needs only two additions: per cell, optional initial contents keyed
+by declaration id (not by name — names do not decide identity) as
+input, and final contents in the reply. The alternative — a case as
+a list of exports called in sequence — was not taken: it changes
+the request shape for every client of saved cases (the fixture
+parity client and `verifyChange`'s observation ride on the same
+request), and on the Zig route each invocation already runs in its
+own process, so a sequence inside one case would need a process
+model the route does not have. On the Zig route each run is already
+a fresh process, so starting from the initializer needs nothing new;
+the seeding and read-back are a change to the request and reply
+format and to the generated runner, and saved-case files
+(client-side JSON) keep the new fields optional so old cases still
+load. Read-back reports a never-accessed, never-seeded cell as
+uninitialized, and does not evaluate its initializer to do so. The
+generated runner calls the reset entry after read-back, on the
 failure path as well as the success path, so a case never ends with
-cell values still live. Most logic stays testable as today:
+cell values still live; the runner's uncaught-failure path
+(`nyUncaught` in `runner_support.zig`) calls its leak check
+directly, so it resets before that check, and the host library's
+own checks (`libraries/host/check/run-zig.mjs`), which assert no
+leaks after each export, reset before those assertions for a
+library that has cells. Most logic stays testable as today:
 operations on the value are pure functions
 (`PaneTree -> Result<PaneTree, E>`), and only thin exports touch
 the cell.
@@ -313,12 +378,21 @@ can measure them — not measurements.
 - An `update` on a scalar field, a list element or a map value
   directly under the cell's value: reference count one inside the
   callback, so threading's in-place rows are the expectation (zero
-  allocations per turn).
+  allocations per turn). Zero was *measured*, in the threaded-state
+  proof, for one shape only: the read and the write in one block, no
+  branch or merge between them, and a scalar field. That shape is
+  the expectation's condition, not a general property of `update`.
 - Deeper shapes follow threading's other rows, not the zero row. The
   pane tree is a tree stored as a map value, so a nested field costs
   one box and a tree leaf costs the path length plus one; `setRatio`
   is expected to allocate per motion event. The acceptance tests
   measure it rather than assume it.
+- `setRatio`'s callback is not the zero shape either: it finds the
+  node and branches on the node's kind between reading and writing,
+  which is the branch-separated shape the emitter's own note says
+  keeps the copies. Its expectation is the container rows — the
+  map-value row for the tab's tree, then the list-element row for
+  the node — and test 11 measures the whole export against them.
 - A `read` snapshot held across an `update`: reference count two, so
   the top box copies, and a list whose element is set copies as well
   — the borrowed-argument cost recorded for value handles. Programs
@@ -327,13 +401,26 @@ can measure them — not measurements.
 
 ## Worked example: Rhifill's pane tree
 
-Today the host holds one pane tree per tab. Split copies the tree,
-spawns the pane, and commits by pointer replacement only when the
-spawn succeeds; tab and pane ids are host-minted; the tree round-trips
-to session JSON on save and load.
+Today the tree lives in the host's Zig prototype: a fixed array of
+at most 15 nodes for at most 8 panes (`capacity = 8`), addressed by
+node index. Split builds the new tree value, spawns the pane, and
+commits by assigning the produced value (`work.tree = tree`) only
+when the spawn succeeds — a copy of the fixed-array struct, not a
+pointer replacement. Tab and pane ids are host-minted; the session
+file stores the tree's internal array as it stands, inside each tab
+record.
 
-With entities, one cell holds `Map<TabId, PaneTree>`, and the tree
-operations stay pure functions. How a split is written depends on
+With entities, one cell holds `Map<TabId, PaneTree>`, where
+`PaneTree` mirrors the prototype's shape — a node list of at most 15
+entries and a root index — and the tree operations are pure functions
+written for this, checked against the prototype's ten tests; they do
+not exist in Nyrwvy today (see *Context*). `setRatio` takes a node
+index and a per-mille ratio, as the prototype's does
+(`setRatio(t, index, ratio)`). In the array shape the index is stable
+while the node lives; had the tree been a recursive record instead,
+the same operation would be addressed by a path, and a path is only
+as stable as the tree's shape — one reason the example keeps the
+prototype's array shape. How a split is written depends on
 whether the spawn operation may wait, because a function that may
 wait cannot write (see *Failure and waiting*):
 
@@ -356,13 +443,63 @@ wait cannot write (see *Failure and waiting*):
   passed the candidate itself across, and a design review showed
   that value is a slice-3 handle, with exactly those failure modes.
 
-Which of the two shapes Rhifill takes is decided by the spawn
-operation's wait attribute when Rhifill's spawn is written as a
-capability; it is not known today.
+Which of the two shapes Rhifill takes is decided when Rhifill's
+spawn is written as a capability: by the spawn operation's wait
+attribute, and by whether the effect still lives outside the graph
+while it runs; it is not known today. In both shapes the generated
+`Pty` handle stays with the host — a capability handle is one of the
+refused cell types, so no shape puts the handle itself in the cell;
+the cell holds the tree and the tab data only.
 
 `setRatio` during a divider drag is a predicate check and an
 `update` per motion event; its allocation count is the measurement
 in the acceptance tests below.
+
+## Where this record overtakes others
+
+This step makes statements in other records stop holding, and they
+are named here rather than edited there; the concept and spec
+documents are not rewritten by this record.
+
+- [Semantic independence](../concepts/semantic-independence.md)'s
+  table says changing shared state is possible only through a
+  capability operation, so its effect is declared and visible. The
+  substance survives cells — a cell's effect is declared (the
+  declaration's `EffectId`) and visible (`MissingEffectRequirement`)
+  — but the letter does not: a cell access is not a capability
+  operation. When cells land, that row's wording is wrong, and this
+  record is the notice.
+- The same document lists "runtime state identity is not
+  distinguished from definition identity" as a deferred gap. Cells
+  take a position on it: a cell's identity is its declaration, and
+  its runtime state is exactly one place per process (see *What a
+  later step would have to rebuild*).
+- Its dedicated-construct table asks of each construct how it
+  expands into existing meaning, or why it is dedicated. Cells do
+  not expand into passing host-held value handles in and out — the
+  owner considered that form and refused it (*Context*). The
+  construct is dedicated because the residence is the point.
+- [Zig exports that keep state between calls](zig-stateful-exports.md):
+  its Demand section and triggers describe a rhifill that stays on
+  C# and might one day need its pane tree in Nyr; both are overtaken
+  (its Status now carries a dated note). Its out-of-scope line — two
+  Nyr libraries in one process — stands, and is the boundary of this
+  record's sharing rule: cells are shared by the libraries of one
+  library graph in one process; nothing here puts two independent
+  libraries into one process. Its value handles remain the built
+  substitute, not a form this record adopts.
+
+## What a later step would have to rebuild
+
+Most later steps relax a refusal and rebuild nothing. The exception
+is identity. In this design a cell is one place per process, its
+identity is its declaration id, and the reset entry takes no
+argument identifying a session or an instance. If a later step wants
+several independent sessions or library instances in one process,
+every export gains a context it does not have today and the library
+ABI changes; the singleton is not a default that can be widened in
+place. The C# backend's meaning for a cell is likewise deferred
+whole to its step, not sketched here.
 
 ## The first step
 
@@ -384,15 +521,53 @@ themselves:
   declaration checks (the refused types; an initializer that is
   nullary, pure and of the declared type), the typing of the three
   nodes, the purity of `update`'s callback, and references to a
-  deleted cell;
+  deleted cell. The new diagnostics are named here so the sections
+  agree: `InvalidCellDeclaration` for the declaration checks,
+  `UnknownCell` for a node or a test seed naming a declaration that
+  does not exist, and `CellInCallback` for an `update` callback that
+  touches a cell. The ordering and effect-requirement refusals reuse
+  `AmbiguousEffectOrder` and `MissingEffectRequirement`;
+- the classification of the three new node kinds as intrinsically
+  effectful, in every place kinds are classified:
+  `SemanticNodeShape.isIntrinsicallyEffectful` (`Foundation.fs`),
+  used by `GraphOrder` and `PureFunctions`;
+  `ExecutionIrAnalysis.orderingDescriptor`; and the Zig model
+  reader's `effectful_kinds`. The `update` callback's role joins the
+  role plumbing those places already have
+  (`FunctionReferenceRole.isInvoked`, `GraphOrder.carriesCalleeEffects`,
+  the reader's role branch), held to the pure-callback role.
+  `MissingEffectRequirement` is checked per node kind and per call
+  shape, so each of the three kinds needs its section. On the spec
+  side, `body-effect-requirements`' evidence sources gain a cell
+  declaration as a third source kind, and `runtime-ordering`'s
+  account of observable operations gains cell accesses. The order
+  algorithm itself is unchanged; the classification lists are the
+  surface;
 - the authoring surface gains cell creation, renaming, deletion and
   retyping, and recipes for the three nodes — today it creates only
   types and functions;
-- the emitter must keep cell `read`s out of the duplicate-read
-  unification that lets field updates pair with their reads (PR
-  #660): a `read` is an effectful access, never a foldable duplicate;
-- the C# route refuses a snapshot containing cells, in `runPure` and
-  in the emitter, with a diagnostic, until the C# step lands.
+- no emitter work: the duplicate-read unification
+  (`mergeRepeatedReads`, PR #660) targets parameter and
+  pattern-binding reads only, and the block joining preserves
+  instruction order, so a cell `read` is never unified or moved by
+  the emitter as it stands. That is recorded as an invariant for
+  future emitter work to preserve, not as a task in this step;
+- the reset-before-leak-check calls in the generated runner's
+  uncaught-failure path and in the host library's own checks (see
+  *Tests*);
+- the C# route refuses cells at the granularity of a selection, not
+  of a snapshot: a `runPure` case, a `verifyChange` observation or
+  an emitted output is refused, with a diagnostic naming the cell,
+  when a function it selects or emits — or one reachable from it —
+  touches a cell, until the C# step lands. A workspace that declares
+  cells but selects only functions that never reach one runs on C#
+  exactly as before: the workspace's default target is C#, and
+  `runPure` already selects by reachability from its entry. The
+  clients whose selection the refusal rides on are named here for
+  that reason: `runPure` and `verifyChange` in the authoring
+  session, and the saved-fixture parity client
+  (`examples/run-fixtures/client.mjs`), which sends each fixture
+  once per backend and compares.
 
 The C# backend follows later — its tasks run truly in parallel, so
 `update` needs a lock there — and is deferred deliberately, not by
@@ -417,26 +592,54 @@ Acceptance tests:
    library emission.
 6. A million `update` turns: memory flat, and scalar, list-element and
    map-value updates allocate zero, measured the way
-   [threaded state](threaded-state.md) measures.
+   [threaded state](threaded-state.md) measures. A second loop whose
+   callback finds its target by a search that branches, then writes,
+   is counted separately, against the branch-separated expectation
+   in *Costs by shape*.
 7. A value `read` before an `update` still shows the old contents
    afterwards.
-8. `runPure` seeds a cell by name and reads back the final contents;
-   each run starts from the initializer.
+8. `runPure` seeds a cell by declaration id and reads back the final
+   contents; with no seed given, each run starts from the
+   initializer. A multi-step case is one test-only function
+   sequencing the operations with `Bind`.
 9. After the reset entry runs, the cell is uninitialized: the next
    access re-evaluates the initializer, the runner's live-value check
-   counts nothing for the cell, and releasing the library after reset
-   shows no leak.
-10. The worked example's pane tree, carried on a cell, passes the same
-    operation-sequence checks as the pure form — splits, closes,
-    ratios and picks, including failure cases leaving the tree
-    unchanged.
+   counts nothing for the cell, and the open-handle count is zero.
+10. The pure pane-tree functions written for the worked example pass
+    the operation sequences of the prototype's ten tests
+    (`spikes/native-pane/src/panes.zig`) — splits, closes, ratios
+    and picks, including failure cases leaving the tree unchanged;
+    carried on a cell, the same sequences pass through thin exports.
 11. `setRatio` driven 100,000 times as a whole export (predicate
-    check plus `update`): memory flat, and the allocations per call
-    are counted and recorded (expected: the nested-shape rows of
-    *Costs by shape*, not zero).
+    check plus `update`): memory flat; the tree afterwards is
+    asserted equal to the pure function's result for the same
+    sequence; and the allocations per call are counted and recorded
+    (expected: the container rows of *Costs by shape*, not zero).
 12. An `update` performed while a `read` snapshot is held: the
+    snapshot is asserted to still show the old contents, and the
     allocations are counted and recorded (expected: the top box and
     any list whose element is set).
+13. F#/Zig agreement: a snapshot with two unordered cell accesses is
+    refused by both validators with the same diagnostic, and one
+    whose `update` callback touches a cell is refused by both. The
+    existing consistency tests tie F# `GraphOrder` to F# analysis
+    and lowering only and contain no Zig, so F#/Zig agreement is a
+    new criterion here — as the scoped-mutability draft already
+    required of its own check.
+14. `update`'s callback touching a cell — its own or another — is
+    refused with `CellInCallback`; a callback that calls a function
+    touching a cell is refused the same way.
+15. `set` on an uninitialized cell stores the value without
+    evaluating the initializer: with an initializer whose value is
+    a large list, the case allocates nothing of that shape, and the
+    read-back returns the set value.
+16. Read-back of a cell no access has touched reports it
+    uninitialized and does not evaluate its initializer (the same
+    large-list observation as 15).
+17. The C# refusal and its scope: in a workspace declaring a cell, a
+    `runPure` case whose entry never reaches a cell-touching
+    function runs on the C# backend; a case whose entry touches a
+    cell is refused with the diagnostic.
 
 ## Not in this step
 
