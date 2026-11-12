@@ -18,7 +18,10 @@
   the earlier amendments are decided in the sections they concern,
   and no further external review round was taken on this version —
   whether to take one before implementation planning is the owner's
-  call at that time (decision 2026-11-12).
+  call at that time (decision 2026-11-12). Amended a third time the
+  same day after a verification pass: the C# throw finding corrected,
+  the term *entity* distinguished from the concept document's, and
+  the costs and diagnostic names aligned.
 - **Date:** 2026-11-12
 - **Builds on:** [threaded state](threaded-state.md), [scoped mutability](scoped-mutability.md), [Zig exports that keep state between calls](zig-stateful-exports.md), [host handles as capability values](capability-handles.md), [effectful expression ordering](effectful-expression-ordering.md)
 
@@ -120,7 +123,18 @@ record used until the 2026-11-12 amendments): *cell* is `OneShot`'s
 word for a value other tasks can observe, and an entity is not that —
 it is a named place in the session, which is also what the record's
 title says. Renaming is cheapest now, before anything is built; it
-reaches the diagnostic names and the reset entry's name.
+reaches the diagnostic names and the reset entry's name. The word
+already has a generic sense:
+[semantic independence](../concepts/semantic-independence.md) defines
+an entity as a "tracked semantic object identified by a stable ID" —
+a type, a function, any declaration — and
+[stable IDs](../reference/stable-ids.md),
+[schema evolution](../specs/schema-evolution-policy.md) and
+[milestone 1](milestone-1.md) use it that way. This record's entity
+is one declaration *kind* in that set, a named place holding program
+state; an entity declaration is itself an entity in the generic
+sense. The record keeps the word for the kind because its title and
+the earlier records' "entities step" already used it.
 A declaration carries an id, a display name, one fixed
 value type, an initializer and one `EffectId`.
 
@@ -288,7 +302,9 @@ none of them; and the failures that remain (out of memory, stack
 overflow, safety panics) abort the process, leaving no session to
 observe a state. The owner's rule for an empty entity is therefore
 recorded for the step that first creates such a path — a fallible
-callback is the known candidate: **the entity
+callback, or the C# backend, whose pure generated code can throw a
+catchable exception (see *The first step*), are the known
+candidates: **the entity
 is poisoned** (owner decision 2026-11-12). The failing call has
 released the taken value, and from then on every access — `read`,
 `set` and `update` alike — fails, and the initializer is not
@@ -379,9 +395,10 @@ is what cross-invocation state means inside one case. A case then
 needs only two additions: per entity, optional initial contents keyed
 by declaration id (not by name — names do not decide identity) as
 input, and final contents in the reply. A seed naming a declaration
-that does not exist is refused as a request, before anything runs;
-it is not the `UnknownEntity` diagnostic, which belongs to snapshot
-validation of graph nodes. The alternative — a case as
+that does not exist is refused as a request with `ProtocolError`,
+before anything runs; it is not the `UnknownEntity` diagnostic,
+which belongs to snapshot validation of graph nodes. The
+alternative — a case as
 a list of exports called in sequence — was not taken: it changes
 the request shape for every client of saved cases (the fixture
 parity client and `verifyChange`'s observation ride on the same
@@ -416,14 +433,17 @@ can measure them — not measurements.
   callback, so threading's in-place rows are the expectation (zero
   allocations per turn). Zero was *measured*, in the threaded-state
   proof, for one shape only: the read and the write in one block, no
-  branch or merge between them, and a scalar field. That shape is
-  the expectation's condition, not a general property of `update`.
-- Deeper shapes follow threading's other rows, not the zero row. In
-  the worked example's array shape, an update reaches a node in two
-  steps — a map value (the tab's tree), then a list element (the
-  node) — and below that a nested record field costs one box and a
-  tree leaf the path length plus one, as in threading's table.
-  `setRatio` is expected to allocate per motion event. The
+  branch or merge between them — the scalar-field, list-element and
+  map-value rows. That shape is the expectation's condition, not a
+  general property of `update`.
+- Deeper shapes are not the zero row as a whole. In the worked
+  example's array shape, an update reaches a node in two steps — a
+  map value (the tab's tree), then a list element (the node) — so
+  the list is not directly under the entity's value, and the tree
+  value is a record holding the node list, a record level on the
+  path expected to cost one box, by analogy with threading's nested
+  record field row (an inference, not a measured row of this
+  shape). `setRatio` is expected to allocate per motion event. The
   acceptance tests measure it rather than assume it.
 - `setRatio`'s callback is not the zero shape either: it finds the
   node and branches on the node's kind between reading and writing,
@@ -520,9 +540,10 @@ documents are not rewritten by this record.
   record is the notice.
 - The same document lists "runtime state identity is not
   distinguished from definition identity" as a deferred gap. Entities
-  take a position on it: an entity's identity is its declaration, and
-  its runtime state is exactly one place per process (see *What a
-  later step would have to rebuild*).
+  take a position on it: the runtime state of an entity declaration
+  has no identity apart from the declaration's stable ID, and is
+  exactly one place per process (see *What a later step would have
+  to rebuild*).
 - Its dedicated-construct table asks of each construct how it
   expands into existing meaning, or why it is dedicated. Entities do
   not expand into passing host-held value handles in and out — the
@@ -583,7 +604,15 @@ themselves:
   declaration checks (the refused types; an initializer that is
   nullary, pure and of the declared type), the typing of the three
   nodes, the purity of `update`'s callback, and references to a
-  deleted entity. The diagnostics are named here so the sections
+  deleted entity. Typing reuses what fits: `update`'s callback gets
+  the shared callback codes (`CallbackArityMismatch`,
+  `CallbackParameterTypeMismatch`, `CallbackResultTypeMismatch`),
+  which the list, map-entry, payload and fold callbacks already
+  share. A `set` whose value is not of the declared type gets a new
+  code, assigned at implementation: operand type mismatches are
+  named per node kind (`ListSetAtItemTypeMismatch`,
+  `ProductUpdateSourceTypeMismatch`), and `ArgumentTypeMismatch` is
+  the `Call` node's. The diagnostics are named here so the sections
   agree, each exactly once. New: `InvalidEntityDeclaration` for the
   declaration checks; `UnknownEntity` for a graph node naming a
   declaration that does not exist (a test seed naming one is a
@@ -598,8 +627,25 @@ themselves:
   transitively in both validators — the same diagnostic a fold's
   callback gets, so tests 4 and 14 expect the same name. The C#
   refusal on the run and verify paths uses the existing
-  `RunBackendUnsupported`, naming the entity, which is what lets
-  the parity client report "unsupported" rather than a failure. The
+  `RunBackendUnsupported`, naming the entity, which is what lets the
+  parity client report "unsupported" rather than a failure. The
+  `emitCSharp` refusal uses the same code, as `emitZigLibrary`
+  already does for what library mode cannot emit; the C# emitter's
+  own refusals today come back as `BackendFailure` with a case name
+  as the message, and this record does not take that form for a
+  missing backend feature. Every use and message of
+  `RunBackendUnsupported` in the session host today is about Zig
+  ("The Zig backend does not yet support: …", "The Zig library mode
+  does not yet support: …"), so its meaning widens from "the Zig
+  backend does not support this yet" to "the selected backend does
+  not support this yet", and its message has to name the backend.
+  (An earlier C# gate in the Zig session host's build plan used
+  `UnsupportedOperation` instead — a limit of that host, not a
+  backend's — see [Zig session host](zig-session-host.md).) A seed
+  naming an entity declaration that does not exist is refused as a
+  request with `ProtocolError`, the transport's code for
+  unresolvable input, which a run value naming an unknown type
+  already gets; it is not a validation diagnostic. The
   ordering and effect-requirement refusals reuse
   `AmbiguousEffectOrder` and `MissingEffectRequirement`;
 - the classification of the three new node kinds as intrinsically
@@ -644,7 +690,8 @@ themselves:
   *Tests*);
 - the C# route refuses entities at the granularity of a selection, not
   of a snapshot: a `runPure` case, a `verifyChange` observation or
-  an emitted output is refused, with a diagnostic naming the entity,
+  an emitted output is refused, with `RunBackendUnsupported` naming
+  the entity,
   when a function it selects or emits — or one reachable from it —
   touches an entity, until the C# step lands. A workspace that declares
   entities but selects only functions that never reach one runs on C#
@@ -667,17 +714,44 @@ The C# backend follows later — its tasks run truly in parallel, so
 `update` needs a lock there — and is deferred deliberately, not by
 oversight. Whether pure generated C# can throw was investigated on
 2026-11-12, because a catchable throw inside `update`'s callback
-would create the poison path on this backend first. It cannot, from
-the candidate operations: wrapping arithmetic is emitted unchecked;
+would create the poison path on this backend first. It can, in at
+least one operation. `ListFlatMap`'s runtime helper sums the parts'
+lengths with `checked(total + part.Count)`
+(`tools/zig/csharp-emitter/runtime/List.cs`, `FlatMap`) before it
+allocates, so a total past `int.MaxValue` throws `OverflowException`;
+that this can happen without an out-of-memory-sized allocation
+first (many references to one shared large list) is an inference
+from the code, not a run. `ExceptionCatch`'s filter on C# excludes
+only out-of-memory, `InsufficientExecutionStackException` and the
+runner's limit exception (`complex.zig`), so the overflow is a
+catchable fault. The emitter also writes a defensive
+`throw new InvalidOperationException` for a union value that
+matches no declared variant (`functions.zig`), which a validated
+graph is not expected to reach (not verified). The rest of what
+was checked holds: wrapping arithmetic is emitted `unchecked`, and
+the runner's compilation options do not turn overflow checking on;
 the checked operations widen to `Int128` and range-fit; floor
-division and modulo are emitted with the zero and −1 divisors
-guarded before any raw `/` or `%`; list and string operations run
-through runtime helpers implementing the subset's total semantics,
-and the list runtime contains no throw at all. The only explicit
-throws in the C# runtime are allocation-size guards of the
-out-of-memory kind, which end a run the way a process failure does.
-So the C# step is not expected to create the poison path either; it
-waits for a fallible callback or another designed failure path.
+division and modulo guard the zero and −1 divisors before any raw
+`/` or `%`; and the other explicit throws reachable from pure code
+are allocation-size guards throwing `OutOfMemoryException`, which
+the filter does not catch. That covers explicit `throw` and
+`checked(` in the emitter and its runtime only; exceptions .NET
+itself may raise inside the runtime helpers (indexers, `Substring`,
+parsing, casts) were not audited, and the throws in the native
+adapters and the concurrency runtime were not traced for
+reachability from pure code. So the C# step either makes the
+flat-map total first or is where the poison path first appears.
+The subset says of `ListFlatMap` and `ListZipWith` that "Neither
+fails" ([language subset](../reference/language-subset.md)); the
+C# helper's overflow disagrees with that, and is a defect to fix
+outside this record. On the Zig backend the flat-map appends each
+part into a growing list and turns an allocation failure into
+`@panic("out of memory")` (`tools/zig/emitter/main.zig`), so there
+such an input either fits in memory or ends the process — fatal,
+not catchable, as
+[Zig backend memory ownership](zig-backend-memory-ownership.md)
+lists; whether a length overflow can occur there before an
+allocation fails was not verified.
 
 Acceptance tests:
 
@@ -749,16 +823,18 @@ Acceptance tests:
     large-list observation as 15).
 17. The C# refusal and its scope: in a workspace declaring an entity, a
     `runPure` case whose entry never reaches an entity-touching
-    function runs on the C# backend; a case whose entry touches an
-    entity is refused with `RunBackendUnsupported`. A `verifyChange`
-    observation whose changed functions touch an entity is refused
-    the same way, and one that does not runs.
+    function runs on the C# backend; a case whose entry reaches a
+    function that touches an entity is refused with
+    `RunBackendUnsupported`. A `verifyChange` observation whose case
+    entry reaches a function that touches an entity is refused the
+    same way, and one whose entry does not runs.
 18. A declaration with a refused type, or an initializer that is not
     nullary, pure and of the declared type, is refused with
     `InvalidEntityDeclaration`, in both validators.
 19. A graph node naming a declaration that does not exist is refused
     with `UnknownEntity`, in both validators. (A `runPure` seed
-    naming one is a refused request instead; see *Tests*.)
+    naming one is a refused request instead, with `ProtocolError`;
+    see *Tests*.)
 
 ## Not in this step
 
