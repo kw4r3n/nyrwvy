@@ -1,14 +1,14 @@
 # Threaded state: program state as a value through the program's own loop
 
-- **Status:** Proposed (measured 2026-11-12; acceptance is the owner's call)
+- **Status:** Accepted (owner decision 2026-11-12; measured 2026-11-12)
 - **Date:** 2026-11-12
 - **Builds on:** [host handles as capability values](capability-handles.md), [Zig exports that keep state between calls](zig-stateful-exports.md)
 
 A program that runs for a long time — an event loop, a session, a watch — needs state that changes
 as it goes. Nyrwvy values are immutable and the language has no mutable place, so the question is
 whether that is a real lack or only a habit from other languages. A scoped mutable binding (a
-lexically bound variable that is not a value) is being considered separately and is not adopted
-here; this record decides the form to use now, on measurements rather than on taste.
+lexically bound variable that is not a value) is written down, not built, in
+[scoped mutability](scoped-mutability.md), and is not adopted here; this record decides the form to use now, on measurements rather than on taste.
 
 ## Recommendation
 
@@ -109,3 +109,5 @@ Mutable places come back onto the table when any of these is measured, not antic
   plumbing obscuring the program that carries it);
 - a program needs several tasks sharing one changing state;
 - value-handle threading proves insufficient for a host-driven library.
+
+The design to start from is [scoped mutability](scoped-mutability.md).
