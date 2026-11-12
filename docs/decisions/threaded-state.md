@@ -90,7 +90,10 @@ turn would add over 900,000 extra turns. The "after" column was re-measured with
   by calling several exports cannot thread state through a loop it does not have; the substitute is
   the host carrying the state between calls as a value handle
   ([Zig exports that keep state between calls](zig-stateful-exports.md), slice 3), at one top-box
-  copy per call.
+  copy per call. The owner has since decided (2026-11-12) that a host-held handle does not count
+  as the state being written in Nyrwvy, and opened [entities](entities.md) as the form for a
+  host-driven library whose state must reside in the session; that step was opened by the
+  decision, not by the fourth revisit condition below being met.
 - **Several tasks sharing one state.** Two loops cannot thread the same value and both keep their
   changes; merging is the program's own problem, and a program that truly needs shared changing
   state has no form yet.
@@ -101,13 +104,19 @@ turn would add over 900,000 extra turns. The "after" column was re-measured with
 
 ## Revisit conditions
 
-Mutable places come back onto the table when any of these is measured, not anticipated:
+Mutable places come back onto the table when a real program runs into any of these. The
+conditions are signs to judge by, not gates to pass: a concrete need in a real program is
+reason enough to reopen the question, and measuring the harm first is not required —
+measurement is the strongest form of the evidence, not a prerequisite for it. (Owner
+clarification, 2026-11-12: the first wording of this section read as if measurement were
+required; that was stronger than the intent.)
 
-- a copy this record describes (the table, or a field read separated from its update by a branch) became a real harm in a real program (identified by profiling a real
-  program, not by this proof);
+- a copy this record describes (the table, or a field read separated from its update by a branch) became a real harm in a real program (in the program itself, as
+  opposed to this proof);
 - threading state through parameters and returns became a real harm in a real program (the state
   plumbing obscuring the program that carries it);
 - a program needs several tasks sharing one changing state;
 - value-handle threading proves insufficient for a host-driven library.
 
 The design to start from is [scoped mutability](scoped-mutability.md).
+Cross-invocation state has its own record: [entities](entities.md).

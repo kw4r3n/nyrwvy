@@ -12,7 +12,12 @@
   program holds long-lived state by threading it through a loop it
   owns, and durable state uses host-library primitives. No separate
   entities design is planned now, and this record is the design to
-  revisit under that record's revisit conditions.
+  revisit under that record's revisit conditions. Later still the
+  same day, the owner took the entities design up; it lives in
+  [entities](entities.md), and where the two records differ —
+  entities reuses the existing all-pairs order check and needs no
+  reference machinery, because a cell is named by a declaration id
+  and cannot alias — the entities record governs.
 - **Date:** 2026-11-12
 - **Builds on:** [explicit ordering for effectful expression composition](effectful-expression-ordering.md) (whose revisit conditions list mutation, but only for a concrete use case, which this record does not have), [runtime ordering](../specs/runtime-ordering.md), [scoped one-shot handoff](../specs/scoped-one-shot.md), [concurrency control beyond ParallelAll](concurrency-control.md), [tail self-calls](tail-self-calls.md), [host handles as capability values](capability-handles.md), [memory ownership in the Zig backend](zig-backend-memory-ownership.md)
 
