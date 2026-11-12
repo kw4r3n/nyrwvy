@@ -203,6 +203,46 @@ fn numbered(count: usize, room: usize) []const []const u8 {
     return nyShrink([]const u8, items, count);
 }
 
+const Holes = struct { text: []const u8, items: []const []const u8, set: NySet([]const u8), map: NyMap([]const u8, i64) };
+
+fn holes() *const Holes {
+    var set = NySet([]const u8){ .items = &.{} };
+    set = nySetInsertOwned([]const u8, set, nyInt64ToString(1));
+    var map = NyMap([]const u8, i64){ .keys = &.{}, .values = &.{} };
+    map = nyMapInsertOwned([]const u8, i64, map, nyInt64ToString(2), 2);
+    return nyBox(Holes, .{ .text = nyInt64ToString(3), .items = nyListMove([]const u8, &.{nyInt64ToString(4)}), .set = set, .map = map });
+}
+
+test "a box released after its fields moved out frees every field once" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        // Every field moved out, then the box with only holes left.
+        const box = holes();
+        const text = nyTakeField(&@constCast(box).text);
+        const items = nyTakeField(&@constCast(box).items);
+        const set = nyTakeField(&@constCast(box).set);
+        const map = nyTakeField(&@constCast(box).map);
+        nyRelease(box);
+        try std.testing.expectEqualStrings("3", text);
+        try std.testing.expectEqualStrings("4", items[0]);
+        try std.testing.expectEqualStrings("1", set.items[0]);
+        try std.testing.expectEqualStrings("2", map.keys[0]);
+        nyRelease(text);
+        nyRelease(items);
+        nyRelease(set);
+        nyRelease(map);
+        // One hole per kind beside fields still owned.
+        inline for (.{ "text", "items", "set", "map" }) |name| {
+            const partly = holes();
+            const taken = nyTakeField(&@field(@constCast(partly), name));
+            nyRelease(partly);
+            nyRelease(taken);
+        }
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
+
 fn expectNumbered(list: []const []const u8, count: usize) !void {
     try std.testing.expectEqual(count, list.len);
     for (list, 0..) |item, i| try std.testing.expectEqual(@as(i64, @intCast(i)), nyStringParseInt64(item).?);

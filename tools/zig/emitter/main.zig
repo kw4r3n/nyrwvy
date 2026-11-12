@@ -4077,3 +4077,91 @@ test "emitted constructor reuse executes unique shared nested and failing paths 
     if (result.term != .exited or result.term.exited != 0) std.debug.print("generated constructor test: {s}\n{s}\n", .{ result.stdout, result.stderr });
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
 }
+
+test "merged reads and fused blocks run without leaks and leave the program IR unchanged" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    a = allocator;
+    const ir = @embedFile("merged_reads.json");
+    const output = try runner(allocator, ir, null);
+    if (output != .source) std.debug.print("merged reads: {s}\n", .{join("; ", output.unsupported)});
+    try std.testing.expect(output == .source);
+    // The passes lower a copy: every parsed instruction and terminator is as it was read.
+    const stringify = struct {
+        fn of(value: json.Value) ![]const u8 {
+            return std.json.Stringify.valueAlloc(a, value, .{});
+        }
+    }.of;
+    const parsed = try parseJson(ir);
+    for (arr(parsed.object, "functions")) |item| {
+        const kept = functions.get(str(item.object, "semanticFunctionId")).?;
+        for (arr(item.object, "blocks")) |block| {
+            const id = str(block.object, "id");
+            const now = for (kept.blocks) |candidate| {
+                if (eql(candidate.id, id)) break candidate;
+            } else return error.TestUnexpectedResult;
+            const instructions = arr(block.object, "instructions");
+            try std.testing.expectEqual(instructions.len, now.instructions.len);
+            for (instructions, now.instructions) |want, got| try std.testing.expectEqualStrings(try stringify(want), try stringify(.{ .object = got.o }));
+            try std.testing.expectEqualStrings(try stringify(block.object.get("terminator").?), try stringify(.{ .object = now.terminator }));
+        }
+    }
+    var check: []const u8 = @embedFile("merged_reads_check.txt");
+    var names: List([2][]const u8) = .empty;
+    push([2][]const u8, &names, .{ "@Box@", typeName("Box", &.{}) });
+    for ([_][]const u8{ "arr", "n", "a", "b", "p", "u" }) |id| push([2][]const u8, &names, .{ cat(&.{ "@", id, "@" }), fieldName(id) });
+    for ([_][]const u8{ "bump", "failMid", "loop", "branchy", "twice", "bindBranch", "chain", "abortArm", "tailPair", "coerce" }) |id| push([2][]const u8, &names, .{ cat(&.{ "@", id, "@" }), instanceName(id, &.{}) });
+    for (names.items) |name| check = try std.mem.replaceOwned(u8, allocator, check, name[0], name[1]);
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const io = std.testing.io;
+    try temporary.dir.writeFile(io, .{ .sub_path = "merged.zig", .data = cat(&.{ output.source, "\n", check }) });
+    const path = try temporary.dir.realPathFileAlloc(io, "merged.zig", allocator);
+    const zig_executable = std.testing.environ.getAlloc(allocator, "NYRWVY_ZIG") catch |err| switch (err) {
+        error.EnvironmentVariableMissing => "zig",
+        else => return err,
+    };
+    const argv: []const []const u8 = if (@import("builtin").os.tag == .macos) &.{ zig_executable, "test", "-lc", "-O", "ReleaseSafe", path } else &.{ zig_executable, "test", "-O", "ReleaseSafe", path };
+    const result = try std.process.run(allocator, io, .{ .argv = argv });
+    if (result.term != .exited or result.term.exited != 0) std.debug.print("merged reads test: {s}\n{s}\n", .{ result.stdout, result.stderr });
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+}
+
+test "fusion skips a coerced argument, a self argument, an unknown block and a twice-defined value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    declarations = .init(a);
+    const list =
+        \\{"kind":"list","itemType":{"kind":"primitiveInt64"}}
+    ;
+    const option = cat(&.{ "{\"kind\":\"option\",\"itemType\":", list, "}" });
+    const function = struct {
+        fn of(result: []const u8, parameter: []const u8, instructions: []const u8, target: []const u8, argument: []const u8) []const u8 {
+            const t =
+                \\{"kind":"list","itemType":{"kind":"primitiveInt64"}}
+            ;
+            return cat(&.{ "{\"semanticFunctionId\":\"f\",\"parameters\":[{\"semanticParameterId\":\"p\",\"value\":{\"id\":\"x\",\"type\":", t, "}}],\"resultType\":", result, ",\"entryBlockId\":\"entry\",\"blocks\":[{\"id\":\"entry\",\"parameters\":[],\"instructions\":[", instructions, "],\"terminator\":{\"kind\":\"jump\",\"blockId\":\"", target, "\",\"arguments\":[{\"targetValueId\":\"o\",\"valueId\":\"", argument, "\"}]}},{\"id\":\"body\",\"parameters\":[{\"id\":\"o\",\"type\":", parameter, "}],\"instructions\":[],\"terminator\":{\"kind\":\"return\",\"valueId\":\"o\"}}]}" });
+        }
+    }.of;
+    const read = cat(&.{ "{\"kind\":\"readParameter\",\"sourceValueId\":\"x\",\"result\":{\"id\":\"o\",\"type\":", list, "}}" });
+    const cases = [_][]const u8{
+        function(option, option, "", "body", "x"), // the argument's type differs from the parameter's
+        function(list, list, "", "body", "o"), // the argument is the parameter itself
+        function(list, list, "", "nowhere", "x"), // the jump names no block
+        function(list, list, read, "body", "x"), // `o` is defined by an instruction and by a block parameter
+    };
+    for (cases, 0..) |text, index| {
+        const fn_ = parseFunction(try parseJson(text));
+        var values = std.StringHashMap(*const Type).init(a);
+        for (valuesOf(fn_)) |value| try values.put(value.id, value.type);
+        const lowered = mergeRepeatedReads(fn_, &values);
+        try std.testing.expectEqual(fn_.blocks.len, lowered.blocks.len);
+        for (fn_.blocks, lowered.blocks) |before, after| try std.testing.expectEqual(before.instructions.len, after.instructions.len);
+        // The malformed jump target and the twice-defined value are left to the later checks.
+        if (index >= 2) continue;
+        const output = try runner(a, cat(&.{ "{\"types\":[],\"capabilities\":[],\"functions\":[", text, "]}" }), null);
+        try std.testing.expect(output == .source);
+    }
+}
