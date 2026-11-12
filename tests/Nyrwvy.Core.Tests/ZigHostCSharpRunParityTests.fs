@@ -372,7 +372,7 @@ public sealed class Host : {exactName "NyC_" (StableId.value capability.Id)}
                     let message=(error reply).GetProperty("message").GetString()
                     match label with
                     | "replacement envelope" -> Assert.Equal("raw�",message)
-                    | "invalid stderr" -> Assert.Equal("\n�",message)
+                    | "invalid stderr" -> Assert.Equal("exited with code 9\n\n�",message)
                     | "astral stderr" | "compiler diagnostic" -> Assert.Equal(4096,message.Length)
                     | "UTF32 boundary 1048576" -> Assert.Equal(1048576-12,message.Length)
                     | _ -> ()

@@ -267,7 +267,7 @@ int nyd_variadic(const char *format, ...);
                 Assert.Equal("ämount", beta.GetProperty("parameters").[0].GetProperty("displayName").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``bind-c rejects malformed specs before writes and preserves the source runtime fatal publication boundary`` () =
+    let ``bind-c rejects malformed specs before writes`` () =
         requireClang ()
         withDirectory (fun directory ->
             File.WriteAllText(Path.Combine(directory, "demo.h"), header, UTF8Encoding(false))
@@ -303,6 +303,6 @@ int nyd_variadic(const char *format, ...);
             File.WriteAllText(specPath, special)
             sentinel directory
             let code, _, _ = cli args
-            Assert.NotEqual(0, code)
+            Assert.Equal(1, code)
             Assert.Equal("old table", File.ReadAllText(Path.Combine(directory, "table.json")))
-            Assert.NotEqual<string>("old requests", File.ReadAllText(Path.Combine(directory, "requests.jsonl"))))
+            Assert.Equal("old requests", File.ReadAllText(Path.Combine(directory, "requests.jsonl"))))

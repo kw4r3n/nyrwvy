@@ -20,7 +20,7 @@ async function waitFor(check, message, milliseconds = 6000) {
 
 async function live(pid) {
   try { return !/\) Z /.test(await readFile(`/proc/${pid}/stat`, "utf8")) }
-  catch (error) { if (error.code === "ENOENT") return false; throw error }
+  catch (error) { if (error.code === "ENOENT" || error.code === "ESRCH") return false; throw error }
 }
 
 const skip = process.platform !== "linux" ? "the parent watchdog test uses a fifo and /proc"
