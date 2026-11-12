@@ -50,3 +50,5 @@ A capability value removes all of that with contracts that already exist: opacit
 ## Revisit conditions
 
 Revisit when a test needs to observe handle arguments or handle operations in `calls`, when a handle must exist without operations of its own, or when use-after-release failures are observed often enough to justify static checking.
+
+The second condition was met on 2026-11-12 by the host library's `Lock` handle: neither backend treats an operation-less capability as a handle, so `Lock` carries a `path()` operation to exist as one (see `libraries/host/README.md`).

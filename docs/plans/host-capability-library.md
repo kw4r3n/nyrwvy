@@ -44,7 +44,7 @@ All under the existing effect `System`. The [library README](../../libraries/hos
 
 **Revised at implementation (2026-10-27)**, so that no shape presumes snap's single use: failures are `Result<_, String>` instead of `None`/`false` (`Fs.readText` and `Process.spawn` change signature; snap repairs its one caller when it upgrades), `Process.run` is added beside the fire-and-forget `spawn`, `TERM` moves from the host constructor into `open`'s `environment`, and `close` reports the exit status and no longer waits forever for a child that ignores the hangup. The facade now gives a base class to every capability whose operations the host implements ([C# facade](../decisions/csharp-facade.md)), so a program that does not reach a library capability through its own signatures still compiles with the vendored `NyHost.cs`.
 
-`Pty.foregroundCommand` replaces snap's read of `/proc/<pgrp>/comm`, which snap uses to label panes. A clock is left out: snap's agent states already take elapsed milliseconds as arguments from its event loop's host, and no consumer needs another source of time yet.
+`Pty.foregroundCommand` replaces snap's read of `/proc/<pgrp>/comm`, which snap uses to label panes. A clock is left out: snap's agent states already take elapsed milliseconds as arguments from its event loop's host, and no consumer needs another source of time yet. (A clock was added later, on 2026-11-12: `Clock.now` and `Clock.sleep`, with `Fs.rename`, `Fs.exists` and the `Locks`/`Lock` file locks, when the model-cooldown port needed the current time, a retry wait and locked file updates inside the graph; see the library README.)
 
 Use after `close` is a host failure, as the handle decision sets.
 
