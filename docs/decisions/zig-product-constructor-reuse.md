@@ -18,7 +18,11 @@ the source is shared; unique sources release their old fields before taking the 
 owned replacement fields. Field accesses retain nested counted values before this point.
 Search at most 64 preceding instructions per constructor to bound scan cost.
 Do not infer reuse across blocks or across consumed references, and do not introduce a
-runtime pool or change allocation failure behavior. Delaying a source release can increase
+runtime pool or change allocation failure behavior.
+A non-entry block entered only by a plain jump from one predecessor counts as part of that
+predecessor (the emitter fuses them before this lowering, renaming the block parameters to the
+jump arguments when their types are the same); no control flow separates them, so this is not
+reuse across blocks. Reads separated by a branch or a merge point stay separate. Delaying a source release can increase
 peak live memory until the constructor; it must not change structural values.
 
 Only complete constructors with exactly one binding per declared field are eligible;

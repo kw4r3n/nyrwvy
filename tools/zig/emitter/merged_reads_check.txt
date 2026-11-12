@@ -1,0 +1,129 @@
+// Appended to the program emitted from merged_reads.json (main.zig test "merged reads ..."); `@name@`
+// stands for the emitted identifier of a type, field or function.
+fn mk(items: []const i64, n: i64) *const @Box@ {
+    return nyBox(@Box@, .{ .@arr@ = nyListMove(i64, items), .@n@ = n });
+}
+const test_failure: NyFailure = .{ .type_name = "Test", .message = "failed" };
+
+test "merged reads run without leaks" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    ny_values = gpa.allocator();
+    {
+        // b: a unique box and its list update in place; a value kept by the caller is unchanged.
+        const box = mk(&.{ 1, 2, 3 }, 1);
+        const storage = box.@arr@.ptr;
+        const same = @bump@(box, 1);
+        try std.testing.expectEqual(box, same);
+        try std.testing.expectEqual(storage, same.@arr@.ptr);
+        const keep = nyShare(same);
+        const copy = @bump@(same, 0);
+        try std.testing.expect(copy != keep);
+        try std.testing.expectEqualSlices(i64, &.{ 1, 9, 3 }, keep.@arr@);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 9, 3 }, copy.@arr@);
+        nyRelease(keep);
+        nyRelease(copy);
+    }
+    {
+        // a: a failure after the field moved out releases the box and the list once.
+        const box = mk(&.{ 1, 2, 3 }, 1);
+        const storage = box.@arr@.ptr;
+        const out = try @failMid@(box, test_failure);
+        try std.testing.expectEqual(box, out);
+        try std.testing.expectEqual(storage, out.@arr@.ptr);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, out.@arr@);
+        nyRelease(out);
+        try std.testing.expectError(error.NyFailure, @failMid@(mk(&.{ 1, 2, 3 }, 0), test_failure));
+        const held = mk(&.{ 1, 2, 3 }, 0);
+        try std.testing.expectError(error.NyFailure, @failMid@(nyShare(held), test_failure));
+        try std.testing.expectEqualSlices(i64, &.{ 1, 2, 3 }, held.@arr@);
+        nyRelease(held);
+    }
+    {
+        // c: a tail loop with a failing call each turn keeps one box and one list.
+        const box = mk(&.{0}, 1);
+        const storage = box.@arr@.ptr;
+        const out = try @loop@(box, 1000, test_failure);
+        try std.testing.expectEqual(box, out);
+        try std.testing.expectEqual(storage, out.@arr@.ptr);
+        try std.testing.expectEqualSlices(i64, &.{1}, out.@arr@);
+        nyRelease(out);
+        try std.testing.expectError(error.NyFailure, @loop@(mk(&.{0}, 0), 3, test_failure));
+    }
+    {
+        // d: the read before the branch and the update inside it.
+        const kept = @branchy@(mk(&.{ 1, 2, 3 }, 1), false);
+        try std.testing.expectEqualSlices(i64, &.{ 1, 2, 3 }, kept.@arr@);
+        const changed = @branchy@(kept, true);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, changed.@arr@);
+        nyRelease(changed);
+        const held = mk(&.{ 1, 2, 3 }, 1);
+        const other = @branchy@(nyShare(held), true);
+        try std.testing.expect(other != held);
+        try std.testing.expectEqualSlices(i64, &.{ 1, 2, 3 }, held.@arr@);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, other.@arr@);
+        nyRelease(other);
+        nyRelease(held);
+    }
+    {
+        // e: the alias passed twice and kept by the callee; the update copies.
+        const box = mk(&.{ 1, 2, 3 }, 1);
+        const three = @twice@(box);
+        try std.testing.expectEqual(box, three.@p@.@a@);
+        try std.testing.expectEqual(box, three.@p@.@b@);
+        try std.testing.expect(three.@u@ != box);
+        try std.testing.expectEqualSlices(i64, &.{ 1, 2, 3 }, box.@arr@);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, three.@u@.@arr@);
+        nyRelease(three);
+    }
+    {
+        // f: a bind body that branches to a block reading the bound list.
+        const box = mk(&.{ 1, 2, 3 }, 1);
+        const updated = @bindBranch@(box, true);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, updated.@arr@);
+        nyRelease(updated);
+        const kept = @bindBranch@(mk(&.{ 1, 2, 3 }, 1), false);
+        try std.testing.expectEqualSlices(i64, &.{ 1, 2, 3 }, kept.@arr@);
+        nyRelease(kept);
+    }
+    {
+        // g: two fused jumps; the update is in place.
+        const box = mk(&.{ 1, 2, 3 }, 1);
+        const storage = box.@arr@.ptr;
+        const out = @chain@(box);
+        try std.testing.expectEqual(box, out);
+        try std.testing.expectEqual(storage, out.@arr@.ptr);
+        try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, out.@arr@);
+        nyRelease(out);
+    }
+    {
+        // h: an aborting arm and a fused merge block.
+        switch (@abortArm@(mk(&.{ 1, 2, 3 }, 1), false)) {
+            .ok => |out| {
+                try std.testing.expectEqualSlices(i64, &.{ 9, 2, 3 }, out.@arr@);
+                nyRelease(out);
+            },
+            .err => return error.TestUnexpectedResult,
+        }
+        switch (@abortArm@(mk(&.{ 1, 2, 3 }, 1), true)) {
+            .ok => return error.TestUnexpectedResult,
+            .err => |text| {
+                try std.testing.expectEqualStrings("no", text);
+                nyRelease(text);
+            },
+        }
+    }
+    {
+        // i: a merged alias as two tail-call arguments, and a parameter never read.
+        const box = mk(&.{1}, 1);
+        const out = @tailPair@(box, mk(&.{4}, 4), mk(&.{5}, 5), 3);
+        try std.testing.expectEqual(box, out);
+        nyRelease(out);
+    }
+    {
+        // k: a jump argument coerced to the parameter's Option type.
+        const out = @coerce@(mk(&.{ 1, 2, 3 }, 1));
+        try std.testing.expectEqualSlices(i64, &.{ 1, 2, 3 }, out.?);
+        nyRelease(out);
+    }
+    try std.testing.expect(gpa.deinit() == .ok);
+}
